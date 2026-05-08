@@ -214,3 +214,26 @@ pip-log.txt
 
 #Mr Developer
 .mr.developer.cfg
+
+#############
+## HeroForge
+#############
+
+# Generated database
+heroforge.db
+
+# Python caches
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Distribution / build
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/

@@ -1,0 +1,54 @@
+"""Buffs tab for HeroForge-Anew."""
+from __future__ import annotations
+from typing import TYPE_CHECKING
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QGroupBox, QHBoxLayout, QLabel, QListWidget,
+    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+)
+if TYPE_CHECKING:
+    from heroforge.ui.main_window import CharacterModel
+
+
+class BuffsTab(QWidget):
+    """Active buff tracking and management."""
+
+    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._model = model
+        self._build_ui()
+        if model:
+            model.character_reset.connect(self._reset)
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        layout.addWidget(QLabel(
+            "<b>Buffs</b> – track active spells, class abilities, and other bonuses. "
+            "Only highest non-stackable bonus of each type applies."
+        ))
+
+        box = QGroupBox("Active Buffs")
+        box_layout = QVBoxLayout(box)
+        self._buff_list = QListWidget()
+        box_layout.addWidget(self._buff_list)
+        btn_row = QHBoxLayout()
+        self._add_btn = QPushButton("Add Buff…")
+        self._rm_btn = QPushButton("Remove Selected")
+        self._rm_btn.clicked.connect(self._remove_buff)
+        btn_row.addWidget(self._add_btn)
+        btn_row.addWidget(self._rm_btn)
+        btn_row.addStretch()
+        box_layout.addLayout(btn_row)
+        layout.addWidget(box)
+        layout.addStretch()
+
+    def _remove_buff(self) -> None:
+        for item in self._buff_list.selectedItems():
+            self._buff_list.takeItem(self._buff_list.row(item))
+        if self._model:
+            pass  # emit signal in full implementation
+
+    def _reset(self) -> None:
+        self._buff_list.clear()
