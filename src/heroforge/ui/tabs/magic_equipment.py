@@ -1,23 +1,45 @@
 """Magic Equipment tab for HeroForge-Anew."""
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QListWidget, QPushButton,
-    QScrollArea, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QGroupBox,
+    QHBoxLayout,
+    QListWidget,
+    QPushButton,
+    QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
 _SLOTS = [
-    "Head", "Face/Eyes", "Throat/Neck", "Shoulders", "Body", "Torso",
-    "Arms/Wrists", "Hands/Rings (x2)", "Waist", "Feet", "Off-hand",
+    "Head",
+    "Face/Eyes",
+    "Throat/Neck",
+    "Shoulders",
+    "Body",
+    "Torso",
+    "Arms/Wrists",
+    "Hands/Rings (x2)",
+    "Waist",
+    "Feet",
+    "Off-hand",
 ]
 
 
 class MagicEquipmentTab(QWidget):
     """Magic item slots and inventory."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()
@@ -51,8 +73,12 @@ class MagicEquipmentTab(QWidget):
         btn_row = QHBoxLayout()
         btn_row.addWidget(QPushButton("Add Item…"))
         rm = QPushButton("Remove")
-        rm.clicked.connect(lambda: [self._extra_list.takeItem(self._extra_list.row(i))
-                                    for i in self._extra_list.selectedItems()])
+        rm.clicked.connect(
+            lambda: [
+                self._extra_list.takeItem(self._extra_list.row(i))
+                for i in self._extra_list.selectedItems()
+            ]
+        )
         btn_row.addWidget(rm)
         btn_row.addStretch()
         wbl_layout.addLayout(btn_row)

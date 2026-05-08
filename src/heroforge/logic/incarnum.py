@@ -33,8 +33,8 @@ _CAPACITY_TABLE: list[int] = [
 # Default essentia tables per class (MoI p22, p30, p38).
 _DEFAULT_ESSENTIA_TABLES: dict[str, list[int]] = {
     "Incarnate": [1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11],
-    "Totemist":  [1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11],
-    "Soulborn":  [0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7],
+    "Totemist": [1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11],
+    "Soulborn": [0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7],
 }
 
 
@@ -56,7 +56,9 @@ def essentia_pool(
     Returns:
         Total essentia pool size.
     """
-    tables = essentia_tables if essentia_tables is not None else _DEFAULT_ESSENTIA_TABLES
+    tables = (
+        essentia_tables if essentia_tables is not None else _DEFAULT_ESSENTIA_TABLES
+    )
     total = feat_bonus
     for cls, lvl in class_levels.items():
         table = tables.get(cls, [])

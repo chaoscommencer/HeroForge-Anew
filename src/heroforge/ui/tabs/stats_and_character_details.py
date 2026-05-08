@@ -40,16 +40,24 @@ _ABILITY_NAMES = {
 
 # Standard alignment options
 _ALIGNMENTS = [
-    "Lawful Good", "Neutral Good", "Chaotic Good",
-    "Lawful Neutral", "True Neutral", "Chaotic Neutral",
-    "Lawful Evil", "Neutral Evil", "Chaotic Evil",
+    "Lawful Good",
+    "Neutral Good",
+    "Chaotic Good",
+    "Lawful Neutral",
+    "True Neutral",
+    "Chaotic Neutral",
+    "Lawful Evil",
+    "Neutral Evil",
+    "Chaotic Evil",
 ]
 
 
 class StatsAndCharacterDetailsTab(QWidget):
     """Character identity fields plus ability scores."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._ability_spinboxes: dict[str, QSpinBox] = {}
@@ -124,7 +132,9 @@ class StatsAndCharacterDetailsTab(QWidget):
 
         for ability in _ABILITIES:
             col = QVBoxLayout()
-            label = QLabel(f"<b>{ability}</b><br/><small>{_ABILITY_NAMES[ability]}</small>")
+            label = QLabel(
+                f"<b>{ability}</b><br/><small>{_ABILITY_NAMES[ability]}</small>"
+            )
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
             spinbox = QSpinBox()
@@ -140,7 +150,9 @@ class StatsAndCharacterDetailsTab(QWidget):
             self._ability_spinboxes[ability] = spinbox
             self._modifier_labels[ability] = mod_label
 
-            spinbox.valueChanged.connect(lambda val, ab=ability: self._on_spin_changed(ab, val))
+            spinbox.valueChanged.connect(
+                lambda val, ab=ability: self._on_spin_changed(ab, val)
+            )
 
             col.addWidget(label)
             col.addWidget(spinbox)
@@ -197,6 +209,7 @@ class StatsAndCharacterDetailsTab(QWidget):
 
     def _update_next_level(self, xp: int) -> None:
         from heroforge.logic.experience import level_for_xp
+
         current_lvl = level_for_xp(xp)
         next_xp = xp_for_level(current_lvl + 1)
         self._next_level_label.setText(f"{next_xp:,}")

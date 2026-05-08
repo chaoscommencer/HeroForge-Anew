@@ -2,12 +2,21 @@
 
 Magic weapon and armor enhancement selection.
 """
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QFormLayout, QGroupBox, QHBoxLayout, QLabel,
-    QListWidget, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QGroupBox,
+    QHBoxLayout,
+    QListWidget,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -15,7 +24,9 @@ if TYPE_CHECKING:
 class EnhancementsTab(QWidget):
     """Magic weapon and armor enhancement configuration."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()
@@ -38,7 +49,11 @@ class EnhancementsTab(QWidget):
             btn_row = QHBoxLayout()
             btn_row.addWidget(QPushButton("Add Enhancement…"))
             rm = QPushButton("Remove")
-            rm.clicked.connect(lambda _, l=lst: [l.takeItem(l.row(i)) for i in l.selectedItems()])
+            rm.clicked.connect(
+                lambda _, lst_=lst: [
+                    lst_.takeItem(lst_.row(i)) for i in lst_.selectedItems()
+                ]
+            )
             btn_row.addWidget(rm)
             btn_row.addStretch()
             box_layout.addLayout(btn_row)

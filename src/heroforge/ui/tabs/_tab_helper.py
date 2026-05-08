@@ -1,10 +1,14 @@
 """Shared base/helpers for HeroForge-Anew tab widgets."""
+
 from __future__ import annotations
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
+
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+
 
 def make_placeholder_tab(title: str, description: str = "") -> type[QWidget]:
     """Factory that returns a simple placeholder QWidget subclass."""
+
     class _Placeholder(QWidget):
         def __init__(self, model=None, parent: QWidget | None = None) -> None:
             super().__init__(parent)
@@ -18,5 +22,6 @@ def make_placeholder_tab(title: str, description: str = "") -> type[QWidget]:
                 desc.setWordWrap(True)
                 layout.addWidget(desc)
             layout.addStretch()
+
     _Placeholder.__name__ = title.replace(" ", "") + "Tab"
     return _Placeholder

@@ -1,9 +1,18 @@
 """Custom class creation dialog for HeroForge-Anew."""
+
 from __future__ import annotations
+
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-    QFormLayout, QLineEdit, QSpinBox, QWidget,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLineEdit,
+    QSpinBox,
+    QWidget,
 )
+
 from heroforge.models.class_ import Class
 
 
@@ -20,12 +29,20 @@ class CustomClassDialog(QDialog):
         layout = QFormLayout(self)
         self._name_edit = QLineEdit()
         self._is_prestige = QCheckBox()
-        self._hit_die = QSpinBox(); self._hit_die.setRange(4, 12); self._hit_die.setValue(8)
-        self._bab_combo = QComboBox(); self._bab_combo.addItems(["fast", "medium", "slow"])
-        self._fort_combo = QComboBox(); self._fort_combo.addItems(["good", "poor"])
-        self._ref_combo = QComboBox(); self._ref_combo.addItems(["good", "poor"])
-        self._will_combo = QComboBox(); self._will_combo.addItems(["good", "poor"])
-        self._sp_spin = QSpinBox(); self._sp_spin.setRange(2, 10); self._sp_spin.setValue(4)
+        self._hit_die = QSpinBox()
+        self._hit_die.setRange(4, 12)
+        self._hit_die.setValue(8)
+        self._bab_combo = QComboBox()
+        self._bab_combo.addItems(["fast", "medium", "slow"])
+        self._fort_combo = QComboBox()
+        self._fort_combo.addItems(["good", "poor"])
+        self._ref_combo = QComboBox()
+        self._ref_combo.addItems(["good", "poor"])
+        self._will_combo = QComboBox()
+        self._will_combo.addItems(["good", "poor"])
+        self._sp_spin = QSpinBox()
+        self._sp_spin.setRange(2, 10)
+        self._sp_spin.setValue(4)
         layout.addRow("Class Name:", self._name_edit)
         layout.addRow("Prestige Class:", self._is_prestige)
         layout.addRow("Hit Die:", self._hit_die)

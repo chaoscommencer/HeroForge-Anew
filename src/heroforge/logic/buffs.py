@@ -80,7 +80,9 @@ def remove_buff(
         Updated *current_bonuses* dict.
     """
     for stat in current_bonuses:
-        keys_to_remove = [k for k in current_bonuses[stat] if k.startswith(f"{buff_name}::")]
+        keys_to_remove = [
+            k for k in current_bonuses[stat] if k.startswith(f"{buff_name}::")
+        ]
         for k in keys_to_remove:
             del current_bonuses[stat][k]
     return current_bonuses

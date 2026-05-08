@@ -1,10 +1,21 @@
 """Feats tab for HeroForge-Anew."""
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QPushButton, QScrollArea, QTextEdit, QVBoxLayout, QWidget,
+    QGroupBox,
+    QHBoxLayout,
+    QLineEdit,
+    QListWidget,
+    QPushButton,
+    QScrollArea,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -12,7 +23,9 @@ if TYPE_CHECKING:
 class FeatsTab(QWidget):
     """Feat selection and management."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()

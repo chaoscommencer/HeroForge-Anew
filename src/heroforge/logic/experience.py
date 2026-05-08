@@ -8,15 +8,15 @@ from __future__ import annotations
 # XP required to reach each level.  Index = level (1-based).
 # PHB p22.
 _XP_TABLE: dict[int, int] = {
-    1:  0,
-    2:  1_000,
-    3:  3_000,
-    4:  6_000,
-    5:  10_000,
-    6:  15_000,
-    7:  21_000,
-    8:  28_000,
-    9:  36_000,
+    1: 0,
+    2: 1_000,
+    3: 3_000,
+    4: 6_000,
+    5: 10_000,
+    6: 15_000,
+    7: 21_000,
+    8: 28_000,
+    9: 36_000,
     10: 45_000,
     11: 55_000,
     12: 66_000,
@@ -38,12 +38,12 @@ _CR_DIFF_XP: dict[int, int] = {
     -3: 1_800,
     -2: 1_500,
     -1: 1_200,
-    0:  900,    # CR equals PC level → standard award
-    1:  600,
-    2:  450,
-    3:  300,
-    4:  225,
-    5:  150,    # CR 5 below PC level
+    0: 900,  # CR equals PC level → standard award
+    1: 600,
+    2: 450,
+    3: 300,
+    4: 225,
+    5: 150,  # CR 5 below PC level
 }
 
 
@@ -94,7 +94,7 @@ def level_for_xp(xp: int) -> int:
 
 
 def encounter_xp(character_level: int, cr: float) -> int:
-    """Return the standard XP award for a single character defeating a CR *cr* encounter.
+    """Return XP award for a single character defeating a CR *cr* encounter.
 
     Reference: PHB p36 (Experience Point Awards table).
 

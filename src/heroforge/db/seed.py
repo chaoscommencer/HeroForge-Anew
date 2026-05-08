@@ -94,10 +94,16 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
                         name,
                         (row.get("Category") or row.get("category") or "").strip(),
                         (row.get("Size") or row.get("size") or "").strip(),
-                        (row.get("Damage (S)") or row.get("damage_small") or "").strip(),
-                        (row.get("Damage (M)") or row.get("damage_medium") or "").strip(),
+                        (
+                            row.get("Damage (S)") or row.get("damage_small") or ""
+                        ).strip(),
+                        (
+                            row.get("Damage (M)") or row.get("damage_medium") or ""
+                        ).strip(),
                         (row.get("Critical") or row.get("critical") or "").strip(),
-                        _safe_int(row.get("Range Increment") or row.get("range_increment")),
+                        _safe_int(
+                            row.get("Range Increment") or row.get("range_increment")
+                        ),
                         _safe_float(row.get("Weight") or row.get("weight")),
                         (row.get("Type") or row.get("damage_type") or "").strip(),
                         (row.get("Source") or row.get("source") or "").strip(),
@@ -116,7 +122,9 @@ def seed_creatures(conn: sqlite3.Connection, data_dir: Path) -> None:
     """Insert rows from ``CreatureInfo.csv`` into the *creatures* table."""
     csv_path = data_dir / "CreatureInfo.csv"
     if not csv_path.exists():
-        logger.warning("CreatureInfo.csv not found at %s – skipping creatures", csv_path)
+        logger.warning(
+            "CreatureInfo.csv not found at %s – skipping creatures", csv_path
+        )
         return
 
     inserted = 0
@@ -133,7 +141,8 @@ def seed_creatures(conn: sqlite3.Connection, data_dir: Path) -> None:
                     """
                     INSERT OR REPLACE INTO creatures
                         (name, size, type, subtype, hit_dice,
-                         str_score, dex_score, con_score, int_score, wis_score, cha_score,
+                         str_score, dex_score, con_score,
+                         int_score, wis_score, cha_score,
                          bab, grapple_mod, armor_class, speed, source)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
@@ -185,7 +194,11 @@ def seed_tables(conn: sqlite3.Connection, data_dir: Path) -> None:
                 continue
             try:
                 conn.execute(
-                    "INSERT OR REPLACE INTO tables (table_name, key, value) VALUES (?, ?, ?)",
+                    """
+                    INSERT OR REPLACE INTO tables
+                        (table_name, key, value)
+                    VALUES (?, ?, ?)
+                    """,
                     (table_name, key, value),
                 )
                 inserted += 1
@@ -246,25 +259,42 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
                     """,
                     (
                         name,
-                        1 if col(row_data, "IsPrestige", "is_prestige", "Prestige").lower() in ("1", "true", "yes") else 0,
+                        (
+                            1
+                            if col(
+                                row_data, "IsPrestige", "is_prestige", "Prestige"
+                            ).lower()
+                            in ("1", "true", "yes")
+                            else 0
+                        ),
                         _safe_int(col(row_data, "HitDie", "hit_die", "HD")),
                         col(row_data, "BAB", "bab_progression", "BABProgression"),
                         col(row_data, "Fort", "fort_progression", "FortProgression"),
                         col(row_data, "Ref", "ref_progression", "RefProgression"),
                         col(row_data, "Will", "will_progression", "WillProgression"),
-                        _safe_int(col(row_data, "SkillPoints", "skill_points_per_level", "SP")),
+                        _safe_int(
+                            col(row_data, "SkillPoints", "skill_points_per_level", "SP")
+                        ),
                         col(row_data, "Source", "source"),
                     ),
                 )
                 inserted_classes += 1
 
                 # Handle class skills column if present (comma-separated)
-                class_skills_raw = col(row_data, "ClassSkills", "class_skills", "Skills")
+                class_skills_raw = col(
+                    row_data, "ClassSkills", "class_skills", "Skills"
+                )
                 if class_skills_raw:
-                    for skill in (s.strip() for s in class_skills_raw.split(",") if s.strip()):
+                    for skill in (
+                        s.strip() for s in class_skills_raw.split(",") if s.strip()
+                    ):
                         try:
                             conn.execute(
-                                "INSERT OR REPLACE INTO class_skills (class_name, skill_name) VALUES (?, ?)",
+                                """
+                                INSERT OR REPLACE INTO class_skills
+                                    (class_name, skill_name)
+                                VALUES (?, ?)
+                                """,
                                 (name, skill),
                             )
                             inserted_skills += 1

@@ -35,15 +35,11 @@ def feat_slots_available(
 
     # Fighter bonus feats at levels 1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20
     fighter_bonus_levels = {1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20}
-    fighter_bonus = sum(
-        1 for lvl in fighter_bonus_levels if lvl <= fighter_levels
-    )
+    fighter_bonus = sum(1 for lvl in fighter_bonus_levels if lvl <= fighter_levels)
 
     # Wizard bonus feats at wizard levels 1, 5, 10, 15, 20
     wizard_bonus_levels = {1, 5, 10, 15, 20}
-    wizard_bonus = sum(
-        1 for lvl in wizard_bonus_levels if lvl <= wizard_levels
-    )
+    wizard_bonus = sum(1 for lvl in wizard_bonus_levels if lvl <= wizard_levels)
 
     return general + fighter_bonus + wizard_bonus
 
@@ -62,12 +58,18 @@ def _parse_ability_prereq(prereq: str) -> tuple[str, int] | None:
         Tuple or ``None`` if the string does not match.
     """
     abilities = {
-        "str": "STR", "strength": "STR",
-        "dex": "DEX", "dexterity": "DEX",
-        "con": "CON", "constitution": "CON",
-        "int": "INT", "intelligence": "INT",
-        "wis": "WIS", "wisdom": "WIS",
-        "cha": "CHA", "charisma": "CHA",
+        "str": "STR",
+        "strength": "STR",
+        "dex": "DEX",
+        "dexterity": "DEX",
+        "con": "CON",
+        "constitution": "CON",
+        "int": "INT",
+        "intelligence": "INT",
+        "wis": "WIS",
+        "wisdom": "WIS",
+        "cha": "CHA",
+        "charisma": "CHA",
     }
     m = re.match(r"^(\w+)\s+(\d+)$", prereq.strip(), re.IGNORECASE)
     if m:

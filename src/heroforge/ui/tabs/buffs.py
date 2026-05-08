@@ -1,11 +1,19 @@
 """Buffs tab for HeroForge-Anew."""
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
-from PyQt6.QtCore import Qt
+
 from PyQt6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QListWidget,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -13,7 +21,9 @@ if TYPE_CHECKING:
 class BuffsTab(QWidget):
     """Active buff tracking and management."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()
@@ -24,10 +34,13 @@ class BuffsTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
 
-        layout.addWidget(QLabel(
-            "<b>Buffs</b> – track active spells, class abilities, and other bonuses. "
-            "Only highest non-stackable bonus of each type applies."
-        ))
+        layout.addWidget(
+            QLabel(
+                "<b>Buffs</b> – track active spells, class abilities, "
+                "and other bonuses. "
+                "Only highest non-stackable bonus of each type applies."
+            )
+        )
 
         box = QGroupBox("Active Buffs")
         box_layout = QVBoxLayout(box)

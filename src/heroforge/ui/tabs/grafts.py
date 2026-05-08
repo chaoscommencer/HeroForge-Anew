@@ -2,12 +2,21 @@
 
 Reference: Fiend Folio, Libris Mortis, Arms & Equipment Guide.
 """
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QListWidget,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -15,7 +24,9 @@ if TYPE_CHECKING:
 class GraftsTab(QWidget):
     """Graft selection and management."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()
@@ -24,10 +35,12 @@ class GraftsTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
 
-        layout.addWidget(QLabel(
-            "<b>Grafts</b> are body modifications that grant special abilities. "
-            "Each graft occupies a body slot."
-        ))
+        layout.addWidget(
+            QLabel(
+                "<b>Grafts</b> are body modifications that grant special abilities. "
+                "Each graft occupies a body slot."
+            )
+        )
 
         taken_box = QGroupBox("Applied Grafts")
         taken_layout = QVBoxLayout(taken_box)

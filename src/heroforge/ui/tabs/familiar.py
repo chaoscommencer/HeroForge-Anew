@@ -2,12 +2,22 @@
 
 Reference: PHB p52 (Wizard class feature).
 """
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QFormLayout, QGroupBox, QLabel, QLineEdit,
-    QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QFormLayout,
+    QGroupBox,
+    QLabel,
+    QLineEdit,
+    QScrollArea,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -15,7 +25,9 @@ if TYPE_CHECKING:
 class FamiliarTab(QWidget):
     """Familiar statistics and bonuses granted to master."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()
@@ -39,9 +51,12 @@ class FamiliarTab(QWidget):
 
         stats_box = QGroupBox("Familiar Statistics")
         stats_form = QFormLayout(stats_box)
-        self._hp_spin = QSpinBox(); self._hp_spin.setRange(0, 999)
-        self._int_spin = QSpinBox(); self._int_spin.setRange(1, 30)
-        self._nat_armor_spin = QSpinBox(); self._nat_armor_spin.setRange(0, 20)
+        self._hp_spin = QSpinBox()
+        self._hp_spin.setRange(0, 999)
+        self._int_spin = QSpinBox()
+        self._int_spin.setRange(1, 30)
+        self._nat_armor_spin = QSpinBox()
+        self._nat_armor_spin.setRange(0, 20)
         stats_form.addRow("HP:", self._hp_spin)
         stats_form.addRow("Intelligence:", self._int_spin)
         stats_form.addRow("Natural Armor Bonus:", self._nat_armor_spin)

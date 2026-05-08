@@ -23,6 +23,7 @@ def tmp_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def db_conn(tmp_db: Path) -> sqlite3.Connection:
     """Return an open connection to the test database."""
     from heroforge.db.schema import get_connection
+
     conn = get_connection(tmp_db)
     yield conn  # type: ignore[misc]
     conn.close()

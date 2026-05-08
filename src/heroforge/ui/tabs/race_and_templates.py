@@ -24,7 +24,9 @@ if TYPE_CHECKING:
 class RaceAndTemplatesTab(QWidget):
     """Race selection and template application."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()

@@ -22,7 +22,8 @@ def power_points_per_day(
 
     Args:
         class_levels:   Mapping of class name → levels in that class.
-        key_ability_mod: Relevant ability modifier (INT for Psion, WIS for Ardent, etc.).
+        key_ability_mod: Relevant ability modifier (INT for Psion, WIS for Ardent,
+            etc.).
         pp_tables:       Mapping of class name → list of PP values indexed by level-1.
 
     Returns:
@@ -34,7 +35,7 @@ def power_points_per_day(
         if lvl > 0 and table:
             idx = min(lvl - 1, len(table) - 1)
             class_pp = table[idx]
-            # Bonus PP from high ability: key_ability_mod × manifester_level (simplified)
+            # Bonus PP from high ability: key_ability_mod × manifester_level
             bonus_pp = max(0, key_ability_mod) * lvl
             total += class_pp + bonus_pp
     return total

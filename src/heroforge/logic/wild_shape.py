@@ -22,8 +22,17 @@ def _creature_size(creature: dict) -> str:  # type: ignore[type-arg]
     return str(creature.get("size", "Medium")).strip()
 
 
-_SIZE_ORDER = ["Fine", "Diminutive", "Tiny", "Small", "Medium", "Large", "Huge",
-               "Gargantuan", "Colossal"]
+_SIZE_ORDER = [
+    "Fine",
+    "Diminutive",
+    "Tiny",
+    "Small",
+    "Medium",
+    "Large",
+    "Huge",
+    "Gargantuan",
+    "Colossal",
+]
 
 
 def _size_rank(size: str) -> int:

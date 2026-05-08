@@ -11,6 +11,7 @@ import sys
 def main() -> None:
     """Launch the HeroForge-Anew Qt application."""
     from PyQt6.QtWidgets import QApplication
+
     from heroforge.ui.main_window import MainWindow
 
     app = QApplication(sys.argv)
@@ -20,11 +21,9 @@ def main() -> None:
 
     # Load stylesheet
     import importlib.resources as pkg_resources
+
     try:
-        qss_path = (
-            pkg_resources.files("heroforge.ui.styles")
-            .joinpath("default.qss")
-        )
+        qss_path = pkg_resources.files("heroforge.ui.styles").joinpath("default.qss")
         with pkg_resources.as_file(qss_path) as p:
             stylesheet = p.read_text(encoding="utf-8")
         app.setStyleSheet(stylesheet)

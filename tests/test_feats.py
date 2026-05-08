@@ -56,44 +56,53 @@ class TestCheckPrerequisites:
         assert check_prerequisites(["STR 13"], 5, {"STR": 11}, {}, [], 5) is False
 
     def test_feat_prereq_met(self) -> None:
-        assert check_prerequisites(
-            ["Power Attack"], 5, {"STR": 13}, {}, ["Power Attack"], 5
-        ) is True
+        assert (
+            check_prerequisites(
+                ["Power Attack"], 5, {"STR": 13}, {}, ["Power Attack"], 5
+            )
+            is True
+        )
 
     def test_feat_prereq_not_met(self) -> None:
-        assert check_prerequisites(
-            ["Power Attack"], 5, {"STR": 13}, {}, [], 5
-        ) is False
+        assert check_prerequisites(["Power Attack"], 5, {"STR": 13}, {}, [], 5) is False
 
     def test_skill_prereq_met(self) -> None:
-        assert check_prerequisites(
-            ["Tumble 5 ranks"], 5, {}, {"Tumble": 6.0}, [], 5
-        ) is True
+        assert (
+            check_prerequisites(["Tumble 5 ranks"], 5, {}, {"Tumble": 6.0}, [], 5)
+            is True
+        )
 
     def test_skill_prereq_not_met(self) -> None:
-        assert check_prerequisites(
-            ["Tumble 5 ranks"], 5, {}, {"Tumble": 4.0}, [], 5
-        ) is False
+        assert (
+            check_prerequisites(["Tumble 5 ranks"], 5, {}, {"Tumble": 4.0}, [], 5)
+            is False
+        )
 
     def test_multiple_prereqs_all_met(self) -> None:
-        assert check_prerequisites(
-            ["STR 13", "Power Attack"],
-            6,
-            {"STR": 16},
-            {},
-            ["Power Attack"],
-            6,
-        ) is True
+        assert (
+            check_prerequisites(
+                ["STR 13", "Power Attack"],
+                6,
+                {"STR": 16},
+                {},
+                ["Power Attack"],
+                6,
+            )
+            is True
+        )
 
     def test_multiple_prereqs_one_fails(self) -> None:
-        assert check_prerequisites(
-            ["STR 13", "Power Attack"],
-            6,
-            {"STR": 16},
-            {},
-            [],  # Missing Power Attack
-            6,
-        ) is False
+        assert (
+            check_prerequisites(
+                ["STR 13", "Power Attack"],
+                6,
+                {"STR": 16},
+                {},
+                [],  # Missing Power Attack
+                6,
+            )
+            is False
+        )
 
 
 class TestAvailableFeats:
@@ -106,9 +115,7 @@ class TestAvailableFeats:
 
     def test_already_taken_excluded(self) -> None:
         all_feats = ["Alertness", "Improved Initiative"]
-        result = available_feats(
-            all_feats, {}, 0, {}, {}, ["Alertness"], 1
-        )
+        result = available_feats(all_feats, {}, 0, {}, {}, ["Alertness"], 1)
         assert "Alertness" not in result
         assert "Improved Initiative" in result
 

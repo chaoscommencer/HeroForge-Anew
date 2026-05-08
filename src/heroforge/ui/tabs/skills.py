@@ -10,8 +10,6 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QScrollArea,
-    QSizePolicy,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -19,7 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from heroforge.logic.skills import max_ranks, skill_modifier, skill_points_per_level
+from heroforge.logic.skills import skill_modifier
 
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
@@ -77,7 +75,9 @@ _SKILLS: list[tuple[str, str, bool, bool]] = [
 class SkillsTab(QWidget):
     """Skill rank allocation and modifier display."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()
@@ -124,7 +124,9 @@ class SkillsTab(QWidget):
             self._rank_spinboxes.append(rank_spin)
 
             ability_mod_item = QTableWidgetItem("0")
-            ability_mod_item.setFlags(ability_mod_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            ability_mod_item.setFlags(
+                ability_mod_item.flags() & ~Qt.ItemFlag.ItemIsEditable
+            )
             self._table.setItem(row, 4, ability_mod_item)
 
             misc_spin = QSpinBox()
@@ -144,7 +146,10 @@ class SkillsTab(QWidget):
     def _recalculate(self) -> None:
         for row in range(self._table.rowCount()):
             class_item = self._table.item(row, 2)
-            is_class = class_item is not None and class_item.checkState() == Qt.CheckState.Checked
+            is_class = (
+                class_item is not None
+                and class_item.checkState() == Qt.CheckState.Checked
+            )
             rank_widget = self._table.cellWidget(row, 3)
             ranks = rank_widget.value() if rank_widget else 0.0
             ability_item = self._table.item(row, 4)

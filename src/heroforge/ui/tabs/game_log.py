@@ -1,11 +1,19 @@
 """Game Log tab for HeroForge-Anew."""
+
 from __future__ import annotations
+
 from datetime import datetime
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLineEdit, QPushButton,
-    QTextEdit, QVBoxLayout, QWidget,
+    QHBoxLayout,
+    QLineEdit,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -13,7 +21,9 @@ if TYPE_CHECKING:
 class GameLogTab(QWidget):
     """Simple session notes and game log."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()

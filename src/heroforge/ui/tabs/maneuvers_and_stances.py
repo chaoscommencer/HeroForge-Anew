@@ -2,23 +2,40 @@
 
 Reference: Tome of Battle.
 """
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QListWidget,
-    QPushButton, QScrollArea, QTabWidget, QVBoxLayout, QWidget,
+    QGroupBox,
+    QListWidget,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
-_DISCIPLINES = ["Devoted Spirit", "Diamond Mind", "Iron Heart", "Setting Sun",
-                "Shadow Hand", "Stone Dragon", "Tiger Claw", "White Raven"]
+_DISCIPLINES = [
+    "Devoted Spirit",
+    "Diamond Mind",
+    "Iron Heart",
+    "Setting Sun",
+    "Shadow Hand",
+    "Stone Dragon",
+    "Tiger Claw",
+    "White Raven",
+]
 
 
 class ManeuversAndStancesTab(QWidget):
     """Tome of Battle maneuver and stance management."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()

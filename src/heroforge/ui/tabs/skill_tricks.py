@@ -2,12 +2,21 @@
 
 Reference: Complete Scoundrel p84.
 """
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QListWidget,
-    QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QGroupBox,
+    QHBoxLayout,
+    QListWidget,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -15,7 +24,9 @@ if TYPE_CHECKING:
 class SkillTricksTab(QWidget):
     """Skill trick selection and tracking."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()

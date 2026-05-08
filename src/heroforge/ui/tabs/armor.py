@@ -1,10 +1,19 @@
 """Armor tab for HeroForge-Anew."""
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QFormLayout, QGroupBox, QLabel, QScrollArea,
-    QSpinBox, QVBoxLayout, QWidget,
+    QFormLayout,
+    QGroupBox,
+    QLabel,
+    QScrollArea,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -12,7 +21,9 @@ if TYPE_CHECKING:
 class ArmorTab(QWidget):
     """Armor and shield selection with AC calculation."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()

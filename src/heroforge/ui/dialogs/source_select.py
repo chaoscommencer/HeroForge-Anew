@@ -1,8 +1,14 @@
 """Source book selection dialog for HeroForge-Anew."""
+
 from __future__ import annotations
+
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QLabel, QListWidget,
-    QVBoxLayout, QWidget,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QListWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 
@@ -19,19 +25,21 @@ class SourceSelectDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Enable sourcebooks to include in lookups:"))
         self._source_list = QListWidget()
-        self._source_list.addItems([
-            "PHB – Player's Handbook",
-            "DMG – Dungeon Master's Guide",
-            "MM – Monster Manual",
-            "CAd – Complete Adventurer",
-            "CAr – Complete Arcane",
-            "CD – Complete Divine",
-            "CW – Complete Warrior",
-            "MoI – Magic of Incarnum",
-            "ToB – Tome of Battle",
-            "XPH – Expanded Psionics Handbook",
-            "UA – Unearthed Arcana",
-        ])
+        self._source_list.addItems(
+            [
+                "PHB – Player's Handbook",
+                "DMG – Dungeon Master's Guide",
+                "MM – Monster Manual",
+                "CAd – Complete Adventurer",
+                "CAr – Complete Arcane",
+                "CD – Complete Divine",
+                "CW – Complete Warrior",
+                "MoI – Magic of Incarnum",
+                "ToB – Tome of Battle",
+                "XPH – Expanded Psionics Handbook",
+                "UA – Unearthed Arcana",
+            ]
+        )
         layout.addWidget(self._source_list)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -42,6 +50,10 @@ class SourceSelectDialog(QDialog):
 
     @property
     def selected_sources(self) -> list[str]:
-        return [item.text().split(" – ")[0] for item in
-                [self._source_list.item(i) for i in range(self._source_list.count())]
-                if item is not None]
+        return [
+            item.text().split(" – ")[0]
+            for item in [
+                self._source_list.item(i) for i in range(self._source_list.count())
+            ]
+            if item is not None
+        ]

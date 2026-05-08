@@ -74,7 +74,7 @@ def export_character_sheet_text(character_data: dict) -> str:  # type: ignore[ty
     lines: list[str] = []
 
     lines.append(sep)
-    lines.append(f"  CHARACTER SHEET – HeroForge Anew")
+    lines.append("  CHARACTER SHEET – HeroForge Anew")
     lines.append(sep)
     lines.append(f"Name       : {name}")
     lines.append(f"Player     : {player}    Campaign: {campaign}")

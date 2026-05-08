@@ -1,10 +1,20 @@
 """Languages tab for HeroForge-Anew."""
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QPushButton, QVBoxLayout, QWidget,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -12,7 +22,9 @@ if TYPE_CHECKING:
 class LanguagesTab(QWidget):
     """Language selection and management."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()
@@ -40,10 +52,13 @@ class LanguagesTab(QWidget):
         layout.addWidget(known_box)
 
         # Automatic languages note
-        layout.addWidget(QLabel(
-            "<i>Note: Characters automatically know Common and their racial language. "
-            "Additional languages granted by high INT are added here.</i>"
-        ))
+        layout.addWidget(
+            QLabel(
+                "<i>Note: Characters automatically know Common and their racial "
+                "language. Additional languages granted by high INT are added "
+                "here.</i>"
+            )
+        )
         layout.addStretch()
 
     def _add_language(self) -> None:

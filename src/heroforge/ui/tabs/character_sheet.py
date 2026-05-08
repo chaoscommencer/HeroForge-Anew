@@ -1,11 +1,19 @@
 """Character Sheet summary tab for HeroForge-Anew."""
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QPushButton, QScrollArea,
-    QTextEdit, QVBoxLayout, QWidget,
+    QHBoxLayout,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
+
 from heroforge.logic.export import export_character_sheet_text
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -13,7 +21,9 @@ if TYPE_CHECKING:
 class CharacterSheetTab(QWidget):
     """Read-only plain-text character sheet summary with export."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()
@@ -48,6 +58,7 @@ class CharacterSheetTab(QWidget):
 
     def _export(self) -> None:
         from PyQt6.QtWidgets import QFileDialog
+
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Character Sheet", "", "Text Files (*.txt);;All files (*)"
         )

@@ -2,12 +2,24 @@
 
 Reference: Magic of Incarnum.
 """
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QFormLayout, QGroupBox, QHBoxLayout, QLabel, QListWidget,
-    QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -15,7 +27,9 @@ if TYPE_CHECKING:
 class SoulmeldsTab(QWidget):
     """Soulmeld shaping and essentia management."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()
@@ -33,7 +47,8 @@ class SoulmeldsTab(QWidget):
         # Essentia pool
         pool_box = QGroupBox("Essentia Pool")
         pool_form = QFormLayout(pool_box)
-        self._total_spin = QSpinBox(); self._total_spin.setRange(0, 30)
+        self._total_spin = QSpinBox()
+        self._total_spin.setRange(0, 30)
         self._invested_lbl = QLabel("0")
         self._remaining_lbl = QLabel("0")
         pool_form.addRow("Total Essentia:", self._total_spin)
@@ -49,8 +64,12 @@ class SoulmeldsTab(QWidget):
         btn_row = QHBoxLayout()
         btn_row.addWidget(QPushButton("Shape Soulmeld…"))
         rm = QPushButton("Remove")
-        rm.clicked.connect(lambda: [self._melds_list.takeItem(self._melds_list.row(i))
-                                    for i in self._melds_list.selectedItems()])
+        rm.clicked.connect(
+            lambda: [
+                self._melds_list.takeItem(self._melds_list.row(i))
+                for i in self._melds_list.selectedItems()
+            ]
+        )
         btn_row.addWidget(rm)
         btn_row.addStretch()
         melds_layout.addLayout(btn_row)

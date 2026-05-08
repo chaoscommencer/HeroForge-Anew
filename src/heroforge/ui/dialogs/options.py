@@ -1,7 +1,13 @@
 """Options dialog for HeroForge-Anew."""
+
 from __future__ import annotations
+
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFormLayout, QSpinBox, QWidget,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QSpinBox,
+    QWidget,
 )
 
 

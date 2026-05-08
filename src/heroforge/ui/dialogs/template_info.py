@@ -1,7 +1,14 @@
 """Template info dialog for HeroForge-Anew."""
+
 from __future__ import annotations
+
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QLabel, QTextEdit, QVBoxLayout, QWidget,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
 

@@ -2,12 +2,21 @@
 
 Reference: PHB p35 (Druid class feature), p52 (Ranger).
 """
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
-    QFormLayout, QGroupBox, QLabel, QLineEdit,
-    QScrollArea, QSpinBox, QVBoxLayout, QWidget,
+    QFormLayout,
+    QGroupBox,
+    QLineEdit,
+    QScrollArea,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
 )
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -15,7 +24,9 @@ if TYPE_CHECKING:
 class AnimalCompanionTab(QWidget):
     """Animal companion statistics and management."""
 
-    def __init__(self, model: "CharacterModel | None" = None, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self._model = model
         self._build_ui()
@@ -40,9 +51,12 @@ class AnimalCompanionTab(QWidget):
         stats_box = QGroupBox("Companion Statistics")
         stats_form = QFormLayout(stats_box)
         for ability in ("STR", "DEX", "CON", "INT", "WIS", "CHA"):
-            spin = QSpinBox(); spin.setRange(1, 50); spin.setValue(10)
+            spin = QSpinBox()
+            spin.setRange(1, 50)
+            spin.setValue(10)
             stats_form.addRow(f"{ability}:", spin)
-        self._hp_spin = QSpinBox(); self._hp_spin.setRange(0, 9999)
+        self._hp_spin = QSpinBox()
+        self._hp_spin.setRange(0, 9999)
         self._hd_edit = QLineEdit()
         stats_form.addRow("HP:", self._hp_spin)
         stats_form.addRow("Hit Dice:", self._hd_edit)

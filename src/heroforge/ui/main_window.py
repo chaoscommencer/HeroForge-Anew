@@ -17,31 +17,31 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-# Tab imports
-from heroforge.ui.tabs.stats_and_character_details import StatsAndCharacterDetailsTab
-from heroforge.ui.tabs.race_and_templates import RaceAndTemplatesTab
-from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
-from heroforge.ui.tabs.skills import SkillsTab
-from heroforge.ui.tabs.skill_tricks import SkillTricksTab
-from heroforge.ui.tabs.languages import LanguagesTab
-from heroforge.ui.tabs.grafts import GraftsTab
-from heroforge.ui.tabs.traits_and_flaws import TraitsAndFlawsTab
-from heroforge.ui.tabs.maneuvers_and_stances import ManeuversAndStancesTab
-from heroforge.ui.tabs.feats import FeatsTab
+from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
 from heroforge.ui.tabs.armor import ArmorTab
 from heroforge.ui.tabs.attacks import AttacksTab
-from heroforge.ui.tabs.enhancements import EnhancementsTab
-from heroforge.ui.tabs.magic_equipment import MagicEquipmentTab
 from heroforge.ui.tabs.buffs import BuffsTab
+from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+from heroforge.ui.tabs.enhancements import EnhancementsTab
+from heroforge.ui.tabs.familiar import FamiliarTab
+from heroforge.ui.tabs.feats import FeatsTab
+from heroforge.ui.tabs.game_log import GameLogTab
+from heroforge.ui.tabs.grafts import GraftsTab
+from heroforge.ui.tabs.initiative_card import InitiativeCardTab
+from heroforge.ui.tabs.languages import LanguagesTab
+from heroforge.ui.tabs.magic_equipment import MagicEquipmentTab
+from heroforge.ui.tabs.maneuvers_and_stances import ManeuversAndStancesTab
+from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+from heroforge.ui.tabs.psionics import PsionicsTab
+from heroforge.ui.tabs.race_and_templates import RaceAndTemplatesTab
+from heroforge.ui.tabs.skill_tricks import SkillTricksTab
+from heroforge.ui.tabs.skills import SkillsTab
 from heroforge.ui.tabs.soulmelds import SoulmeldsTab
 from heroforge.ui.tabs.spells import SpellsTab
-from heroforge.ui.tabs.psionics import PsionicsTab
-from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
-from heroforge.ui.tabs.familiar import FamiliarTab
-from heroforge.ui.tabs.character_sheet import CharacterSheetTab
-from heroforge.ui.tabs.game_log import GameLogTab
-from heroforge.ui.tabs.initiative_card import InitiativeCardTab
 
+# Tab imports
+from heroforge.ui.tabs.stats_and_character_details import StatsAndCharacterDetailsTab
+from heroforge.ui.tabs.traits_and_flaws import TraitsAndFlawsTab
 
 # ---------------------------------------------------------------------------
 # CharacterModel – central data bus

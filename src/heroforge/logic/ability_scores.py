@@ -86,9 +86,7 @@ def point_buy_cost(score: int) -> int:
         ValueError: If *score* is outside the valid point-buy range.
     """
     if score not in _POINT_BUY_COSTS:
-        raise ValueError(
-            f"Score {score} is outside the valid point-buy range (8–18)."
-        )
+        raise ValueError(f"Score {score} is outside the valid point-buy range (8–18).")
     return _POINT_BUY_COSTS[score]
 
 
