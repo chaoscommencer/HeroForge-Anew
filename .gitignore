@@ -219,7 +219,8 @@ pip-log.txt
 ## HeroForge
 #############
 
-# Generated database
+# Generated database (auto-seeded from data/ on first launch; not tracked in git
+# because it is a binary artifact that can be regenerated at any time)
 heroforge.db
 
 # Python caches

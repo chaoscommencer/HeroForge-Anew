@@ -31,17 +31,19 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
-### Generate the Database
-
-```bash
-# Seed the SQLite database from the data/ directory
-python -m heroforge.db.seed --db heroforge.db --data-dir data/
-```
-
 ### Run the Application
 
 ```bash
 python src/main.py
+```
+
+The application seeds `heroforge.db` automatically on first launch using the source
+data files in `data/`. No manual step is required.
+
+If you ever need to re-seed (e.g. after updating a data file), run:
+
+```bash
+python -m heroforge.db.seed --db heroforge.db --data-dir data/
 ```
 
 ### Run Tests
