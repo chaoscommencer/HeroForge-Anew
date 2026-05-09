@@ -1,6 +1,6 @@
 HeroForge-Anew
 ==============
-HeroForge Anew is a D&D 3.5 character builder. Originally implemented in Excel/VBA, it is now being converted to a modern Python application backed by SQLite and a PyQt6 user interface.
+HeroForge Anew is a D&D 3.5 character builder. Originally implemented in Excel/VBA, it is now being converted to a modern Python application backed by SQLite and a PyQt6 user interface. It makes the process of character generation far simpler, allowing you to create in minutes what would once have taken hours, and in hours what would once have taken days! Powerful and well designed, it can handle the majority of 3.5 content, and more content is being added. Try it, and never look back!
 
 ## Features
 
