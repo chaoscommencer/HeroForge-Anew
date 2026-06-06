@@ -52,8 +52,5 @@ class SourceSelectDialog(QDialog):
     def selected_sources(self) -> list[str]:
         return [
             item.text().split(" – ")[0]
-            for item in [
-                self._source_list.item(i) for i in range(self._source_list.count())
-            ]
-            if item is not None
+            for item in self._source_list.selectedItems()
         ]
