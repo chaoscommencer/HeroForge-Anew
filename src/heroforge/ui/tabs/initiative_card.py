@@ -79,6 +79,11 @@ class InitiativeCardTab(QWidget):
         spin.setValue(value)
         return spin
 
+    def _make_remove_button(self) -> QPushButton:
+        btn = QPushButton("×")
+        btn.clicked.connect(lambda _, b=btn: self._remove_row(b))
+        return btn
+
     def _add_row(self) -> None:
         row = self._table.rowCount()
         self._table.insertRow(row)
@@ -87,9 +92,7 @@ class InitiativeCardTab(QWidget):
         self._table.setCellWidget(row, 2, self._make_hp_spin())
         self._table.setCellWidget(row, 3, self._make_ac_spin())
         self._table.setItem(row, 4, QTableWidgetItem("Active"))
-        rm_btn = QPushButton("×")
-        rm_btn.clicked.connect(lambda _, b=rm_btn: self._remove_row(b))
-        self._table.setCellWidget(row, 5, rm_btn)
+        self._table.setCellWidget(row, 5, self._make_remove_button())
 
     def _remove_row(self, button: QPushButton) -> None:
         for row in range(self._table.rowCount()):
@@ -125,6 +128,4 @@ class InitiativeCardTab(QWidget):
             self._table.setCellWidget(row, 2, self._make_hp_spin(hp))
             self._table.setCellWidget(row, 3, self._make_ac_spin(ac))
             self._table.setItem(row, 4, QTableWidgetItem(status))
-            rm_btn = QPushButton("×")
-            rm_btn.clicked.connect(lambda _, b=rm_btn: self._remove_row(b))
-            self._table.setCellWidget(row, 5, rm_btn)
+            self._table.setCellWidget(row, 5, self._make_remove_button())
