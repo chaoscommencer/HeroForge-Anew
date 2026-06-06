@@ -51,6 +51,5 @@ class SourceSelectDialog(QDialog):
     @property
     def selected_sources(self) -> list[str]:
         return [
-            item.text().split(" – ")[0]
-            for item in self._source_list.selectedItems()
+            item.text().split(" – ")[0] for item in self._source_list.selectedItems()
         ]
