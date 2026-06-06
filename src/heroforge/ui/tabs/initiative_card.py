@@ -76,8 +76,13 @@ class InitiativeCardTab(QWidget):
         self._table.setCellWidget(row, 3, ac_spin)
         self._table.setItem(row, 4, QTableWidgetItem("Active"))
         rm_btn = QPushButton("×")
-        rm_btn.clicked.connect(lambda _, r=row: self._table.removeRow(r))
+        rm_btn.clicked.connect(lambda _, b=rm_btn: self._remove_row(b))
         self._table.setCellWidget(row, 5, rm_btn)
+
+    def _remove_row(self, button: QPushButton) -> None:
+        index = self._table.indexAt(button.pos())
+        if index.isValid():
+            self._table.removeRow(index.row())
 
     def _sort(self) -> None:
         rows = self._table.rowCount()
