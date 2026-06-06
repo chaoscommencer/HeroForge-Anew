@@ -152,9 +152,7 @@ class TestInitializeDatabase:
             "SELECT name FROM sqlite_master WHERE type='table'"
         ).fetchall()
         existing = {row[0] for row in rows}
-        from heroforge.db.schema import _EXPECTED_TABLES
-
-        assert _EXPECTED_TABLES.issubset(existing)
+        assert frozenset(_EXPECTED_TABLES).issubset(existing)
         conn2.close()
 
 

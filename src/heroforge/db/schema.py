@@ -553,7 +553,7 @@ CREATE INDEX IF NOT EXISTS idx_soulmelds_name ON soulmelds(name);
 
 # Derived at module load time from SCHEMA_SQL so it always stays in sync.
 _EXPECTED_TABLES: frozenset[str] = frozenset(
-    re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", SCHEMA_SQL)
+    re.findall(r"CREATE TABLE IF NOT EXISTS\s+(\w+)", SCHEMA_SQL)
 )
 
 
