@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -20,10 +21,12 @@ def tmp_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture()
-def db_conn(tmp_db: Path) -> sqlite3.Connection:
+def db_conn(tmp_db: Path) -> Iterator[sqlite3.Connection]:
     """Return an open connection to the test database."""
     from heroforge.db.schema import get_connection
 
     conn = get_connection(tmp_db)
-    yield conn  # type: ignore[misc]
-    conn.close()
+    try:
+        yield conn
+    finally:
+        conn.close()
