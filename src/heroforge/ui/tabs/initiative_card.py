@@ -80,9 +80,10 @@ class InitiativeCardTab(QWidget):
         self._table.setCellWidget(row, 5, rm_btn)
 
     def _remove_row(self, button: QPushButton) -> None:
-        index = self._table.indexAt(button.pos())
-        if index.isValid():
-            self._table.removeRow(index.row())
+        for row in range(self._table.rowCount()):
+            if self._table.cellWidget(row, 5) is button:
+                self._table.removeRow(row)
+                return
 
     def _sort(self) -> None:
         rows = self._table.rowCount()
