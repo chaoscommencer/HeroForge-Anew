@@ -87,16 +87,41 @@ class InitiativeCardTab(QWidget):
 
     def _sort(self) -> None:
         rows = self._table.rowCount()
-        data = []
+        snapshots = []
         for r in range(rows):
             name_item = self._table.item(r, 0)
             init_widget = self._table.cellWidget(r, 1)
-            name = name_item.text() if name_item else ""
-            init = init_widget.value() if init_widget else 0
-            data.append((init, name, r))
-        data.sort(key=lambda x: (-x[0], x[1]))
-        # Rebuild order (simplified: just re-label for now)
-        for new_pos, (init_val, name, _) in enumerate(data):
-            item = self._table.item(new_pos, 0)
-            if item:
-                item.setText(name)
+            hp_widget = self._table.cellWidget(r, 2)
+            ac_widget = self._table.cellWidget(r, 3)
+            status_item = self._table.item(r, 4)
+            snapshots.append(
+                (
+                    name_item.text() if name_item else "",
+                    init_widget.value() if init_widget else 0,
+                    hp_widget.value() if hp_widget else 0,
+                    ac_widget.value() if ac_widget else 0,
+                    status_item.text() if status_item else "",
+                )
+            )
+        snapshots.sort(key=lambda x: (-x[1], x[0]))
+        self._table.setRowCount(0)
+        for name, init, hp, ac, status in snapshots:
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+            self._table.setItem(row, 0, QTableWidgetItem(name))
+            init_spin = QSpinBox()
+            init_spin.setRange(-10, 50)
+            init_spin.setValue(init)
+            self._table.setCellWidget(row, 1, init_spin)
+            hp_spin = QSpinBox()
+            hp_spin.setRange(0, 9999)
+            hp_spin.setValue(hp)
+            self._table.setCellWidget(row, 2, hp_spin)
+            ac_spin = QSpinBox()
+            ac_spin.setRange(0, 60)
+            ac_spin.setValue(ac)
+            self._table.setCellWidget(row, 3, ac_spin)
+            self._table.setItem(row, 4, QTableWidgetItem(status))
+            rm_btn = QPushButton("×")
+            rm_btn.clicked.connect(lambda _, b=rm_btn: self._remove_row(b))
+            self._table.setCellWidget(row, 5, rm_btn)
