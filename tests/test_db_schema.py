@@ -76,7 +76,6 @@ _EXPECTED_INDEXES = [
     "idx_feats_name",
     "idx_skills_name",
     "idx_spells_name",
-    "idx_spells_class",
     "idx_weapons_name",
     "idx_creatures_name",
     "idx_soulmelds_name",

@@ -545,7 +545,6 @@ CREATE INDEX IF NOT EXISTS idx_classes_name   ON classes(name);
 CREATE INDEX IF NOT EXISTS idx_feats_name     ON feats(name);
 CREATE INDEX IF NOT EXISTS idx_skills_name    ON skills(name);
 CREATE INDEX IF NOT EXISTS idx_spells_name    ON spells(name);
-CREATE INDEX IF NOT EXISTS idx_spells_class   ON spells(name);
 CREATE INDEX IF NOT EXISTS idx_weapons_name   ON weapons(name);
 CREATE INDEX IF NOT EXISTS idx_creatures_name ON creatures(name);
 CREATE INDEX IF NOT EXISTS idx_soulmelds_name ON soulmelds(name);
