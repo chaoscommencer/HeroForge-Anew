@@ -6,6 +6,7 @@ Call initialize_database() to create a fresh database.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 
@@ -550,6 +551,11 @@ CREATE INDEX IF NOT EXISTS idx_creatures_name ON creatures(name);
 CREATE INDEX IF NOT EXISTS idx_soulmelds_name ON soulmelds(name);
 """
 
+# Derived at module load time from SCHEMA_SQL so it always stays in sync.
+_EXPECTED_TABLES: frozenset[str] = frozenset(
+    re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", SCHEMA_SQL)
+)
+
 
 def get_connection(db_path: str | Path = "heroforge.db") -> sqlite3.Connection:
     """Return a SQLite connection with foreign keys enabled and row_factory set.
@@ -569,9 +575,12 @@ def get_connection(db_path: str | Path = "heroforge.db") -> sqlite3.Connection:
 def initialize_database(db_path: str | Path = "heroforge.db") -> sqlite3.Connection:
     """Create the database file (if absent) and apply the full schema.
 
-    If the database file already exists and already contains at least one
-    user table, this function returns the open connection without applying
-    the schema script again.
+    If the database file already exists and contains all expected schema tables,
+    this function returns the open connection without re-applying the schema.
+    If the file exists but is missing any expected tables (e.g. due to an
+    interrupted initialization or corruption), the schema is applied so all
+    missing tables are created.  Existing tables and their data are never
+    affected because every ``CREATE TABLE`` statement uses ``IF NOT EXISTS``.
 
     Args:
         db_path: Path where the SQLite file will be created/opened.
@@ -580,16 +589,17 @@ def initialize_database(db_path: str | Path = "heroforge.db") -> sqlite3.Connect
         An open :class:`sqlite3.Connection` to the initialised database.
     """
     db_path = Path(db_path)
-    db_exists = db_path.exists()
     conn = get_connection(db_path)
 
-    if db_exists:
-        user_table_row = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' "
-            "AND name NOT LIKE 'sqlite_%' LIMIT 1"
-        ).fetchone()
-        if user_table_row is not None:
-            return conn
+    existing_tables: frozenset[str] = frozenset(
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    )
+    if _EXPECTED_TABLES.issubset(existing_tables):
+        return conn
 
     conn.executescript(SCHEMA_SQL)
     conn.commit()

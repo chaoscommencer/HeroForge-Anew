@@ -120,15 +120,41 @@ class TestInitializeDatabase:
         conn.close()
 
         conn2 = initialize_database(db_path)
+
+        # Existing data must be preserved regardless of schema state.
         count = conn2.execute("SELECT COUNT(*) FROM custom_table").fetchone()
         assert count is not None
         assert count[0] == 1
 
-        # Existing databases should be returned as-is without applying the schema.
+        # The DB was missing schema tables, so they should now have been added
+        # (all CREATE TABLE statements use IF NOT EXISTS – no data is harmed).
         schema_table = conn2.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='races'"
         ).fetchone()
-        assert schema_table is None
+        assert schema_table is not None
+        conn2.close()
+
+    def test_partial_schema_completed(self, tmp_path: Path) -> None:
+        """A DB that was only partially initialized gets all missing tables added."""
+        db_path = tmp_path / "partial.db"
+        # Simulate an interrupted initialization: only 'races' was created.
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE races (id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL)"
+        )
+        conn.commit()
+        conn.close()
+
+        conn2 = initialize_database(db_path)
+
+        # All expected tables must now exist.
+        rows = conn2.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        existing = {row[0] for row in rows}
+        from heroforge.db.schema import _EXPECTED_TABLES
+
+        assert _EXPECTED_TABLES.issubset(existing)
         conn2.close()
 
 
