@@ -5,6 +5,10 @@ Reference: PHB Chapter 5.
 
 from __future__ import annotations
 
+import logging
+
+import pytest
+
 from heroforge.logic.feats import (
     available_feats,
     check_prerequisites,
@@ -103,6 +107,12 @@ class TestCheckPrerequisites:
             )
             is False
         )
+
+    def test_empty_prereq_logs_debug(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.DEBUG, logger="heroforge.logic.feats"):
+            result = check_prerequisites(["", "STR 13"], 5, {"STR": 13}, {}, [], 5)
+        assert result is True
+        assert "Received empty prerequisite" in caplog.text
 
 
 class TestAvailableFeats:

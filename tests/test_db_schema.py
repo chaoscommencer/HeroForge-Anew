@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from heroforge.db.schema import SCHEMA_SQL, get_connection, initialize_database
+from heroforge.db.schema import SCHEMA_SQL, initialize_database
 
 # All table names that must exist after initialization
 _EXPECTED_TABLES = [
@@ -109,6 +109,26 @@ class TestInitializeDatabase:
         conn1.close()
         # Should not raise on second call
         conn2 = initialize_database(db_path)
+        conn2.close()
+
+    def test_existing_db_not_modified(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "existing.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE TABLE custom_table (id INTEGER PRIMARY KEY, v TEXT)")
+        conn.execute("INSERT INTO custom_table (v) VALUES ('x')")
+        conn.commit()
+        conn.close()
+
+        conn2 = initialize_database(db_path)
+        count = conn2.execute("SELECT COUNT(*) FROM custom_table").fetchone()
+        assert count is not None
+        assert count[0] == 1
+
+        # Existing databases should be returned as-is without applying the schema.
+        schema_table = conn2.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='races'"
+        ).fetchone()
+        assert schema_table is None
         conn2.close()
 
 

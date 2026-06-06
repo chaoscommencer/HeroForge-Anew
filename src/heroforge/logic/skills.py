@@ -34,8 +34,12 @@ def skill_modifier(
 ) -> int:
     """Calculate the total skill check modifier.
 
-    Characters with at least 1 rank in a class skill gain a +3 class-skill
-    bonus.  Reference: PHB p62.
+    Skill checks use the invested ranks, relevant ability modifier, and any
+    miscellaneous modifiers.
+
+    ``is_class_skill`` affects maximum ranks and point cost, but does not
+    apply any additional check modifier by itself. The parameter is retained
+    for API compatibility with existing call sites.
 
     Args:
         ranks:          Skill ranks invested.
@@ -46,8 +50,7 @@ def skill_modifier(
     Returns:
         Total skill modifier.
     """
-    class_bonus = 3 if (is_class_skill and ranks > 0) else 0
-    return int(ranks) + ability_mod + class_bonus + misc
+    return int(ranks) + ability_mod + misc
 
 
 def cross_class_rank_cost() -> int:

@@ -30,22 +30,22 @@ class TestMaxRanks:
 
 class TestSkillModifier:
     def test_class_skill_with_ranks(self) -> None:
-        # 4 ranks, +2 ability, class skill: 4+2+3 = 9
-        assert skill_modifier(4.0, 2, is_class_skill=True) == 9
+        # 4 ranks, +2 ability: 4+2 = 6
+        assert skill_modifier(4.0, 2, is_class_skill=True) == 6
 
     def test_cross_class_skill(self) -> None:
         # 2 ranks, +1 ability, not class skill: 2+1 = 3
         assert skill_modifier(2.0, 1, is_class_skill=False) == 3
 
     def test_no_ranks_class_skill_no_bonus(self) -> None:
-        # 0 ranks → no class skill bonus
+        # 0 ranks, +3 ability
         assert skill_modifier(0.0, 3, is_class_skill=True) == 3
 
     def test_with_misc(self) -> None:
-        assert skill_modifier(4.0, 2, is_class_skill=True, misc=2) == 11
+        assert skill_modifier(4.0, 2, is_class_skill=True, misc=2) == 8
 
     def test_negative_ability(self) -> None:
-        assert skill_modifier(2.0, -1, is_class_skill=True) == 4  # 2-1+3
+        assert skill_modifier(2.0, -1, is_class_skill=True) == 1  # 2-1
 
 
 class TestCrossClassRankCost:

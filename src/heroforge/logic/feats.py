@@ -5,7 +5,10 @@ Reference: PHB p87–88 (feat acquisition), PHB Chapter 5 (feat list).
 
 from __future__ import annotations
 
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 
 def feat_slots_available(
@@ -133,6 +136,10 @@ def check_prerequisites(
     for prereq in feat_prerequisites:
         prereq = prereq.strip()
         if not prereq:
+            logger.debug(
+                "Received empty prerequisite in prerequisite list: %r",
+                feat_prerequisites,
+            )
             continue
 
         # Check ability score prerequisite

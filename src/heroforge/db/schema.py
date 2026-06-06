@@ -569,13 +569,28 @@ def get_connection(db_path: str | Path = "heroforge.db") -> sqlite3.Connection:
 def initialize_database(db_path: str | Path = "heroforge.db") -> sqlite3.Connection:
     """Create the database file (if absent) and apply the full schema.
 
+    If the database file already exists and already contains at least one
+    user table, this function returns the open connection without applying
+    the schema script again.
+
     Args:
         db_path: Path where the SQLite file will be created/opened.
 
     Returns:
         An open :class:`sqlite3.Connection` to the initialised database.
     """
+    db_path = Path(db_path)
+    db_exists = db_path.exists()
     conn = get_connection(db_path)
+
+    if db_exists:
+        user_table_row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%' LIMIT 1"
+        ).fetchone()
+        if user_table_row is not None:
+            return conn
+
     conn.executescript(SCHEMA_SQL)
     conn.commit()
     return conn
