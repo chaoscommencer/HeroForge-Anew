@@ -83,5 +83,11 @@ class PrestigeClassesTab(QWidget):
         spin.setRange(1, 10)
         self._taken_table.setCellWidget(row, 1, spin)
         rm_btn = QPushButton("Remove")
-        rm_btn.clicked.connect(lambda _, r=row: self._taken_table.removeRow(r))
+        rm_btn.clicked.connect(lambda _, b=rm_btn: self._remove_prestige_row(b))
         self._taken_table.setCellWidget(row, 2, rm_btn)
+
+    def _remove_prestige_row(self, button: QPushButton) -> None:
+        for row in range(self._taken_table.rowCount()):
+            if self._taken_table.cellWidget(row, 2) is button:
+                self._taken_table.removeRow(row)
+                return
