@@ -598,7 +598,19 @@ def initialize_database(db_path: str | Path = "heroforge.db") -> sqlite3.Connect
             "AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
     )
-    if _EXPECTED_TABLES.issubset(existing_tables):
+    existing_indexes: frozenset[str] = frozenset(
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' "
+            "AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    )
+    expected_indexes: frozenset[str] = frozenset(
+        re.findall(r"CREATE INDEX IF NOT EXISTS\s+(\w+)", SCHEMA_SQL)
+    )
+    if _EXPECTED_TABLES.issubset(existing_tables) and expected_indexes.issubset(
+        existing_indexes
+    ):
         return conn
 
     conn.executescript(SCHEMA_SQL)
