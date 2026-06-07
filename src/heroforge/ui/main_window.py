@@ -56,7 +56,14 @@ from heroforge.ui.tabs.traits_and_flaws import TraitsAndFlawsTab
 
 
 class CharacterModel(QObject):
-    """Holds the active character state and emits signals when it changes.
+    """Holds the active character's selections and emits change signals.
+
+    This is the **per-character** model (the volatile, user-owned choices that
+    are persisted to ``.hfc`` save files via :mod:`heroforge.db.character_repo`).
+    It is distinct from the read-only, application-wide game data ("ROM"): that
+    lives in a :class:`~heroforge.db.data_access.GameDataRepository`, which is
+    injected here so tabs can reach it through :meth:`game_data` without this
+    model owning or persisting it.
 
     All tabs should connect to these signals to stay in sync.
     """
@@ -86,10 +93,14 @@ class CharacterModel(QObject):
     """Emitted when a new blank character is created."""
 
     def __init__(
-        self, parent: QObject | None = None, db_path: str | None = None
+        self,
+        parent: QObject | None = None,
+        game_data: GameDataRepository | None = None,
     ) -> None:
         super().__init__(parent)
-        self._db_path: str | None = db_path
+        # The shared, read-only game data (ROM). Kept separate from the
+        # per-character state below; this model never mutates or persists it.
+        self._game_data: GameDataRepository = game_data or GameDataRepository(None)
         self._character = Character()
 
     @property
@@ -126,23 +137,15 @@ class CharacterModel(QObject):
         save_character_to_file(self._character, path)
         return self._character
 
-    @property
-    def db_path(self) -> str | None:
-        """Path to the heroforge.db SQLite database, if set."""
-        return self._db_path
-
-    @db_path.setter
-    def db_path(self, value: str | None) -> None:
-        self._db_path = value
-
     def game_data(self) -> GameDataRepository:
-        """Return a read-only repository over the active game database.
+        """Return the shared, read-only game-data (ROM) repository.
 
-        This is the shared, DB-backed data-access path every tab and dialog
-        should use instead of issuing raw SQLite queries.  The repository
+        This is application-wide reference data, distinct from the per-character
+        state held by this model.  Every tab and dialog reads seeded game data
+        through it instead of issuing raw SQLite queries.  The repository
         degrades gracefully to empty results when no database is configured.
         """
-        return GameDataRepository(self._db_path)
+        return self._game_data
 
 
 # ---------------------------------------------------------------------------
@@ -180,12 +183,16 @@ class MainWindow(QMainWindow):
         ("Initiative Card", InitiativeCardTab),
     ]
 
-    def __init__(self, db_path: str | None = None) -> None:
+    def __init__(self, game_db_path: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle("HeroForge Anew – D&D 3.5 Character Builder")
         self.resize(1200, 800)
 
-        self.model = CharacterModel(self, db_path=db_path)
+        # Read-only game data ("ROM"): seeded reference data shared by every
+        # tab.  It is injected into the per-character model rather than owned by
+        # it, keeping application data and character state cleanly separated.
+        game_data = GameDataRepository(game_db_path)
+        self.model = CharacterModel(self, game_data=game_data)
         self._current_file: str | None = None
 
         self._build_menu()

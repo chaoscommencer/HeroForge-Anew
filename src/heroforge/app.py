@@ -66,6 +66,6 @@ def main() -> None:
     except Exception:
         pass  # Stylesheet is cosmetic – don't crash on load failure
 
-    window = MainWindow(db_path=str(_DB_PATH))
+    window = MainWindow(game_db_path=str(_DB_PATH))
     window.show()
     sys.exit(app.exec())

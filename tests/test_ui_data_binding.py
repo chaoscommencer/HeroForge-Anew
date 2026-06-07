@@ -52,16 +52,18 @@ def seeded_db(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def model(qapp: object, seeded_db: Path) -> object:
+    from heroforge.db.data_access import GameDataRepository
     from heroforge.ui.main_window import CharacterModel
 
-    return CharacterModel(db_path=str(seeded_db))
+    return CharacterModel(game_data=GameDataRepository(str(seeded_db)))
 
 
 @pytest.fixture()
 def empty_model(qapp: object) -> object:
+    from heroforge.db.data_access import GameDataRepository
     from heroforge.ui.main_window import CharacterModel
 
-    return CharacterModel(db_path=None)
+    return CharacterModel(game_data=GameDataRepository(None))
 
 
 class TestFeatsTab:
@@ -163,10 +165,13 @@ class TestSourceSelectDialog:
 
 
 class TestMainWindowWiring:
-    def test_db_path_threaded_into_model(self, qapp: object, seeded_db: Path) -> None:
+    def test_game_db_path_threaded_into_model(
+        self, qapp: object, seeded_db: Path
+    ) -> None:
         from heroforge.ui.main_window import MainWindow
 
-        window = MainWindow(db_path=str(seeded_db))
-        assert window.model.db_path == str(seeded_db)
-        # The shared repository is reachable and DB-backed.
+        window = MainWindow(game_db_path=str(seeded_db))
+        # The window injects the seeded game data ("ROM") into the model, which
+        # exposes it as a read-only repository distinct from character state.
+        assert window.model.game_data().db_path == seeded_db
         assert window.model.game_data().available is True
