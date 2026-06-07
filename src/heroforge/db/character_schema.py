@@ -15,7 +15,12 @@ without loss:
 * incarnum soulmelds, martial maneuvers/stances, and binder vestiges;
 * cleric domains, marshal auras, class/racial variants, and skill tricks;
 * equipment, buffs, languages, grafts, traits/flaws;
-* animal companions/familiars and timestamped game-log notes.
+* coin/valuables wealth, configured weapon attacks, and manual stat
+  enhancements (the Stats, Attacks, and Enhancements worksheets);
+* build/house-rule options (the Options worksheet) and homebrew custom
+  content (the Custom Race/Template/Class/Familiar worksheets);
+* animal companions/familiars, Living Greyhawk campaign records, and
+  timestamped game-log notes.
 
 Keeping the character schema in its own module enforces a clean separation of
 concerns between the user's volatile character data and the application's
@@ -216,6 +221,65 @@ CREATE TABLE IF NOT EXISTS character_companions (
     name            TEXT,
     creature        TEXT,
     notes           TEXT
+);
+
+CREATE TABLE IF NOT EXISTS character_options (
+    id              INTEGER PRIMARY KEY,
+    character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    option_name     TEXT NOT NULL,
+    value           TEXT,
+    UNIQUE(character_id, option_name)
+);
+
+CREATE TABLE IF NOT EXISTS character_wealth (
+    id              INTEGER PRIMARY KEY,
+    character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    kind            TEXT NOT NULL,
+    amount          REAL NOT NULL DEFAULT 0,
+    UNIQUE(character_id, kind)
+);
+
+CREATE TABLE IF NOT EXISTS character_attacks (
+    id              INTEGER PRIMARY KEY,
+    character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    weapon_name     TEXT NOT NULL,
+    attack_bonus    TEXT,
+    damage          TEXT,
+    critical        TEXT,
+    range_increment TEXT,
+    damage_type     TEXT,
+    ammunition      TEXT,
+    notes           TEXT,
+    order_taken     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS character_enhancements (
+    id              INTEGER PRIMARY KEY,
+    character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    target          TEXT NOT NULL,
+    bonus_type      TEXT,
+    value           INTEGER NOT NULL DEFAULT 0,
+    notes           TEXT
+);
+
+CREATE TABLE IF NOT EXISTS character_custom_content (
+    id              INTEGER PRIMARY KEY,
+    character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    content_type    TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    definition      TEXT
+);
+
+CREATE TABLE IF NOT EXISTS character_lg_records (
+    id              INTEGER PRIMARY KEY,
+    character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    record_type     TEXT NOT NULL,
+    event_date      TEXT,
+    description     TEXT,
+    gp_change       REAL NOT NULL DEFAULT 0,
+    xp_change       REAL NOT NULL DEFAULT 0,
+    notes           TEXT,
+    order_taken     INTEGER NOT NULL DEFAULT 0
 );
 """
 

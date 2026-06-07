@@ -94,6 +94,27 @@ Psion|1|Mind Thrust
 [Companions]
 Animal Companion|Rex|Wolf|Loyal scout
 
+[Options]
+Gestalt=true
+Fractional BAB=true
+
+[Wealth]
+platinum=2
+gold=150
+silver=30
+
+[Attacks]
+Longsword|+8/+3|1d8+4|19-20/x2|-|slashing||Masterwork
+
+[Enhancements]
+Speed|Circumstance|10|Boots of Striding
+
+[CustomContent]
+race|Half-Dragon (Brass)|{"size": "Medium"}
+
+[LGRecords]
+game_log|2024-02-02|Defeated bandits|150|450|AR for The Bandit Kings
+
 [Traits]
 Aggressive|0
 

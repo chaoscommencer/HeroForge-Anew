@@ -57,6 +57,7 @@ _EXPECTED_TABLES = [
     "armor",
     "magic_enhancements",
     "magic_equipment",
+    "buffs",
     "creatures",
     "tables",
     "languages",
@@ -89,6 +90,12 @@ _CHARACTER_TABLES = [
     "character_skill_tricks",
     "character_psionic_powers",
     "character_companions",
+    "character_options",
+    "character_wealth",
+    "character_attacks",
+    "character_enhancements",
+    "character_custom_content",
+    "character_lg_records",
 ]
 
 _EXPECTED_INDEXES = [
@@ -100,6 +107,7 @@ _EXPECTED_INDEXES = [
     "idx_weapons_name",
     "idx_creatures_name",
     "idx_soulmelds_name",
+    "idx_buffs_name",
 ]
 
 

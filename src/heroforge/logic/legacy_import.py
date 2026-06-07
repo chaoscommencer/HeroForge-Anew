@@ -80,6 +80,26 @@ Recognised layout (INI-like, sections in any order)::
     [Companions]
     Animal Companion|Rex|Wolf|Loyal scout
 
+    [Options]
+    Gestalt=true
+    Fractional BAB=true
+
+    [Wealth]
+    platinum=2
+    gold=150
+
+    [Attacks]
+    Longsword|+8/+3|1d8+4|19-20/x2|-|slashing||Masterwork
+
+    [Enhancements]
+    Speed|Circumstance|10|Boots of Striding
+
+    [CustomContent]
+    race|Half-Dragon (Brass)|{"size": "Medium"}
+
+    [LGRecords]
+    game_log|2024-02-02|Defeated bandits|150|450|AR for The Bandit Kings
+
     [Traits]
     Aggressive|0
 
@@ -94,7 +114,8 @@ Recognised layout (INI-like, sections in any order)::
 
 Order is preserved for classes, feats, equipment, buffs, languages, spells,
 soulmelds, maneuvers, stances, grafts, traits, variants, domains, vestiges,
-marshal auras, skill tricks, psionic powers, companions, and game-log entries.
+marshal auras, skill tricks, psionic powers, companions, attacks, custom
+content, Living Greyhawk records, and game-log entries.
 """
 
 from __future__ import annotations
@@ -315,6 +336,72 @@ def parse_hfg(text: str) -> Character:
                     "notes": (parts[2].strip() or None) if len(parts) > 2 else None,
                 }
             character.companions.append(companion)
+
+        elif section == "options":
+            key, _, value = stripped.partition("=")
+            character.options[key.strip()] = value.strip()
+
+        elif section == "wealth":
+            key, _, value = stripped.partition("=")
+            character.wealth[key.strip()] = _to_float(value)
+
+        elif section == "attacks":
+            parts = [p.strip() for p in stripped.split("|")]
+            parts += [""] * (8 - len(parts))
+            character.attacks.append(
+                {
+                    "weapon_name": parts[0],
+                    "attack_bonus": parts[1] or None,
+                    "damage": parts[2] or None,
+                    "critical": parts[3] or None,
+                    "range_increment": parts[4] or None,
+                    "damage_type": parts[5] or None,
+                    "ammunition": parts[6] or None,
+                    "notes": parts[7] or None,
+                }
+            )
+
+        elif section == "enhancements":
+            parts = stripped.split("|")
+            character.enhancements.append(
+                {
+                    "target": parts[0].strip(),
+                    "bonus_type": (
+                        (parts[1].strip() or None) if len(parts) > 1 else None
+                    ),
+                    "value": _to_int(parts[2]) if len(parts) > 2 else 0,
+                    "notes": (parts[3].strip() or None) if len(parts) > 3 else None,
+                }
+            )
+
+        elif section in ("customcontent", "custom"):
+            parts = stripped.split("|")
+            character.custom_content.append(
+                {
+                    "content_type": parts[0].strip(),
+                    "name": parts[1].strip() if len(parts) > 1 else "",
+                    "definition": (
+                        (parts[2].strip() or None) if len(parts) > 2 else None
+                    ),
+                }
+            )
+
+        elif section in ("lgrecords", "lg"):
+            parts = stripped.split("|")
+            character.lg_records.append(
+                {
+                    "record_type": parts[0].strip(),
+                    "event_date": (
+                        (parts[1].strip() or None) if len(parts) > 1 else None
+                    ),
+                    "description": (
+                        (parts[2].strip() or None) if len(parts) > 2 else None
+                    ),
+                    "gp_change": _to_float(parts[3]) if len(parts) > 3 else 0.0,
+                    "xp_change": _to_float(parts[4]) if len(parts) > 4 else 0.0,
+                    "notes": (parts[5].strip() or None) if len(parts) > 5 else None,
+                }
+            )
 
         elif section == "gamelog":
             timestamp, sep, content = stripped.partition("|")

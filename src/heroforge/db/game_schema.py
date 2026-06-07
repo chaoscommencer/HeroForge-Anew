@@ -368,6 +368,17 @@ CREATE TABLE IF NOT EXISTS magic_equipment (
     source      TEXT
 );
 
+CREATE TABLE IF NOT EXISTS buffs (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT NOT NULL,
+    category    TEXT,
+    spell_level INTEGER,
+    bonus_type  TEXT,
+    description TEXT,
+    source      TEXT,
+    UNIQUE(name, category)
+);
+
 CREATE TABLE IF NOT EXISTS creatures (
     id          INTEGER PRIMARY KEY,
     name        TEXT UNIQUE NOT NULL,
@@ -438,6 +449,7 @@ CREATE INDEX IF NOT EXISTS idx_spells_name    ON spells(name);
 CREATE INDEX IF NOT EXISTS idx_weapons_name   ON weapons(name);
 CREATE INDEX IF NOT EXISTS idx_creatures_name ON creatures(name);
 CREATE INDEX IF NOT EXISTS idx_soulmelds_name ON soulmelds(name);
+CREATE INDEX IF NOT EXISTS idx_buffs_name     ON buffs(name);
 """
 
 # Derived at import time so the table/index sets always stay in sync with the

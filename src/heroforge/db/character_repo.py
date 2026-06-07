@@ -52,6 +52,12 @@ _RELATED_TABLES: tuple[str, ...] = (
     "character_skill_tricks",
     "character_psionic_powers",
     "character_companions",
+    "character_options",
+    "character_wealth",
+    "character_attacks",
+    "character_enhancements",
+    "character_custom_content",
+    "character_lg_records",
     "character_notes",
 )
 
@@ -379,6 +385,89 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
             ],
         )
         cur.executemany(
+            "INSERT INTO character_options "
+            "(character_id, option_name, value) VALUES (?, ?, ?)",
+            [
+                (cid, str(name), None if value is None else str(value))
+                for name, value in character.options.items()
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_wealth "
+            "(character_id, kind, amount) VALUES (?, ?, ?)",
+            [
+                (cid, str(kind), float(amount))
+                for kind, amount in character.wealth.items()
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_attacks "
+            "(character_id, weapon_name, attack_bonus, damage, critical, "
+            "range_increment, damage_type, ammunition, notes, order_taken) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(attack.get("weapon_name", "")),
+                    attack.get("attack_bonus"),
+                    attack.get("damage"),
+                    attack.get("critical"),
+                    attack.get("range_increment"),
+                    attack.get("damage_type"),
+                    attack.get("ammunition"),
+                    attack.get("notes"),
+                    order,
+                )
+                for order, attack in enumerate(character.attacks)
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_enhancements "
+            "(character_id, target, bonus_type, value, notes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(enh.get("target", "")),
+                    enh.get("bonus_type"),
+                    int(enh.get("value", 0)),
+                    enh.get("notes"),
+                )
+                for enh in character.enhancements
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_custom_content "
+            "(character_id, content_type, name, definition) VALUES (?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(content.get("content_type", "")),
+                    str(content.get("name", "")),
+                    content.get("definition"),
+                )
+                for content in character.custom_content
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_lg_records "
+            "(character_id, record_type, event_date, description, gp_change, "
+            "xp_change, notes, order_taken) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(record.get("record_type", "")),
+                    record.get("event_date"),
+                    record.get("description"),
+                    float(record.get("gp_change", 0)),
+                    float(record.get("xp_change", 0)),
+                    record.get("notes"),
+                    order,
+                )
+                for order, record in enumerate(character.lg_records)
+            ],
+        )
+        cur.executemany(
             "INSERT INTO character_notes "
             "(character_id, timestamp, content) VALUES (?, ?, ?)",
             [
@@ -657,6 +746,86 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
         for cr in conn.execute(
             "SELECT companion_type, name, creature, notes FROM character_companions "
             "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.options = {
+        orow["option_name"]: orow["value"]
+        for orow in conn.execute(
+            "SELECT option_name, value FROM character_options "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    }
+
+    character.wealth = {
+        wr["kind"]: wr["amount"]
+        for wr in conn.execute(
+            "SELECT kind, amount FROM character_wealth "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    }
+
+    character.attacks = [
+        {
+            "weapon_name": atk["weapon_name"],
+            "attack_bonus": atk["attack_bonus"],
+            "damage": atk["damage"],
+            "critical": atk["critical"],
+            "range_increment": atk["range_increment"],
+            "damage_type": atk["damage_type"],
+            "ammunition": atk["ammunition"],
+            "notes": atk["notes"],
+        }
+        for atk in conn.execute(
+            "SELECT weapon_name, attack_bonus, damage, critical, range_increment, "
+            "damage_type, ammunition, notes FROM character_attacks "
+            "WHERE character_id = ? ORDER BY order_taken, id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.enhancements = [
+        {
+            "target": en["target"],
+            "bonus_type": en["bonus_type"],
+            "value": en["value"],
+            "notes": en["notes"],
+        }
+        for en in conn.execute(
+            "SELECT target, bonus_type, value, notes FROM character_enhancements "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.custom_content = [
+        {
+            "content_type": ccr["content_type"],
+            "name": ccr["name"],
+            "definition": ccr["definition"],
+        }
+        for ccr in conn.execute(
+            "SELECT content_type, name, definition FROM character_custom_content "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.lg_records = [
+        {
+            "record_type": lr["record_type"],
+            "event_date": lr["event_date"],
+            "description": lr["description"],
+            "gp_change": lr["gp_change"],
+            "xp_change": lr["xp_change"],
+            "notes": lr["notes"],
+        }
+        for lr in conn.execute(
+            "SELECT record_type, event_date, description, gp_change, xp_change, notes "
+            "FROM character_lg_records WHERE character_id = ? ORDER BY order_taken, id",
             (character_id,),
         ).fetchall()
     ]

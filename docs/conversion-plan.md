@@ -271,7 +271,18 @@ choice exposed by the Excel workbook has an equivalent save table:
 | `character_traits` | Traits and flaws selected |
 | `character_grafts` | Grafts attached, with body slot |
 | `character_companions` | Animal companions / familiars |
+| `character_options` | Build / house-rule option toggles (Options sheet) |
+| `character_wealth` | Coins and valuables by kind (Stats sheet) |
+| `character_attacks` | Configured weapon attacks (Attacks sheet) |
+| `character_enhancements` | Manual stat bonus/penalty adjustments (Enhancements sheet) |
+| `character_custom_content` | Homebrew race/template/class/familiar definitions (Custom * sheets) |
+| `character_lg_records` | Living Greyhawk campaign records (LG Game Log / Item Access / MIL) |
 | `character_notes` | Free-text game-log entries (replaces Game Log) |
+
+The game (ROM) schema likewise carries a reference table for every catalogue
+of selectable data in the workbook, including a `buffs` table seeded from the
+two-column **Buffs** sheet (buff spells grouped by spell level plus class
+buffs), which `character_buffs` references by name.
 
 ### 6.3 Seed Script (`src/heroforge/db/seed.py`)
 

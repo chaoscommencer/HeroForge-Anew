@@ -81,6 +81,22 @@ class Character:
     """Psionic powers known, each ``{class_name, power_level, power_name}``."""
     companions: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
     """Animal companions/familiars, each ``{companion_type, name, creature, notes}``."""
+    options: dict[str, str] = field(default_factory=dict)
+    """Build / house-rule option toggles (e.g. ``{"Gestalt": "true"}``)."""
+    wealth: dict[str, float] = field(default_factory=dict)
+    """Coins and valuables by kind (``platinum``/``gold``/``silver``/``copper``/…)."""
+    attacks: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Configured weapon attacks, each ``{weapon_name, attack_bonus, damage,
+    critical, range_increment, damage_type, ammunition, notes}``."""
+    enhancements: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Manual stat enhancements/adjustments, each
+    ``{target, bonus_type, value, notes}``."""
+    custom_content: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Homebrew definitions, each ``{content_type, name, definition}``;
+    ``definition`` is a JSON string."""
+    lg_records: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Living Greyhawk records, each ``{record_type, event_date, description,
+    gp_change, xp_change, notes}``."""
     game_log: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
     """Timestamped free-text log entries, each ``{timestamp, content}``."""
 

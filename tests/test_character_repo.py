@@ -117,6 +117,45 @@ def _sample_character() -> Character:
                 "notes": "Loyal scout",
             },
         ],
+        options={"Gestalt": "true", "Fractional BAB": "true"},
+        wealth={"platinum": 2.0, "gold": 150.0, "silver": 30.0},
+        attacks=[
+            {
+                "weapon_name": "Longsword",
+                "attack_bonus": "+8/+3",
+                "damage": "1d8+4",
+                "critical": "19-20/x2",
+                "range_increment": None,
+                "damage_type": "slashing",
+                "ammunition": None,
+                "notes": "Masterwork",
+            },
+        ],
+        enhancements=[
+            {
+                "target": "Speed",
+                "bonus_type": "Circumstance",
+                "value": 10,
+                "notes": "Boots of Striding",
+            },
+        ],
+        custom_content=[
+            {
+                "content_type": "race",
+                "name": "Half-Dragon (Brass)",
+                "definition": '{"size": "Medium"}',
+            },
+        ],
+        lg_records=[
+            {
+                "record_type": "game_log",
+                "event_date": "2024-02-02",
+                "description": "Defeated bandits",
+                "gp_change": 150.0,
+                "xp_change": 450.0,
+                "notes": "AR for The Bandit Kings",
+            },
+        ],
         game_log=[
             {"timestamp": "2024-01-01T10:00:00", "content": "Set out from Verbobonc."},
         ],
@@ -181,6 +220,12 @@ class TestSaveLoadRoundTrip:
         assert loaded.skill_tricks == char.skill_tricks
         assert loaded.psionic_powers == char.psionic_powers
         assert loaded.companions == char.companions
+        assert loaded.options == char.options
+        assert loaded.wealth == char.wealth
+        assert loaded.attacks == char.attacks
+        assert loaded.enhancements == char.enhancements
+        assert loaded.custom_content == char.custom_content
+        assert loaded.lg_records == char.lg_records
         assert loaded.game_log == char.game_log
 
     def test_writes_related_rows(self, conn: sqlite3.Connection) -> None:
@@ -208,6 +253,12 @@ class TestSaveLoadRoundTrip:
             "character_skill_tricks": 1,
             "character_psionic_powers": 1,
             "character_companions": 1,
+            "character_options": 2,
+            "character_wealth": 3,
+            "character_attacks": 1,
+            "character_enhancements": 1,
+            "character_custom_content": 1,
+            "character_lg_records": 1,
             "character_notes": 1,
         }
         for table, expected in counts.items():

@@ -154,6 +154,60 @@ class TestParseHfg:
             },
         ]
 
+    def test_options_and_wealth(self) -> None:
+        char = import_hfg(_FIXTURE)
+        assert char.options == {"Gestalt": "true", "Fractional BAB": "true"}
+        assert char.wealth == {"platinum": 2.0, "gold": 150.0, "silver": 30.0}
+
+    def test_attacks(self) -> None:
+        char = import_hfg(_FIXTURE)
+        assert char.attacks == [
+            {
+                "weapon_name": "Longsword",
+                "attack_bonus": "+8/+3",
+                "damage": "1d8+4",
+                "critical": "19-20/x2",
+                "range_increment": "-",
+                "damage_type": "slashing",
+                "ammunition": None,
+                "notes": "Masterwork",
+            },
+        ]
+
+    def test_enhancements(self) -> None:
+        char = import_hfg(_FIXTURE)
+        assert char.enhancements == [
+            {
+                "target": "Speed",
+                "bonus_type": "Circumstance",
+                "value": 10,
+                "notes": "Boots of Striding",
+            },
+        ]
+
+    def test_custom_content(self) -> None:
+        char = import_hfg(_FIXTURE)
+        assert char.custom_content == [
+            {
+                "content_type": "race",
+                "name": "Half-Dragon (Brass)",
+                "definition": '{"size": "Medium"}',
+            },
+        ]
+
+    def test_lg_records(self) -> None:
+        char = import_hfg(_FIXTURE)
+        assert char.lg_records == [
+            {
+                "record_type": "game_log",
+                "event_date": "2024-02-02",
+                "description": "Defeated bandits",
+                "gp_change": 150.0,
+                "xp_change": 450.0,
+                "notes": "AR for The Bandit Kings",
+            },
+        ]
+
     def test_empty_input(self) -> None:
         char = parse_hfg("")
         assert char.name == ""
@@ -190,4 +244,10 @@ class TestLegacyMigration:
         assert reloaded.skill_tricks == imported.skill_tricks
         assert reloaded.psionic_powers == imported.psionic_powers
         assert reloaded.companions == imported.companions
+        assert reloaded.options == imported.options
+        assert reloaded.wealth == imported.wealth
+        assert reloaded.attacks == imported.attacks
+        assert reloaded.enhancements == imported.enhancements
+        assert reloaded.custom_content == imported.custom_content
+        assert reloaded.lg_records == imported.lg_records
         assert reloaded.game_log == imported.game_log

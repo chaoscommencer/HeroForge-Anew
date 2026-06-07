@@ -476,6 +476,48 @@ def _extract_soulmeld_abilities(wb: object) -> list[tuple[object, ...]]:
     return rows
 
 
+_SPELL_LEVEL_RE = re.compile(r"(\d+)")
+
+
+def _extract_buffs(wb: object) -> list[tuple[object, ...]]:
+    """Extract the master buff catalogue from the two-column ``Buffs`` sheet.
+
+    The left block (column ``A``) lists buff *spells* grouped under spell-level
+    headers (``0 Level``, ``1st Level`` …).  The right block (column ``L``)
+    lists *class* buffs grouped under class/category headers.  Header rows carry
+    a name but no checkbox cells; buff rows carry the two ``True/False`` toggles.
+    """
+    ws = wb["Buffs"]  # type: ignore[index]
+    rows: list[tuple[object, ...]] = []
+    seen: set[tuple[str, str]] = set()
+    spell_level: object = None
+    class_category = ""
+    for row in _sheet_rows(ws, 1):
+        # Left block: buff spells grouped by spell level.
+        name = _col(row, "A")
+        if name:
+            if not _col(row, "B") and not _col(row, "C"):
+                match = _SPELL_LEVEL_RE.search(name)
+                spell_level = int(match.group(1)) if match else None
+            else:
+                key = (name, "Buff Spells")
+                if key not in seen:
+                    seen.add(key)
+                    rows.append((name, "Buff Spells", spell_level, None, None, None))
+
+        # Right block: class buffs grouped by class/category header.
+        class_name = _col(row, "L")
+        if class_name:
+            if not _col(row, "M") and not _col(row, "N"):
+                class_category = class_name.rstrip(":")
+            elif class_category:
+                key = (class_name, class_category)
+                if key not in seen:
+                    seen.add(key)
+                    rows.append((class_name, class_category, None, None, None, None))
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Workbook table registry
 #
@@ -674,6 +716,13 @@ _WORKBOOK_TABLES: tuple[_WorkbookTable, ...] = (
         "SoulmeldAbilities",
         ("soulmeld_name", "chakra", "essentia", "description"),
         _extract_soulmeld_abilities,
+    ),
+    _WorkbookTable(
+        "buffs",
+        "Buffs",
+        ("name", "category", "spell_level", "bonus_type", "description", "source"),
+        _extract_buffs,
+        unique_by=("name", "category"),
     ),
 )
 
