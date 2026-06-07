@@ -17,6 +17,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from heroforge.db.character_repo import (
+    load_character_from_file,
+    save_character_to_file,
+)
+from heroforge.logic.legacy_import import import_hfg
+from heroforge.models.character import Character
 from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
 from heroforge.ui.tabs.armor import ArmorTab
 from heroforge.ui.tabs.attacks import AttacksTab
@@ -69,8 +75,11 @@ class CharacterModel(QObject):
     buff_toggled = pyqtSignal(str, bool)
     """Emitted when a buff is enabled/disabled. Args: (buff_name, active)."""
 
-    character_loaded = pyqtSignal()
-    """Emitted after a character file is loaded from disk."""
+    character_loaded = pyqtSignal(int)
+    """Emitted after a character file is loaded from disk.
+
+    Args: (character_id,) – loaded character id; ``0`` for unsaved imports.
+    """
 
     character_reset = pyqtSignal()
     """Emitted when a new blank character is created."""
@@ -78,6 +87,41 @@ class CharacterModel(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._db_path: str | None = None
+        self._character = Character()
+
+    @property
+    def character(self) -> Character:
+        """The active character. Always present (a blank one by default)."""
+        return self._character
+
+    @character.setter
+    def character(self, value: Character) -> None:
+        self._character = value
+
+    def new_character(self) -> Character:
+        """Replace the active character with a fresh blank one and announce it."""
+        self._character = Character()
+        self.character_reset.emit()
+        return self._character
+
+    def load_character(self, path: str) -> Character:
+        """Load a character from *path* and emit :attr:`character_loaded`.
+
+        ``.hfg`` files are imported via the one-way legacy importer; all
+        other files are read as the new ``.hfc`` save format.
+        """
+        if path.lower().endswith(".hfg"):
+            character = import_hfg(path)
+        else:
+            character = load_character_from_file(path)
+        self._character = character
+        self.character_loaded.emit(character.id or 0)
+        return character
+
+    def save_character(self, path: str) -> Character:
+        """Persist the active character to *path* in the ``.hfc`` format."""
+        save_character_to_file(self._character, path)
+        return self._character
 
     @property
     def db_path(self) -> str | None:
@@ -211,7 +255,7 @@ class MainWindow(QMainWindow):
 
     def _on_new_character(self) -> None:
         self._current_file = None
-        self.model.character_reset.emit()
+        self.model.new_character()
         self.setWindowTitle("HeroForge Anew – New Character")
         self._status_bar.showMessage("New character created.", 4000)
 
@@ -220,11 +264,28 @@ class MainWindow(QMainWindow):
             self,
             "Open Character",
             "",
-            "HeroForge Character (*.hfc);;All files (*)",
+            "HeroForge Character (*.hfc);;"
+            "Legacy HeroForge Save (*.hfg);;"
+            "All files (*)",
         )
-        if path:
+        if not path:
+            return
+        try:
+            self.model.load_character(path)
+        except Exception as exc:  # noqa: BLE001 – surfaced to the user
+            QMessageBox.critical(
+                self, "Open Character", f"Could not open character:\n{exc}"
+            )
+            self._status_bar.showMessage(f"Failed to load: {path}", 4000)
+            return
+
+        if path.lower().endswith(".hfg"):
+            # Legacy files are read-only; migrate to the new format on save.
+            self._current_file = None
+            self.setWindowTitle(f"HeroForge Anew – {path} (imported)")
+            self._status_bar.showMessage(f"Imported legacy save: {path}", 4000)
+        else:
             self._current_file = path
-            self.model.character_loaded.emit()
             self.setWindowTitle(f"HeroForge Anew – {path}")
             self._status_bar.showMessage(f"Loaded: {path}", 4000)
 
@@ -248,7 +309,15 @@ class MainWindow(QMainWindow):
             self._save_to(path)
 
     def _save_to(self, path: str) -> None:
-        # Placeholder – actual serialisation handled in a later milestone.
+        try:
+            self.model.save_character(path)
+        except Exception as exc:  # noqa: BLE001 – surfaced to the user
+            QMessageBox.critical(
+                self, "Save Character", f"Could not save character:\n{exc}"
+            )
+            self._status_bar.showMessage(f"Failed to save: {path}", 4000)
+            return
+        self._current_file = path
         self._status_bar.showMessage(f"Saved: {path}", 4000)
         self.setWindowTitle(f"HeroForge Anew – {path}")
 

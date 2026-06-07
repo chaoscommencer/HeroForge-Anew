@@ -10,9 +10,17 @@ from pathlib import Path
 
 import pytest
 
-from heroforge.db.schema import SCHEMA_SQL, initialize_database
+from heroforge.db.schema import (
+    CHARACTER_SCHEMA_SQL,
+    GAME_SCHEMA_SQL,
+    SCHEMA_SQL,
+    initialize_character_database,
+    initialize_database,
+)
 
-# All table names that must exist after initialization
+# Game data tables that must exist in the source-of-truth database
+# (heroforge.db).  Character save tables are deliberately NOT here – they live
+# in standalone .hfc files only (see _CHARACTER_TABLES below).
 _EXPECTED_TABLES = [
     # Game data tables
     "races",
@@ -49,13 +57,17 @@ _EXPECTED_TABLES = [
     "armor",
     "magic_enhancements",
     "magic_equipment",
+    "buffs",
     "creatures",
     "tables",
     "languages",
     "traits",
     "flaws",
     "sources",
-    # Character save tables
+]
+
+# Character save tables that must exist in a standalone .hfc save database.
+_CHARACTER_TABLES = [
     "characters",
     "character_ability_scores",
     "character_classes",
@@ -70,6 +82,20 @@ _EXPECTED_TABLES = [
     "character_traits",
     "character_maneuvers",
     "character_notes",
+    "character_grafts",
+    "character_variants",
+    "character_domains",
+    "character_vestiges",
+    "character_marshal_auras",
+    "character_skill_tricks",
+    "character_psionic_powers",
+    "character_companions",
+    "character_options",
+    "character_wealth",
+    "character_attacks",
+    "character_enhancements",
+    "character_custom_content",
+    "character_lg_records",
 ]
 
 _EXPECTED_INDEXES = [
@@ -81,6 +107,7 @@ _EXPECTED_INDEXES = [
     "idx_weapons_name",
     "idx_creatures_name",
     "idx_soulmelds_name",
+    "idx_buffs_name",
 ]
 
 
@@ -88,6 +115,41 @@ class TestSchemaSQL:
     def test_schema_sql_is_string(self) -> None:
         assert isinstance(SCHEMA_SQL, str)
         assert len(SCHEMA_SQL) > 100
+
+    def test_game_schema_has_no_character_tables(self) -> None:
+        # The source-of-truth game schema must not define volatile save tables.
+        assert "character_" not in GAME_SCHEMA_SQL
+        assert SCHEMA_SQL == GAME_SCHEMA_SQL
+
+    def test_character_schema_is_character_only(self) -> None:
+        # The character save schema must not redefine game data tables.
+        assert "CREATE TABLE IF NOT EXISTS races" not in CHARACTER_SCHEMA_SQL
+        assert "character_" in CHARACTER_SCHEMA_SQL
+
+
+class TestSeparation:
+    def test_game_db_has_no_character_tables(self, tmp_path: Path) -> None:
+        conn = initialize_database(tmp_path / "game.db")
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        tables = {row[0] for row in rows}
+        conn.close()
+        for char_table in _CHARACTER_TABLES:
+            assert char_table not in tables, char_table
+
+    def test_character_db_has_no_game_tables(self, tmp_path: Path) -> None:
+        conn = initialize_character_database(tmp_path / "hero.hfc")
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        tables = {row[0] for row in rows}
+        conn.close()
+        for char_table in _CHARACTER_TABLES:
+            assert char_table in tables, char_table
+        # Game data tables must never appear in a character save file.
+        assert "races" not in tables
+        assert "spells" not in tables
 
 
 class TestInitializeDatabase:
