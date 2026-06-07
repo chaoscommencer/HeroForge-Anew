@@ -413,7 +413,7 @@ def parse_hfg(text: str) -> Character:
                 character.game_log.append({"timestamp": "", "content": stripped})
 
     if note_lines:
-        character.notes = "\n".join(note_lines).strip("\n")
+        character.notes = "\n".join(note_lines)
 
     return character
 
