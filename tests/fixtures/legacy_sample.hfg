@@ -1,0 +1,58 @@
+# Legacy HeroForge save – sample fixture for the one-way importer.
+[Character]
+Name=Aedan Brightblade
+Player=Sam
+Campaign=Greyhawk
+Alignment=LG
+Deity=Pelor
+Homeland=Verbobonc
+Race=Human
+Templates=Half-Celestial|Fiendish
+Gender=Male
+Age=27
+Height=6'0"
+Weight=185 lb
+Eyes=Blue
+Hair=Brown
+Skin=Tan
+Experience=15000
+
+[AbilityScores]
+STR=16
+DEX=14
+CON=13
+INT=12
+WIS=10
+CHA=8
+
+[Classes]
+Fighter=5
+Wizard=2
+
+[Feats]
+Power Attack
+Cleave
+Combat Casting
+
+[Skills]
+Climb=5
+Jump=3.5
+Spellcraft=4
+
+[Equipment]
+Longsword|1|4.0|1|weapon|Masterwork
+Backpack|1|2.0|0||Holds gear
+Potion of Cure Light Wounds|3|0.1|0||
+
+[Buffs]
+Bless
+Mage Armor
+
+[Languages]
+Common
+Elven
+Celestial
+
+[Notes]
+A paladin-turned-wizard seeking redemption.
+Carries his late mentor's spellbook.

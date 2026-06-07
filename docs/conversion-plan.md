@@ -520,8 +520,8 @@ displayed values when those signals fire.
 
 - [ ] Build a set of reference characters using the Excel workbook and export their stats to a machine-readable format (JSON).
 - [ ] Write integration tests that create the same characters in the Python app and assert that all calculated values match.
-- [ ] Test the save/load cycle: create a character, save it, reload it, assert identity.
-- [ ] Test loading of legacy `.hfg` save files.
+- [x] Test the save/load cycle: create a character, save it, reload it, assert identity.
+- [x] Test loading of legacy `.hfg` save files.
 - [ ] Manual QA walkthrough against the Excel workbook checklist.
 - [ ] Performance profiling: DB queries, logic recalculation, and UI paint times.
 
