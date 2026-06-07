@@ -204,6 +204,7 @@ def _extract_skill_footnotes(wb: object) -> list[tuple[object, ...]]:
             continue
         name = _strip_footnotes(raw_name)
         if not name:
+            logger.warning("Could not normalize skill footnote row: %r", raw_name)
             continue
         rows.append((name, raw_name, marker))
     return rows

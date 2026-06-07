@@ -150,6 +150,7 @@ class TestHelpers:
     def test_trailing_footnote_markers(self) -> None:
         assert seed._trailing_footnote_markers("Appraise\u00b9") == "\u00b9"
         assert seed._trailing_footnote_markers("Swim\u00b9\u00b9") == "\u00b9\u00b9"
+        assert seed._trailing_footnote_markers("Appraise\u00b9 ") == "\u00b9"
         assert seed._trailing_footnote_markers("Use Rope") == ""
 
     def test_lstrip_separator(self) -> None:
