@@ -121,11 +121,11 @@ def _sheet_rows(
 
 
 def _strip_footnotes(name: str) -> str:
-"""Remove trailing footnote markers (superscripts, asterisks, ellipsis) from a name.
+    """Remove trailing footnote markers (superscripts, asterisks, ellipsis) from a name.
 
-Workbook seeding preserves the stripped markers and their legend text in
-dedicated skill-footnote tables.
-"""
+    Workbook seeding preserves the stripped markers and their legend text in
+    dedicated skill-footnote tables.
+    """
     return re.sub(r"[\u00b9\u00b2\u00b3\u2026\*\s]+$", "", name).strip()
 
 
