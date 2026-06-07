@@ -15,7 +15,9 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+import re
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
 import openpyxl
@@ -28,6 +30,13 @@ logger = logging.getLogger(__name__)
 _MODULE_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _MODULE_DIR.parent.parent.parent
 _DEFAULT_DATA_DIR = _PROJECT_ROOT / "data"
+_DEFAULT_WORKBOOK = _PROJECT_ROOT / "HeroForge Anew 3.5 v7.4.0.1.xlsm"
+_FOOTNOTE_MARKER_NORMALIZATION = {"1": "¹", "2": "²", "3": "³"}
+_SKILL_FOOTNOTE_LEGEND_CELLS = (
+    ("Character Sheet I", "BH151"),
+    ("Animal Companion", "BI145"),
+    ("Familiar", "BI145"),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +71,704 @@ def _cell_value(cell: object) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Workbook parsing helpers
+# ---------------------------------------------------------------------------
+#
+# The reference workbook ``HeroForge Anew 3.5 v7.4.0.1.xlsm`` holds the bulk of
+# the remaining game data on dedicated "data sheets" (see
+# ``docs/conversion-plan.md`` §11.3).  Each sheet has its own idiosyncratic
+# layout, so a small spec/extractor is written per target table below.  All
+# extractors share the helpers in this section.
+
+
+def _col(row: tuple[object, ...], letter: str) -> str:
+    """Return the stripped string value of *row* at spreadsheet column *letter*.
+
+    ``letter`` is a single column letter in the ``A``-``Z`` range (the data
+    sheets used here never exceed column ``R``).  Out-of-range columns yield an
+    empty string so extractors can probe optional columns safely.
+    """
+    idx = ord(letter.upper()) - ord("A")
+    if idx < 0 or idx >= len(row):
+        return ""
+    value = row[idx]
+    return "" if value is None else str(value).strip()
+
+
+def _sheet_rows(
+    ws: object, start_row: int, max_blank: int = 60
+) -> list[tuple[object, ...]]:
+    """Return data rows of *ws* starting at *start_row* (0-based).
+
+    Iteration stops once *max_blank* consecutive fully-blank rows are seen.
+    Several worksheets declare an enormous nominal dimension (e.g.
+    ``A1:IQ65536``); the blank-run guard keeps parsing bounded to the populated
+    region while still tolerating the small blank separators that group data.
+    """
+    collected: list[tuple[object, ...]] = []
+    blank = 0
+    for index, row in enumerate(ws.iter_rows(values_only=True)):  # type: ignore[attr-defined]
+        if index < start_row:
+            continue
+        if all(cell is None or str(cell).strip() == "" for cell in row):
+            blank += 1
+            if blank >= max_blank:
+                break
+            continue
+        blank = 0
+        collected.append(row)
+    return collected
+
+
+def _strip_footnotes(name: str) -> str:
+    """Remove trailing footnote markers (superscripts, asterisks, ellipsis) from a name.
+
+    Workbook seeding preserves the stripped markers and their legend text in
+    dedicated skill-footnote tables.
+    """
+    return re.sub(r"[\u00b9\u00b2\u00b3\u2026\*\s]+$", "", name).strip()
+
+
+def _trailing_footnote_markers(name: str) -> str:
+    """Return trailing footnote marker characters from *name*."""
+    m = re.search(r"([\u00b9\u00b2\u00b3\*]+)\s*$", name)
+    return m.group(1) if m else ""
+
+
+def _normalize_footnote_marker(marker: str) -> str:
+    """Normalize workbook legend markers to their skill-name form."""
+    return "".join(_FOOTNOTE_MARKER_NORMALIZATION.get(ch, ch) for ch in marker)
+
+
+def _parse_skill_footnote_legend(text: str) -> list[tuple[str, str]]:
+    """Extract ``(marker, description)`` pairs from a workbook legend cell."""
+    rows: list[tuple[str, str]] = []
+    for line in (line.strip() for line in text.splitlines()):
+        if not line:
+            continue
+        if line.startswith("Skills marked with "):
+            m = re.match(r"Skills marked with ([¹²³])\s+(.*)", line)
+            if m:
+                rows.append((m.group(1), m.group(2).strip()))
+            continue
+        if line.startswith(("1 ", "2 ", "3 ", "¹ ", "² ", "³ ", "× ")):
+            marker, description = line.split(None, 1)
+            rows.append((_normalize_footnote_marker(marker), description.strip()))
+            continue
+        for marker, description in re.findall(
+            r"(\*\*|\*)\s+(.+?)(?=(?:\s{2,}\*\*|\s{2,}\*|$))", line
+        ):
+            rows.append((marker, description.strip()))
+    return rows
+
+
+def _lstrip_separator(text: str) -> str:
+    """Strip a leading ``" : "`` separator used by description columns."""
+    return re.sub(r"^\s*:\s*", "", text).strip()
+
+
+def _is_sql_identifier(name: str) -> bool:
+    """Return ``True`` when *name* has safe SQL identifier syntax.
+
+    This validates identifier shape only; it does not check whether the name
+    exists in schema metadata.
+    """
+    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name))
+
+
+# ---------------------------------------------------------------------------
+# Per-table workbook extractors
+#
+# Each extractor receives the open workbook and returns a list of tuples whose
+# order matches the ``columns`` declared in the ``_WORKBOOK_TABLES`` registry.
+# ---------------------------------------------------------------------------
+
+
+def _extract_sources(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Sources"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 7):
+        full_name = _col(row, "C")
+        abbr = _col(row, "H")
+        m = re.match(r"^\((.+)\)$", abbr)
+        if not (m and full_name):
+            continue
+        rows.append((m.group(1).strip(), full_name))
+    return rows
+
+
+def _extract_languages(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Languages"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 4):
+        name = _col(row, "B")
+        if not name:
+            continue
+        rows.append((name, "", ""))
+    return rows
+
+
+def _extract_skills(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Skills"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 5):
+        raw_name = _col(row, "A")
+        if not raw_name or raw_name.upper() == "SKILL NAME":
+            continue
+        name = _strip_footnotes(raw_name)
+        if not name:
+            continue
+        key_raw = _col(row, "B")
+        armor_check = 1 if "*" in key_raw else 0
+        key_ability = key_raw.replace("*", "").strip()
+        rows.append((name, key_ability, 0, armor_check, ""))
+    return rows
+
+
+def _extract_skill_footnotes(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Skills"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 5):
+        raw_name = _col(row, "A")
+        if not raw_name or raw_name.upper() == "SKILL NAME":
+            continue
+        marker = _trailing_footnote_markers(raw_name)
+        if not marker:
+            continue
+        name = _strip_footnotes(raw_name)
+        if not name:
+            logger.warning("Could not normalize skill footnote row: %r", raw_name)
+            continue
+        rows.append((name, raw_name, marker))
+    return rows
+
+
+def _extract_skill_footnote_definitions(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    for sheet_name, cell in _SKILL_FOOTNOTE_LEGEND_CELLS:
+        legend = _cell_value(wb[sheet_name][cell])  # type: ignore[index]
+        for marker, description in _parse_skill_footnote_legend(legend):
+            rows.append((sheet_name, marker, description))
+    return rows
+
+
+def _extract_skill_tricks(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Skill Tricks"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 5):
+        name = _col(row, "C")
+        description = _col(row, "E")
+        if not (name and description):
+            continue
+        rows.append((name, 2, _lstrip_separator(description), _col(row, "D")))
+    return rows
+
+
+def _extract_traits(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Traits"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 3):
+        name = _col(row, "C")
+        benefit = _col(row, "L")
+        if not name or name == "Trait" or not benefit:
+            continue
+        source = f"{_col(row, 'I')} {_col(row, 'J')}".strip()
+        benefit = _lstrip_separator(benefit)
+        rows.append((name, benefit, benefit, "", source))
+    return rows
+
+
+def _extract_flaws(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Flaws"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 4):
+        name = _col(row, "C")
+        effect = _col(row, "I")
+        if not name or name == "Flaw" or not effect:
+            continue
+        source = f"{_col(row, 'G')} {_col(row, 'H')}".strip()
+        rows.append((name, "", _lstrip_separator(effect), source))
+    return rows
+
+
+def _extract_variants(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Variants"]  # type: ignore[index]
+    base_class = ""
+    for row in _sheet_rows(ws, 3):
+        name = _col(row, "C")
+        if not name:
+            continue
+        prereq = _col(row, "D")
+        source = _col(row, "E")
+        if not prereq and not source:
+            # Section header naming the base class for the rows that follow.
+            base_class = name
+            continue
+        rows.append((name, base_class, prereq, source))
+    return rows
+
+
+def _extract_domains(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Domains"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 0):
+        raw_name = _col(row, "A")
+        granted = _col(row, "B")
+        if not raw_name or not granted:
+            continue
+        name = re.sub(r"^xx-|-xx$", "", raw_name).strip()
+        spells = [_col(row, chr(ord("C") + i)) for i in range(9)]
+        rows.append((name, granted, *spells))
+    return rows
+
+
+def _extract_deities(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Deities"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 3):
+        name = _col(row, "A")
+        if not name or name == "Select A Deity":
+            continue
+        rows.append((name, _col(row, "B"), _col(row, "I"), _col(row, "J"), ""))
+    return rows
+
+
+def _extract_feats(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Feats"]  # type: ignore[index]
+    current_type = ""
+    for row in _sheet_rows(ws, 9):
+        name = _col(row, "D")
+        benefit = _col(row, "F")
+        if not name:
+            continue
+        if not benefit:
+            # Category/section header (e.g. "General Feats").
+            current_type = name
+            continue
+        benefit = _lstrip_separator(benefit)
+        rows.append((name, current_type, benefit, benefit, "", ""))
+    return rows
+
+
+def _extract_feat_prerequisites(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Feats"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 9):
+        name = _col(row, "D")
+        benefit = _col(row, "F")
+        if not name or not benefit:
+            continue
+        prereq_raw = _col(row, "E")
+        for prereq in (p.strip() for p in prereq_raw.split(",")):
+            if prereq:
+                rows.append((name, prereq))
+    return rows
+
+
+def _extract_armor(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Armor"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 4):
+        name = _col(row, "H")
+        if not name or name == "(none)" or "\u2013" in name:
+            continue
+        rows.append(
+            (
+                name,
+                _col(row, "K"),
+                _safe_int(_col(row, "M")),
+                _safe_int(_col(row, "N")),
+                _safe_int(_col(row, "O")),
+                _safe_int(_col(row, "P")),
+                None,
+                None,
+                _safe_float(_col(row, "Q")),
+                _col(row, "I"),
+            )
+        )
+    return rows
+
+
+def _extract_maneuvers(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Maneuvers & Stances"]  # type: ignore[index]
+    discipline = ""
+    for row in _sheet_rows(ws, 5):
+        name = _col(row, "D")
+        if not name:
+            continue
+        level = _col(row, "I")
+        maneuver_type = _col(row, "K")
+        if not level and not maneuver_type:
+            # Discipline header preceding its maneuvers.
+            discipline = name
+            continue
+        rows.append(
+            (
+                name,
+                discipline,
+                _safe_int(level) if level else None,
+                maneuver_type,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            )
+        )
+    return rows
+
+
+def _extract_grafts(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Grafts"]  # type: ignore[index]
+    graft_type = ""
+    for row in _sheet_rows(ws, 3):
+        name = _col(row, "C")
+        if not name:
+            continue
+        if name.endswith("Grafts"):
+            graft_type = name
+            continue
+        rows.append((name, graft_type, "", "", ""))
+    return rows
+
+
+def _extract_graft_abilities(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Graft Abilities"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 5):
+        graft_name = _col(row, "A")
+        description = _col(row, "B")
+        if not (graft_name and description):
+            continue
+        ability = re.sub(r"^[\u00d7\s]+", "", description).split(":", 1)[0].strip()
+        rows.append((graft_name, ability or graft_name, description))
+    return rows
+
+
+def _extract_soulmelds(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["SoulmeldsInfo"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 4):
+        name = _col(row, "A")
+        if not name or name.startswith("Select") or name.startswith("You do not"):
+            continue
+        rows.append((name, "", "", 3, None, "", ""))
+    return rows
+
+
+def _extract_soulmeld_abilities(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["SoulmeldAbilities"]  # type: ignore[index]
+    current = ""
+    for row in _sheet_rows(ws, 7):
+        name = _col(row, "A")
+        if name:
+            current = name
+        description = _col(row, "E")
+        if not current or not description:
+            continue
+        rows.append((current, "", _safe_int(_col(row, "D")), description))
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Workbook table registry
+#
+# ``columns`` lists the destination columns (in tuple order).  ``unique_by``
+# names the column(s) backed by a UNIQUE constraint in ``schema.py``; it is
+# used by tests to verify persisted row counts against the source workbook
+# using the same UNIQUE-key deduplication semantics as SQLite.
+# ---------------------------------------------------------------------------
+
+
+class _WorkbookTable:
+    """Specification binding a workbook sheet to a destination table."""
+
+    def __init__(
+        self,
+        table: str,
+        sheet: str,
+        columns: tuple[str, ...],
+        extractor: Callable[[object], list[tuple[object, ...]]],
+        unique_by: tuple[str, ...] | None = None,
+    ) -> None:
+        self.table = table
+        self.sheet = sheet
+        self.columns = columns
+        self.extractor = extractor
+        self.unique_by = unique_by
+
+
+_WORKBOOK_TABLES: tuple[_WorkbookTable, ...] = (
+    _WorkbookTable(
+        "sources",
+        "Sources",
+        ("abbreviation", "full_name"),
+        _extract_sources,
+        unique_by=("abbreviation",),
+    ),
+    _WorkbookTable(
+        "languages",
+        "Languages",
+        ("name", "typical_speakers", "script"),
+        _extract_languages,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "skills",
+        "Skills",
+        ("name", "key_ability", "trained_only", "armor_check_penalty", "description"),
+        _extract_skills,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "skill_footnotes",
+        "Skills",
+        ("skill_name", "raw_name", "marker"),
+        _extract_skill_footnotes,
+        unique_by=("skill_name", "marker"),
+    ),
+    _WorkbookTable(
+        "skill_footnote_definitions",
+        "Character Sheet I",
+        ("source_sheet", "marker", "description"),
+        _extract_skill_footnote_definitions,
+        unique_by=("source_sheet", "marker"),
+    ),
+    _WorkbookTable(
+        "skill_tricks",
+        "Skill Tricks",
+        ("name", "cost", "description", "prerequisite"),
+        _extract_skill_tricks,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "traits",
+        "Traits",
+        ("name", "description", "benefit", "drawback", "source"),
+        _extract_traits,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "flaws",
+        "Flaws",
+        ("name", "description", "effect", "source"),
+        _extract_flaws,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "variants",
+        "Variants",
+        ("name", "base_class", "description", "source"),
+        _extract_variants,
+    ),
+    _WorkbookTable(
+        "domains",
+        "Domains",
+        (
+            "name",
+            "granted_power",
+            "spell_1",
+            "spell_2",
+            "spell_3",
+            "spell_4",
+            "spell_5",
+            "spell_6",
+            "spell_7",
+            "spell_8",
+            "spell_9",
+        ),
+        _extract_domains,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "deities",
+        "Deities",
+        ("name", "alignment", "domains", "favored_weapon", "source"),
+        _extract_deities,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "feats",
+        "Feats",
+        ("name", "type", "description", "benefit", "special", "source"),
+        _extract_feats,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "feat_prerequisites",
+        "Feats",
+        ("feat_name", "prerequisite"),
+        _extract_feat_prerequisites,
+    ),
+    _WorkbookTable(
+        "armor",
+        "Armor",
+        (
+            "name",
+            "type",
+            "ac_bonus",
+            "max_dex_bonus",
+            "check_penalty",
+            "arcane_spell_failure",
+            "speed_30",
+            "speed_20",
+            "weight",
+            "source",
+        ),
+        _extract_armor,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "maneuvers",
+        "Maneuvers & Stances",
+        (
+            "name",
+            "discipline",
+            "level",
+            "type",
+            "initiation_action",
+            "range",
+            "target",
+            "duration",
+            "description",
+            "source",
+        ),
+        _extract_maneuvers,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "grafts",
+        "Grafts",
+        ("name", "type", "body_slot", "description", "source"),
+        _extract_grafts,
+    ),
+    _WorkbookTable(
+        "graft_abilities",
+        "Graft Abilities",
+        ("graft_name", "ability_name", "description"),
+        _extract_graft_abilities,
+    ),
+    _WorkbookTable(
+        "soulmelds",
+        "SoulmeldsInfo",
+        (
+            "name",
+            "descriptors",
+            "chakra",
+            "essentia_capacity",
+            "bind_dc",
+            "description",
+            "source",
+        ),
+        _extract_soulmelds,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "soulmeld_abilities",
+        "SoulmeldAbilities",
+        ("soulmeld_name", "chakra", "essentia", "description"),
+        _extract_soulmeld_abilities,
+    ),
+)
+
+
+def _seed_workbook_table(
+    conn: sqlite3.Connection, wb: object, spec: _WorkbookTable
+) -> None:
+    """Populate a single workbook-backed table from *wb* per *spec*.
+
+    Rows are extracted first, then the destination table is replaced in full:
+    existing rows are deleted and fresh workbook rows inserted.  This mirrors
+    the original workbook-first application model where each seed run
+    regenerates these reference tables from workbook data.  Inserts that
+    violate constraints are skipped and logged.
+    """
+    try:
+        rows = spec.extractor(wb)
+    except KeyError:
+        logger.warning(
+            "Sheet %r not found in workbook – skipping %s",
+            spec.sheet,
+            spec.table,
+        )
+        return
+
+    # Table and column names cannot be passed as SQL bind parameters, so they
+    # are interpolated below.  They originate from the hardcoded
+    # ``_WORKBOOK_TABLES`` registry, but validate them as plain SQL identifiers
+    # for defense in depth before any interpolation.
+    if not _is_sql_identifier(spec.table) or not all(
+        _is_sql_identifier(col) for col in spec.columns
+    ):
+        raise ValueError(f"Invalid table/column identifier for {spec.table!r}")
+
+    placeholders = ", ".join("?" for _ in spec.columns)
+    column_list = ", ".join(spec.columns)
+    statement = f"INSERT INTO {spec.table} ({column_list}) VALUES ({placeholders})"
+
+    conn.execute(f"DELETE FROM {spec.table}")
+    inserted = 0
+    skipped = 0
+    for values in rows:
+        try:
+            conn.execute(statement, values)
+            inserted += 1
+        except sqlite3.Error as exc:
+            logger.debug("Skipping %s row %r: %s", spec.table, values, exc)
+            skipped += 1
+
+    conn.commit()
+    stored = conn.execute(f"SELECT COUNT(*) FROM {spec.table}").fetchone()[0]
+    if skipped:
+        logger.warning(
+            "%s: skipped %d source rows due to insert errors (see debug logs)",
+            spec.table,
+            skipped,
+        )
+    logger.info(
+        "%s: stored %d rows from sheet %r (processed %d, skipped %d)",
+        spec.table,
+        stored,
+        spec.sheet,
+        inserted,
+        skipped,
+    )
+
+
+def seed_workbook(
+    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+) -> None:
+    """Seed every workbook-backed table from the reference ``.xlsm`` file.
+
+    Reads ``HeroForge Anew 3.5 v7.4.0.1.xlsm`` (see ``docs/conversion-plan.md``
+    §6.3 and §13) via :mod:`openpyxl` and populates each table declared in
+    :data:`_WORKBOOK_TABLES`.  If the workbook is missing the function logs a
+    warning and returns without modifying any tables.
+    """
+    workbook_path = Path(workbook_path)
+    if not workbook_path.exists():
+        logger.warning(
+            "Workbook not found at %s – skipping workbook-backed tables",
+            workbook_path,
+        )
+        return
+
+    logger.info("Loading workbook %s", workbook_path.name)
+    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
+    try:
+        for spec in _WORKBOOK_TABLES:
+            _seed_workbook_table(conn, wb, spec)
+    finally:
+        wb.close()
+
+
+# ---------------------------------------------------------------------------
 # Per-table seed functions
 # ---------------------------------------------------------------------------
 
@@ -75,7 +782,7 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
 
     inserted = 0
     skipped = 0
-    with csv_path.open(encoding="utf-8-sig", newline="") as fh:
+    with csv_path.open(encoding="utf-8-sig", errors="replace", newline="") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
             name = (row.get("Name") or row.get("name") or "").strip()
@@ -129,7 +836,7 @@ def seed_creatures(conn: sqlite3.Connection, data_dir: Path) -> None:
 
     inserted = 0
     skipped = 0
-    with csv_path.open(encoding="utf-8-sig", newline="") as fh:
+    with csv_path.open(encoding="utf-8-sig", errors="replace", newline="") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
             name = (row.get("Name") or row.get("name") or "").strip()
@@ -183,7 +890,7 @@ def seed_tables(conn: sqlite3.Connection, data_dir: Path) -> None:
 
     inserted = 0
     skipped = 0
-    with csv_path.open(encoding="utf-8-sig", newline="") as fh:
+    with csv_path.open(encoding="utf-8-sig", errors="replace", newline="") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
             table_name = (row.get("TableName") or row.get("table_name") or "").strip()
@@ -323,12 +1030,15 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
 def seed_all(
     db_path: str | Path = "heroforge.db",
     data_dir: str | Path = _DEFAULT_DATA_DIR,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
 ) -> None:
     """Seed the database with all available source data files.
 
     Args:
         db_path: Path to the SQLite database (created if absent).
         data_dir: Directory containing the source CSV/XLSX files.
+        workbook_path: Path to the reference ``.xlsm`` workbook that backs the
+            remaining game-data tables.
     """
     db_path = Path(db_path)
     data_dir = Path(data_dir)
@@ -341,6 +1051,7 @@ def seed_all(
         seed_creatures(conn, data_dir)
         seed_tables(conn, data_dir)
         seed_classes(conn, data_dir)
+        seed_workbook(conn, workbook_path)
     finally:
         conn.close()
 
@@ -366,6 +1077,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=str(_DEFAULT_DATA_DIR),
         help="Directory containing source data files (default: <project_root>/data/)",
     )
+    parser.add_argument(
+        "--workbook",
+        default=str(_DEFAULT_WORKBOOK),
+        help=(
+            "Path to the reference .xlsm workbook backing the remaining "
+            "game-data tables (default: <project_root>/"
+            "HeroForge Anew 3.5 v7.4.0.1.xlsm)"
+        ),
+    )
     return parser
 
 
@@ -373,7 +1093,7 @@ def main() -> None:
     """CLI entry point."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _build_parser().parse_args()
-    seed_all(db_path=args.db, data_dir=args.data_dir)
+    seed_all(db_path=args.db, data_dir=args.data_dir, workbook_path=args.workbook)
 
 
 if __name__ == "__main__":

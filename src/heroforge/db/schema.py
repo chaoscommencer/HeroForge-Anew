@@ -141,6 +141,22 @@ CREATE TABLE IF NOT EXISTS skill_tricks (
     prerequisite    TEXT
 );
 
+CREATE TABLE IF NOT EXISTS skill_footnotes (
+    id              INTEGER PRIMARY KEY,
+    skill_name      TEXT NOT NULL,
+    raw_name        TEXT NOT NULL,
+    marker          TEXT NOT NULL,
+    UNIQUE(skill_name, marker)
+);
+
+CREATE TABLE IF NOT EXISTS skill_footnote_definitions (
+    id              INTEGER PRIMARY KEY,
+    source_sheet    TEXT NOT NULL,
+    marker          TEXT NOT NULL,
+    description     TEXT NOT NULL,
+    UNIQUE(source_sheet, marker)
+);
+
 CREATE TABLE IF NOT EXISTS spells (
     id              INTEGER PRIMARY KEY,
     name            TEXT UNIQUE NOT NULL,
