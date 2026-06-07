@@ -138,13 +138,11 @@ class TestWorkbookSeeding:
     def test_skill_footnotes_preserve_marked_names(self, seeded_db: Path) -> None:
         conn = get_connection(seeded_db)
         try:
-            row = conn.execute(
-                """
+            row = conn.execute("""
                 SELECT skill_name, raw_name, marker
                 FROM skill_footnotes
                 WHERE skill_name = 'Appraise'
-                """
-            ).fetchone()
+                """).fetchone()
         finally:
             conn.close()
         assert row is not None
@@ -154,13 +152,11 @@ class TestWorkbookSeeding:
     def test_skill_footnote_definitions_preserve_text(self, seeded_db: Path) -> None:
         conn = get_connection(seeded_db)
         try:
-            row = conn.execute(
-                """
+            row = conn.execute("""
                 SELECT source_sheet, marker, description
                 FROM skill_footnote_definitions
                 WHERE source_sheet = 'Character Sheet I' AND marker = '¹'
-                """
-            ).fetchone()
+                """).fetchone()
         finally:
             conn.close()
         assert row is not None
