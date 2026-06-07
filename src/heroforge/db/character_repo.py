@@ -671,9 +671,17 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
     ]
 
     character.variants = [
-        vr["variant_name"]
+        (
+            vr["variant_name"]
+            if vr["class_name"] is None and vr["notes"] is None
+            else {
+                "variant_name": vr["variant_name"],
+                "class_name": vr["class_name"],
+                "notes": vr["notes"],
+            }
+        )
         for vr in conn.execute(
-            "SELECT variant_name FROM character_variants "
+            "SELECT variant_name, class_name, notes FROM character_variants "
             "WHERE character_id = ? ORDER BY id",
             (character_id,),
         ).fetchall()

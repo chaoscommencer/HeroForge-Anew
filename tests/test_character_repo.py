@@ -97,7 +97,14 @@ def _sample_character() -> Character:
             {"trait_name": "Aggressive", "is_flaw": False},
             {"trait_name": "Shaky", "is_flaw": True},
         ],
-        variants=["Spell Sense", "Spiritual Totem"],
+        variants=[
+            "Spell Sense",
+            {
+                "variant_name": "Spiritual Totem",
+                "class_name": "Barbarian",
+                "notes": "Wolf totem",
+            },
+        ],
         domains=["Healing", "Sun"],
         vestiges=[
             {"vestige_name": "Naberius", "level": 4, "bound": True},

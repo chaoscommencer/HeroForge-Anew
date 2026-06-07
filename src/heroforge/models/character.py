@@ -67,8 +67,12 @@ class Character:
     """Grafts attached, each ``{graft_name, body_slot, notes}``."""
     traits: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
     """Traits and flaws, each ``{trait_name, is_flaw}``."""
-    variants: list[str] = field(default_factory=list)
-    """Selected class/racial variants, in the order chosen."""
+    variants: list[str | dict[str, str | None]] = field(default_factory=list)
+    """Selected class/racial variants in order.
+
+    A variant may be a legacy plain string (variant name only) or a
+    structured mapping ``{variant_name, class_name, notes}``.
+    """
     domains: list[str] = field(default_factory=list)
     """Chosen cleric (etc.) domains, in slot order."""
     vestiges: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
