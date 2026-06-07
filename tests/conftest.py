@@ -30,3 +30,33 @@ def db_conn(tmp_db: Path) -> Iterator[sqlite3.Connection]:
         yield conn
     finally:
         conn.close()
+
+
+@pytest.fixture(scope="session")
+def qapp() -> Iterator[object]:
+    """Provide a single offscreen QApplication for widget tests.
+
+    Skips the whole test if PyQt6 cannot be imported or a Qt platform plugin is
+    unavailable (e.g. a headless CI without the required system libraries).
+    """
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        from PyQt6.QtWidgets import QApplication
+    except ImportError as exc:  # pragma: no cover - environment dependent
+        pytest.skip(f"PyQt6 unavailable: {exc}")
+
+    app = QApplication.instance()
+    created = False
+    if app is None:
+        try:
+            app = QApplication([])
+        except Exception as exc:  # pragma: no cover - environment dependent
+            pytest.skip(f"Cannot start QApplication: {exc}")
+        created = True
+    try:
+        yield app
+    finally:
+        if created:
+            app.quit()

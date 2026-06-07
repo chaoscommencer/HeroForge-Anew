@@ -29,7 +29,9 @@ class SpellsTab(QWidget):
     ) -> None:
         super().__init__(parent)
         self._model = model
+        self._slot_spins: dict[int, QSpinBox] = {}
         self._build_ui()
+        self._load_classes()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -39,9 +41,7 @@ class SpellsTab(QWidget):
         top_row = QHBoxLayout()
         top_row.addWidget(QLabel("Spellcasting Class:"))
         self._class_combo = QComboBox()
-        self._class_combo.addItems(
-            ["Wizard", "Sorcerer", "Cleric", "Druid", "Bard", "Paladin", "Ranger"]
-        )
+        self._class_combo.currentTextChanged.connect(self._on_class_changed)
         top_row.addWidget(self._class_combo)
         top_row.addStretch()
         layout.addLayout(top_row)
@@ -62,6 +62,7 @@ class SpellsTab(QWidget):
             total = QSpinBox()
             total.setRange(0, 20)
             total.setPrefix("Total: ")
+            self._slot_spins[lvl] = total
             row.addWidget(used)
             row.addWidget(total)
             row.addStretch()
@@ -90,3 +91,27 @@ class SpellsTab(QWidget):
         sub_tabs.addTab(prep_widget, "Prepared/Known")
 
         layout.addWidget(sub_tabs)
+
+    def _load_classes(self) -> None:
+        """Populate the caster-class selector from the seeded database."""
+        if self._model is None:
+            return
+        self._class_combo.clear()
+        self._class_combo.addItems(self._model.game_data().list_caster_classes())
+
+    def _on_class_changed(self, class_name: str) -> None:
+        """Show the highest-level spells-per-day totals for the chosen class."""
+        for spin in self._slot_spins.values():
+            spin.setValue(0)
+        if not class_name or self._model is None:
+            return
+        slots = self._model.game_data().spells_per_day(class_name)
+        if not slots:
+            return
+        top_level = max(s.caster_level for s in slots)
+        for entry in slots:
+            if (
+                entry.caster_level == top_level
+                and entry.spell_level in self._slot_spins
+            ):
+                self._slot_spins[entry.spell_level].setValue(entry.count)

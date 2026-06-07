@@ -21,6 +21,7 @@ from heroforge.db.character_repo import (
     load_character_from_file,
     save_character_to_file,
 )
+from heroforge.db.data_access import GameDataRepository
 from heroforge.logic.legacy_import import import_hfg
 from heroforge.models.character import Character
 from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
@@ -84,9 +85,11 @@ class CharacterModel(QObject):
     character_reset = pyqtSignal()
     """Emitted when a new blank character is created."""
 
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(
+        self, parent: QObject | None = None, db_path: str | None = None
+    ) -> None:
         super().__init__(parent)
-        self._db_path: str | None = None
+        self._db_path: str | None = db_path
         self._character = Character()
 
     @property
@@ -132,6 +135,15 @@ class CharacterModel(QObject):
     def db_path(self, value: str | None) -> None:
         self._db_path = value
 
+    def game_data(self) -> GameDataRepository:
+        """Return a read-only repository over the active game database.
+
+        This is the shared, DB-backed data-access path every tab and dialog
+        should use instead of issuing raw SQLite queries.  The repository
+        degrades gracefully to empty results when no database is configured.
+        """
+        return GameDataRepository(self._db_path)
+
 
 # ---------------------------------------------------------------------------
 # MainWindow
@@ -168,12 +180,12 @@ class MainWindow(QMainWindow):
         ("Initiative Card", InitiativeCardTab),
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, db_path: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle("HeroForge Anew – D&D 3.5 Character Builder")
         self.resize(1200, 800)
 
-        self.model = CharacterModel(self)
+        self.model = CharacterModel(self, db_path=db_path)
         self._current_file: str | None = None
 
         self._build_menu()

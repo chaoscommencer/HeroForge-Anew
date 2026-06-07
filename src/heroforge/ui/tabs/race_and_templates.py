@@ -29,6 +29,7 @@ class RaceAndTemplatesTab(QWidget):
     ) -> None:
         super().__init__(parent)
         self._model = model
+        self._available_templates: list[str] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -82,6 +83,29 @@ class RaceAndTemplatesTab(QWidget):
         layout.addWidget(scroll)
 
         self._remove_template_btn.clicked.connect(self._remove_template)
+        self._add_template_btn.clicked.connect(self._add_template)
+        self._load_data()
+
+    def _load_data(self) -> None:
+        """Populate race and template controls from the seeded database."""
+        if self._model is None:
+            return
+        repo = self._model.game_data()
+        self._race_combo.clear()
+        self._race_combo.addItems(repo.list_races())
+        self._race_combo.setCurrentIndex(-1)
+        self._available_templates = repo.list_templates()
+
+    def _add_template(self) -> None:
+        """Add a database-backed template that is not already applied."""
+        applied = {
+            self._template_list.item(i).text()  # type: ignore[union-attr]
+            for i in range(self._template_list.count())
+        }
+        for name in self._available_templates:
+            if name not in applied:
+                self._template_list.addItem(name)
+                break
 
     def _remove_template(self) -> None:
         for item in self._template_list.selectedItems():
