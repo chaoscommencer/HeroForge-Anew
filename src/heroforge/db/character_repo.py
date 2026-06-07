@@ -45,6 +45,13 @@ _RELATED_TABLES: tuple[str, ...] = (
     "character_maneuvers",
     "character_grafts",
     "character_traits",
+    "character_variants",
+    "character_domains",
+    "character_vestiges",
+    "character_marshal_auras",
+    "character_skill_tricks",
+    "character_psionic_powers",
+    "character_companions",
     "character_notes",
 )
 
@@ -287,6 +294,91 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
             ],
         )
         cur.executemany(
+            "INSERT INTO character_variants "
+            "(character_id, variant_name, class_name, notes) VALUES (?, ?, ?, ?)",
+            [
+                (
+                    (cid, str(variant), None, None)
+                    if isinstance(variant, str)
+                    else (
+                        cid,
+                        str(variant.get("variant_name", "")),
+                        variant.get("class_name"),
+                        variant.get("notes"),
+                    )
+                )
+                for variant in character.variants
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_domains "
+            "(character_id, domain_name, slot) VALUES (?, ?, ?)",
+            [
+                (cid, str(domain), order)
+                for order, domain in enumerate(character.domains)
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_vestiges "
+            "(character_id, vestige_name, level, bound) VALUES (?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(vestige.get("vestige_name", "")),
+                    int(vestige.get("level", 0)),
+                    1 if vestige.get("bound", True) else 0,
+                )
+                for vestige in character.vestiges
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_marshal_auras "
+            "(character_id, aura_name, aura_type, active) VALUES (?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(aura.get("aura_name", "")),
+                    aura.get("aura_type"),
+                    1 if aura.get("active") else 0,
+                )
+                for aura in character.marshal_auras
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_skill_tricks "
+            "(character_id, trick_name) VALUES (?, ?)",
+            [(cid, str(trick)) for trick in character.skill_tricks],
+        )
+        cur.executemany(
+            "INSERT INTO character_psionic_powers "
+            "(character_id, class_name, power_level, power_name) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(power.get("class_name", "")),
+                    int(power.get("power_level", 0)),
+                    str(power.get("power_name", "")),
+                )
+                for power in character.psionic_powers
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_companions "
+            "(character_id, companion_type, name, creature, notes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(companion.get("companion_type", "")),
+                    companion.get("name"),
+                    companion.get("creature"),
+                    companion.get("notes"),
+                )
+                for companion in character.companions
+            ],
+        )
+        cur.executemany(
             "INSERT INTO character_notes "
             "(character_id, timestamp, content) VALUES (?, ?, ?)",
             [
@@ -484,6 +576,86 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
         {"trait_name": tr["trait_name"], "is_flaw": bool(tr["is_flaw"])}
         for tr in conn.execute(
             "SELECT trait_name, is_flaw FROM character_traits "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.variants = [
+        vr["variant_name"]
+        for vr in conn.execute(
+            "SELECT variant_name FROM character_variants "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.domains = [
+        dr["domain_name"]
+        for dr in conn.execute(
+            "SELECT domain_name FROM character_domains "
+            "WHERE character_id = ? ORDER BY slot, id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.vestiges = [
+        {
+            "vestige_name": vr["vestige_name"],
+            "level": vr["level"],
+            "bound": bool(vr["bound"]),
+        }
+        for vr in conn.execute(
+            "SELECT vestige_name, level, bound FROM character_vestiges "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.marshal_auras = [
+        {
+            "aura_name": ar["aura_name"],
+            "aura_type": ar["aura_type"],
+            "active": bool(ar["active"]),
+        }
+        for ar in conn.execute(
+            "SELECT aura_name, aura_type, active FROM character_marshal_auras "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.skill_tricks = [
+        tr["trick_name"]
+        for tr in conn.execute(
+            "SELECT trick_name FROM character_skill_tricks "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.psionic_powers = [
+        {
+            "class_name": pr["class_name"],
+            "power_level": pr["power_level"],
+            "power_name": pr["power_name"],
+        }
+        for pr in conn.execute(
+            "SELECT class_name, power_level, power_name FROM character_psionic_powers "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.companions = [
+        {
+            "companion_type": cr["companion_type"],
+            "name": cr["name"],
+            "creature": cr["creature"],
+            "notes": cr["notes"],
+        }
+        for cr in conn.execute(
+            "SELECT companion_type, name, creature, notes FROM character_companions "
             "WHERE character_id = ? ORDER BY id",
             (character_id,),
         ).fetchall()

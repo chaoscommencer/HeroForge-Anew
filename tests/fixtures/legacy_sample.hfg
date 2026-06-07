@@ -72,6 +72,28 @@ Punishing Stance
 [Grafts]
 Fiendish Arm|arms|Grants a claw attack
 
+[Variants]
+Spell Sense
+
+[Domains]
+Healing
+Sun
+
+[Vestiges]
+Naberius|4|1
+
+[MarshalAuras]
+Motivate Dexterity|major|1
+
+[SkillTricks]
+Acrobatic Backstab
+
+[PsionicPowers]
+Psion|1|Mind Thrust
+
+[Companions]
+Animal Companion|Rex|Wolf|Loyal scout
+
 [Traits]
 Aggressive|0
 

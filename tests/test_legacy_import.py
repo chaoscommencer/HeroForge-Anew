@@ -119,6 +119,41 @@ class TestParseHfg:
             {"timestamp": "2024-01-01T10:00:00", "content": "Set out from Verbobonc."},
         ]
 
+    def test_variants_and_domains(self) -> None:
+        char = import_hfg(_FIXTURE)
+        assert char.variants == ["Spell Sense"]
+        assert char.domains == ["Healing", "Sun"]
+
+    def test_vestiges(self) -> None:
+        char = import_hfg(_FIXTURE)
+        assert char.vestiges == [
+            {"vestige_name": "Naberius", "level": 4, "bound": True},
+        ]
+
+    def test_marshal_auras(self) -> None:
+        char = import_hfg(_FIXTURE)
+        assert char.marshal_auras == [
+            {"aura_name": "Motivate Dexterity", "aura_type": "major", "active": True},
+        ]
+
+    def test_skill_tricks_and_psionics(self) -> None:
+        char = import_hfg(_FIXTURE)
+        assert char.skill_tricks == ["Acrobatic Backstab"]
+        assert char.psionic_powers == [
+            {"class_name": "Psion", "power_level": 1, "power_name": "Mind Thrust"},
+        ]
+
+    def test_companions(self) -> None:
+        char = import_hfg(_FIXTURE)
+        assert char.companions == [
+            {
+                "companion_type": "Animal Companion",
+                "name": "Rex",
+                "creature": "Wolf",
+                "notes": "Loyal scout",
+            },
+        ]
+
     def test_empty_input(self) -> None:
         char = parse_hfg("")
         assert char.name == ""
@@ -148,4 +183,11 @@ class TestLegacyMigration:
         assert reloaded.maneuvers == imported.maneuvers
         assert reloaded.grafts == imported.grafts
         assert reloaded.traits == imported.traits
+        assert reloaded.variants == imported.variants
+        assert reloaded.domains == imported.domains
+        assert reloaded.vestiges == imported.vestiges
+        assert reloaded.marshal_auras == imported.marshal_auras
+        assert reloaded.skill_tricks == imported.skill_tricks
+        assert reloaded.psionic_powers == imported.psionic_powers
+        assert reloaded.companions == imported.companions
         assert reloaded.game_log == imported.game_log

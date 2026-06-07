@@ -82,6 +82,13 @@ _CHARACTER_TABLES = [
     "character_maneuvers",
     "character_notes",
     "character_grafts",
+    "character_variants",
+    "character_domains",
+    "character_vestiges",
+    "character_marshal_auras",
+    "character_skill_tricks",
+    "character_psionic_powers",
+    "character_companions",
 ]
 
 _EXPECTED_INDEXES = [

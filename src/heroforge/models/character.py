@@ -67,6 +67,20 @@ class Character:
     """Grafts attached, each ``{graft_name, body_slot, notes}``."""
     traits: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
     """Traits and flaws, each ``{trait_name, is_flaw}``."""
+    variants: list[str] = field(default_factory=list)
+    """Selected class/racial variants, in the order chosen."""
+    domains: list[str] = field(default_factory=list)
+    """Chosen cleric (etc.) domains, in slot order."""
+    vestiges: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Binder vestiges bound, each ``{vestige_name, level, bound}``."""
+    marshal_auras: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Marshal auras known, each ``{aura_name, aura_type, active}``."""
+    skill_tricks: list[str] = field(default_factory=list)
+    """Selected skill tricks, in the order chosen."""
+    psionic_powers: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Psionic powers known, each ``{class_name, power_level, power_name}``."""
+    companions: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Animal companions/familiars, each ``{companion_type, name, creature, notes}``."""
     game_log: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
     """Timestamped free-text log entries, each ``{timestamp, content}``."""
 

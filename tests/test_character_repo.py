@@ -97,6 +97,26 @@ def _sample_character() -> Character:
             {"trait_name": "Aggressive", "is_flaw": False},
             {"trait_name": "Shaky", "is_flaw": True},
         ],
+        variants=["Spell Sense", "Spiritual Totem"],
+        domains=["Healing", "Sun"],
+        vestiges=[
+            {"vestige_name": "Naberius", "level": 4, "bound": True},
+        ],
+        marshal_auras=[
+            {"aura_name": "Motivate Dexterity", "aura_type": "major", "active": True},
+        ],
+        skill_tricks=["Acrobatic Backstab"],
+        psionic_powers=[
+            {"class_name": "Psion", "power_level": 1, "power_name": "Mind Thrust"},
+        ],
+        companions=[
+            {
+                "companion_type": "Animal Companion",
+                "name": "Rex",
+                "creature": "Wolf",
+                "notes": "Loyal scout",
+            },
+        ],
         game_log=[
             {"timestamp": "2024-01-01T10:00:00", "content": "Set out from Verbobonc."},
         ],
@@ -154,6 +174,13 @@ class TestSaveLoadRoundTrip:
         assert loaded.maneuvers == char.maneuvers
         assert loaded.grafts == char.grafts
         assert loaded.traits == char.traits
+        assert loaded.variants == char.variants
+        assert loaded.domains == char.domains
+        assert loaded.vestiges == char.vestiges
+        assert loaded.marshal_auras == char.marshal_auras
+        assert loaded.skill_tricks == char.skill_tricks
+        assert loaded.psionic_powers == char.psionic_powers
+        assert loaded.companions == char.companions
         assert loaded.game_log == char.game_log
 
     def test_writes_related_rows(self, conn: sqlite3.Connection) -> None:
@@ -174,6 +201,13 @@ class TestSaveLoadRoundTrip:
             "character_maneuvers": 2,
             "character_grafts": 1,
             "character_traits": 2,
+            "character_variants": 2,
+            "character_domains": 2,
+            "character_vestiges": 1,
+            "character_marshal_auras": 1,
+            "character_skill_tricks": 1,
+            "character_psionic_powers": 1,
+            "character_companions": 1,
             "character_notes": 1,
         }
         for table, expected in counts.items():

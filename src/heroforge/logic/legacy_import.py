@@ -58,6 +58,28 @@ Recognised layout (INI-like, sections in any order)::
     [Grafts]
     Fiendish Arm|arms|Grants a claw attack
 
+    [Variants]
+    Spell Sense
+
+    [Domains]
+    Healing
+    Sun
+
+    [Vestiges]
+    Naberius|4|1
+
+    [MarshalAuras]
+    Motivate Dexterity|major|1
+
+    [SkillTricks]
+    Acrobatic Backstab
+
+    [PsionicPowers]
+    Psion|1|Mind Thrust
+
+    [Companions]
+    Animal Companion|Rex|Wolf|Loyal scout
+
     [Traits]
     Aggressive|0
 
@@ -71,7 +93,8 @@ Recognised layout (INI-like, sections in any order)::
     Free-text notes, preserved verbatim.
 
 Order is preserved for classes, feats, equipment, buffs, languages, spells,
-soulmelds, maneuvers, stances, grafts, traits, and game-log entries.
+soulmelds, maneuvers, stances, grafts, traits, variants, domains, vestiges,
+marshal auras, skill tricks, psionic powers, companions, and game-log entries.
 """
 
 from __future__ import annotations
@@ -240,6 +263,58 @@ def parse_hfg(text: str) -> Character:
             character.traits.append(
                 {"trait_name": parts[0].strip(), "is_flaw": is_flaw}
             )
+
+        elif section == "variants":
+            character.variants.append(stripped)
+
+        elif section == "domains":
+            character.domains.append(stripped)
+
+        elif section == "vestiges":
+            parts = stripped.split("|")
+            vestige: dict[str, object] = {"vestige_name": parts[0].strip()}
+            vestige["level"] = _to_int(parts[1]) if len(parts) > 1 else 0
+            vestige["bound"] = _to_bool(parts[2]) if len(parts) > 2 else True
+            character.vestiges.append(vestige)
+
+        elif section == "marshalauras":
+            parts = stripped.split("|")
+            aura: dict[str, object] = {"aura_name": parts[0].strip()}
+            aura["aura_type"] = (parts[1].strip() or None) if len(parts) > 1 else None
+            aura["active"] = _to_bool(parts[2]) if len(parts) > 2 else False
+            character.marshal_auras.append(aura)
+
+        elif section == "skilltricks":
+            character.skill_tricks.append(stripped)
+
+        elif section == "psionicpowers":
+            parts = stripped.split("|")
+            power: dict[str, object] = {"class_name": parts[0].strip()}
+            power["power_level"] = _to_int(parts[1]) if len(parts) > 1 else 0
+            power["power_name"] = parts[2].strip() if len(parts) > 2 else ""
+            character.psionic_powers.append(power)
+
+        elif section in ("companions", "animalcompanion", "familiar"):
+            parts = stripped.split("|")
+            if section == "companions":
+                companion: dict[str, object] = {
+                    "companion_type": parts[0].strip(),
+                    "name": (parts[1].strip() or None) if len(parts) > 1 else None,
+                    "creature": (parts[2].strip() or None) if len(parts) > 2 else None,
+                    "notes": (parts[3].strip() or None) if len(parts) > 3 else None,
+                }
+            else:
+                companion = {
+                    "companion_type": (
+                        "Animal Companion"
+                        if section == "animalcompanion"
+                        else "Familiar"
+                    ),
+                    "name": (parts[0].strip() or None) if parts else None,
+                    "creature": (parts[1].strip() or None) if len(parts) > 1 else None,
+                    "notes": (parts[2].strip() or None) if len(parts) > 2 else None,
+                }
+            character.companions.append(companion)
 
         elif section == "gamelog":
             timestamp, sep, content = stripped.partition("|")

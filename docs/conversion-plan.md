@@ -240,6 +240,14 @@ re-imported.  Each character is instead persisted to its own standalone
 keeping the user's volatile, runtime data cleanly separated from the
 application's source data.
 
+To enforce this separation of concerns at the source level, the two schemas
+live in dedicated modules: `db/game_schema.py` defines `GAME_SCHEMA_SQL` (the
+ROM game data) and `db/character_schema.py` defines `CHARACTER_SCHEMA_SQL` (the
+RAM save tables).  `db/schema.py` only provides the shared connection and
+initialisation plumbing (`initialize_database` /
+`initialize_character_database`).  Every per-character selectable feature and
+choice exposed by the Excel workbook has an equivalent save table:
+
 | SQLite Table | Contents |
 |---|---|
 | `characters` | Top-level character record (name, player, campaign, etc.) |
@@ -249,13 +257,20 @@ application's source data.
 | `character_skills` | Ranks assigned per skill |
 | `character_spells_prepared` | Spells prepared (for prepared casters) |
 | `character_spells_known` | Spells known (for spontaneous casters) |
+| `character_psionic_powers` | Psionic powers known (for manifesters) |
 | `character_soulmelds` | Soulmelds selected, chakra binds |
+| `character_maneuvers` | Maneuvers and stances known |
+| `character_vestiges` | Binder vestiges bound, with effective level |
+| `character_domains` | Cleric (etc.) domains chosen, in slot order |
+| `character_marshal_auras` | Marshal minor/major auras selected |
+| `character_variants` | Class/racial variants selected |
+| `character_skill_tricks` | Skill tricks selected |
 | `character_equipment` | Inventory and equipped items |
 | `character_buffs` | Active buffs and their parameters |
 | `character_languages` | Languages known |
 | `character_traits` | Traits and flaws selected |
-| `character_maneuvers` | Maneuvers and stances known |
 | `character_grafts` | Grafts attached, with body slot |
+| `character_companions` | Animal companions / familiars |
 | `character_notes` | Free-text game-log entries (replaces Game Log) |
 
 ### 6.3 Seed Script (`src/heroforge/db/seed.py`)
