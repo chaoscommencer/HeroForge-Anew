@@ -154,7 +154,7 @@ def parse_hfg(text: str) -> Character:
             if len(parts) > 2:
                 item["weight"] = _to_float(parts[2])
             if len(parts) > 3:
-                item["equipped"] = parts[3].strip() in ("1", "true", "True", "yes")
+                item["equipped"] = parts[3].strip().lower() in ("1", "true", "yes")
             if len(parts) > 4:
                 item["slot"] = parts[4].strip() or None
             if len(parts) > 5:
