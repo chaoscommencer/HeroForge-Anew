@@ -606,9 +606,8 @@ def _seed_workbook_table(
     Rows are extracted first, then the destination table is replaced in full:
     existing rows are deleted and fresh workbook rows inserted.  This mirrors
     the original workbook-first application model where each seed run
-    regenerates these reference tables from workbook data.  ``INSERT OR
-    REPLACE`` additionally collapses duplicates within extracted rows that
-    share a schema UNIQUE key.
+    regenerates these reference tables from workbook data.  Inserts that
+    violate constraints are skipped and logged.
     """
     try:
         rows = spec.extractor(wb)
@@ -631,10 +630,7 @@ def _seed_workbook_table(
 
     placeholders = ", ".join("?" for _ in spec.columns)
     column_list = ", ".join(spec.columns)
-    statement = (
-        f"INSERT OR REPLACE INTO {spec.table} ({column_list}) "
-        f"VALUES ({placeholders})"
-    )
+    statement = f"INSERT INTO {spec.table} ({column_list}) VALUES ({placeholders})"
 
     conn.execute(f"DELETE FROM {spec.table}")
     inserted = 0
@@ -649,6 +645,12 @@ def _seed_workbook_table(
 
     conn.commit()
     stored = conn.execute(f"SELECT COUNT(*) FROM {spec.table}").fetchone()[0]
+    if skipped:
+        logger.warning(
+            "%s: skipped %d source rows due to insert errors (see debug logs)",
+            spec.table,
+            skipped,
+        )
     logger.info(
         "%s: stored %d rows from sheet %r (processed %d, skipped %d)",
         spec.table,

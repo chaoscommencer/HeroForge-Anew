@@ -22,7 +22,7 @@ requires_workbook = pytest.mark.skipif(
 
 
 def _expected_count(spec: seed._WorkbookTable, rows: list[tuple]) -> int:
-    """Replicate the seeder's INSERT OR REPLACE de-duplication for *rows*."""
+    """Replicate UNIQUE-key conflict handling from workbook table inserts."""
     if spec.unique_by is None:
         return len(rows)
     key_indexes = [spec.columns.index(col) for col in spec.unique_by]
