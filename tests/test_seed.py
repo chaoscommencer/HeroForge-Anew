@@ -40,7 +40,7 @@ def seeded_db(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="module")
 def source_counts() -> dict[str, int]:
-    """Expected per-table row counts derived directly from the workbook."""
+    """Per-table row counts extracted from the workbook via each extractor."""
     wb = openpyxl.load_workbook(
         str(seed._DEFAULT_WORKBOOK), read_only=True, data_only=True
     )
@@ -78,6 +78,62 @@ class TestWorkbookSeeding:
         finally:
             conn.close()
         assert count == source_counts[table]
+
+    def test_reference_workbook_regression_guards(self, seeded_db: Path) -> None:
+        """Independent checks to catch extractor/layout regressions."""
+        conn = get_connection(seeded_db)
+        try:
+            assert conn.execute("SELECT COUNT(*) FROM skills").fetchone()[0] == 57
+            assert conn.execute("SELECT COUNT(*) FROM armor").fetchone()[0] == 104
+            assert conn.execute("SELECT COUNT(*) FROM maneuvers").fetchone()[0] == 208
+
+            skill = conn.execute(
+                "SELECT name, key_ability, armor_check_penalty "
+                "FROM skills WHERE name = ?",
+                ("Balance",),
+            ).fetchone()
+            feat = conn.execute(
+                "SELECT name, type, description FROM feats WHERE name = ?",
+                ("Acrobatic",),
+            ).fetchone()
+            armor = conn.execute(
+                "SELECT name, check_penalty, arcane_spell_failure, weight "
+                "FROM armor WHERE name = ?",
+                ("Bark",),
+            ).fetchone()
+            maneuver = conn.execute(
+                "SELECT name, discipline, level, type FROM maneuvers WHERE name = ?",
+                ("Burning Blade",),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        assert skill is not None
+        assert dict(skill) == {
+            "name": "Balance",
+            "key_ability": "DEX",
+            "armor_check_penalty": 1,
+        }
+        assert feat is not None
+        assert dict(feat) == {
+            "name": "Acrobatic",
+            "type": "General Feats",
+            "description": "+2 bonus on Jump and Tumble checks.",
+        }
+        assert armor is not None
+        assert dict(armor) == {
+            "name": "Bark",
+            "check_penalty": -2,
+            "arcane_spell_failure": 15,
+            "weight": 15.0,
+        }
+        assert maneuver is not None
+        assert dict(maneuver) == {
+            "name": "Burning Blade",
+            "discipline": "Desert Wind",
+            "level": 1,
+            "type": "Boost",
+        }
 
     def test_skill_footnotes_preserve_marked_names(self, seeded_db: Path) -> None:
         conn = get_connection(seeded_db)
