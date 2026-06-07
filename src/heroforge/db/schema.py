@@ -704,5 +704,6 @@ def initialize_character_database(
         An open :class:`sqlite3.Connection` to the initialised save database.
     """
     conn = get_connection(Path(db_path))
+    # Character save databases define no indexes, so none are validated here.
     _apply_schema_if_needed(conn, CHARACTER_SCHEMA_SQL, _CHARACTER_TABLES, frozenset())
     return conn

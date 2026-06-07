@@ -71,7 +71,7 @@ Recognised layout (INI-like, sections in any order)::
     Free-text notes, preserved verbatim.
 
 Order is preserved for classes, feats, equipment, buffs, languages, spells,
-soulmelds, maneuvers, stances, grafts, traits and game-log entries.
+soulmelds, maneuvers, stances, grafts, traits, and game-log entries.
 """
 
 from __future__ import annotations
