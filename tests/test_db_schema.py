@@ -27,6 +27,7 @@ _EXPECTED_TABLES = [
     "skills",
     "skill_synergies",
     "skill_tricks",
+    "skill_footnotes",
     "spells",
     "spells_per_day",
     "spells_known",

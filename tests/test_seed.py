@@ -79,6 +79,22 @@ class TestWorkbookSeeding:
             conn.close()
         assert count == source_counts[table]
 
+    def test_skill_footnotes_preserve_marked_names(self, seeded_db: Path) -> None:
+        conn = get_connection(seeded_db)
+        try:
+            row = conn.execute(
+                """
+                SELECT skill_name, raw_name, marker
+                FROM skill_footnotes
+                WHERE skill_name = 'Appraise'
+                """
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None
+        assert row["raw_name"] == "Appraise¹"
+        assert row["marker"] == "¹"
+
 
 @requires_workbook
 class TestIdempotency:
@@ -130,6 +146,11 @@ class TestHelpers:
         assert seed._strip_footnotes("Appraise\u00b9") == "Appraise"
         assert seed._strip_footnotes("Craft skills\u2026\u00b9") == "Craft skills"
         assert seed._strip_footnotes("Balance ") == "Balance"
+
+    def test_trailing_footnote_markers(self) -> None:
+        assert seed._trailing_footnote_markers("Appraise\u00b9") == "\u00b9"
+        assert seed._trailing_footnote_markers("Swim\u00b9\u00b9") == "\u00b9\u00b9"
+        assert seed._trailing_footnote_markers("Use Rope") == ""
 
     def test_lstrip_separator(self) -> None:
         assert seed._lstrip_separator(" : +2 bonus") == "+2 bonus"

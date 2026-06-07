@@ -123,6 +123,12 @@ def _strip_footnotes(name: str) -> str:
     return re.sub(r"[\u00b9\u00b2\u00b3\u2026\*\s]+$", "", name).strip()
 
 
+def _trailing_footnote_markers(name: str) -> str:
+    """Return trailing footnote marker characters from *name*."""
+    m = re.search(r"([\u00b9\u00b2\u00b3\*]+)\s*$", name)
+    return m.group(1) if m else ""
+
+
 def _lstrip_separator(text: str) -> str:
     """Strip a leading ``" : "`` separator used by description columns."""
     return re.sub(r"^\s*:\s*", "", text).strip()
@@ -183,6 +189,23 @@ def _extract_skills(wb: object) -> list[tuple[object, ...]]:
         armor_check = 1 if "*" in key_raw else 0
         key_ability = key_raw.replace("*", "").strip()
         rows.append((name, key_ability, 0, armor_check, ""))
+    return rows
+
+
+def _extract_skill_footnotes(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Skills"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 5):
+        raw_name = _col(row, "A")
+        if not raw_name or raw_name.upper() == "SKILL NAME":
+            continue
+        marker = _trailing_footnote_markers(raw_name)
+        if not marker:
+            continue
+        name = _strip_footnotes(raw_name)
+        if not name:
+            continue
+        rows.append((name, raw_name, marker))
     return rows
 
 
@@ -459,6 +482,13 @@ _WORKBOOK_TABLES: tuple[_WorkbookTable, ...] = (
         ("name", "key_ability", "trained_only", "armor_check_penalty", "description"),
         _extract_skills,
         unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "skill_footnotes",
+        "Skills",
+        ("skill_name", "raw_name", "marker"),
+        _extract_skill_footnotes,
+        unique_by=("skill_name", "marker"),
     ),
     _WorkbookTable(
         "skill_tricks",
