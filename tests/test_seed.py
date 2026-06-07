@@ -15,7 +15,7 @@ import pytest
 from heroforge.db import seed
 from heroforge.db.schema import get_connection
 
-pytestmark = pytest.mark.skipif(
+requires_workbook = pytest.mark.skipif(
     not seed._DEFAULT_WORKBOOK.exists(),
     reason="reference workbook not available",
 )
@@ -57,6 +57,7 @@ def source_counts() -> dict[str, int]:
 _TABLE_NAMES = [spec.table for spec in seed._WORKBOOK_TABLES]
 
 
+@requires_workbook
 class TestWorkbookSeeding:
     @pytest.mark.parametrize("table", _TABLE_NAMES)
     def test_table_is_populated(self, seeded_db: Path, table: str) -> None:
@@ -79,6 +80,7 @@ class TestWorkbookSeeding:
         assert count == source_counts[table]
 
 
+@requires_workbook
 class TestIdempotency:
     def test_reseeding_does_not_change_counts(self, tmp_path: Path) -> None:
         db_path = tmp_path / "idempotent.db"
