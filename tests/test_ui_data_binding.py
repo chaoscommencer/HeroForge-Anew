@@ -129,14 +129,16 @@ class TestSpellsTab:
         assert tab._slot_spins[0].value() == 3
         assert tab._slot_spins[1].value() == 2
 
-    def test_not_hardcoded_to_phb_classes(self, model: object) -> None:
+    def test_reflects_database_content_not_hardcoded_list(self, model: object) -> None:
         from heroforge.ui.tabs.spells import SpellsTab
 
         tab = SpellsTab(model=model)
         classes = {
             tab._class_combo.itemText(i) for i in range(tab._class_combo.count())
         }
-        # The old hardcoded list contained Sorcerer/Bard/etc; the DB here has none.
+        # The combo must contain exactly the DB-seeded caster classes, not the
+        # old hardcoded PHB list (which included Sorcerer, Bard, Druid, etc.).
+        assert classes == {"Cleric", "Wizard"}
         assert "Sorcerer" not in classes
         assert "Bard" not in classes
 

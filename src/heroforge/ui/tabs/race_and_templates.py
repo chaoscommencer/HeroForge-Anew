@@ -98,10 +98,11 @@ class RaceAndTemplatesTab(QWidget):
 
     def _add_template(self) -> None:
         """Add a database-backed template that is not already applied."""
-        applied = {
-            self._template_list.item(i).text()  # type: ignore[union-attr]
-            for i in range(self._template_list.count())
-        }
+        applied: set[str] = set()
+        for i in range(self._template_list.count()):
+            item = self._template_list.item(i)
+            if item is not None:
+                applied.add(item.text())
         for name in self._available_templates:
             if name not in applied:
                 self._template_list.addItem(name)
