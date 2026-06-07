@@ -95,6 +95,24 @@ class TestWorkbookSeeding:
         assert row["raw_name"] == "Appraise¹"
         assert row["marker"] == "¹"
 
+    def test_skill_footnote_definitions_preserve_text(self, seeded_db: Path) -> None:
+        conn = get_connection(seeded_db)
+        try:
+            row = conn.execute(
+                """
+                SELECT source_sheet, marker, description
+                FROM skill_footnote_definitions
+                WHERE source_sheet = 'Character Sheet I' AND marker = '¹'
+                """
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None
+        assert (
+            row["description"]
+            == "This skill can be used even if the character has zero skill ranks."
+        )
+
 
 @requires_workbook
 class TestIdempotency:
@@ -152,6 +170,25 @@ class TestHelpers:
         assert seed._trailing_footnote_markers("Swim\u00b9\u00b9") == "\u00b9\u00b9"
         assert seed._trailing_footnote_markers("Appraise\u00b9 ") == "\u00b9"
         assert seed._trailing_footnote_markers("Use Rope") == ""
+
+    def test_parse_skill_footnote_legend(self) -> None:
+        assert seed._parse_skill_footnote_legend(
+            "1   This skill can be used even if the character has zero skill ranks.\n"
+            "×  This skill is a class skills for at least one of your classes.\n"
+            "*   Armor check penalty, if any, applies.    **   Double the armor "
+            "check penalty."
+        ) == [
+            (
+                "\u00b9",
+                "This skill can be used even if the character has zero skill ranks.",
+            ),
+            (
+                "\u00d7",
+                "This skill is a class skills for at least one of your classes.",
+            ),
+            ("*", "Armor check penalty, if any, applies."),
+            ("**", "Double the armor check penalty."),
+        ]
 
     def test_lstrip_separator(self) -> None:
         assert seed._lstrip_separator(" : +2 bonus") == "+2 bonus"

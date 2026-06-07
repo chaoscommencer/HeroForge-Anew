@@ -31,6 +31,12 @@ _MODULE_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _MODULE_DIR.parent.parent.parent
 _DEFAULT_DATA_DIR = _PROJECT_ROOT / "data"
 _DEFAULT_WORKBOOK = _PROJECT_ROOT / "HeroForge Anew 3.5 v7.4.0.1.xlsm"
+_FOOTNOTE_MARKER_NORMALIZATION = {"1": "¹", "2": "²", "3": "³"}
+_SKILL_FOOTNOTE_LEGEND_CELLS = (
+    ("Character Sheet I", "BH151"),
+    ("Animal Companion", "BI145"),
+    ("Familiar", "BI145"),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +123,8 @@ def _sheet_rows(
 def _strip_footnotes(name: str) -> str:
     """Remove trailing footnote markers (superscripts, asterisks) from a name.
 
-    The stripped markers are not persisted separately; workbook seeding keeps
-    normalized display names only.
+    Workbook seeding preserves the stripped markers and their legend text in
+    dedicated skill-footnote tables.
     """
     return re.sub(r"[\u00b9\u00b2\u00b3\u2026\*\s]+$", "", name).strip()
 
@@ -127,6 +133,33 @@ def _trailing_footnote_markers(name: str) -> str:
     """Return trailing footnote marker characters from *name*."""
     m = re.search(r"([\u00b9\u00b2\u00b3\*]+)\s*$", name)
     return m.group(1) if m else ""
+
+
+def _normalize_footnote_marker(marker: str) -> str:
+    """Normalize workbook legend markers to their skill-name form."""
+    return "".join(_FOOTNOTE_MARKER_NORMALIZATION.get(ch, ch) for ch in marker)
+
+
+def _parse_skill_footnote_legend(text: str) -> list[tuple[str, str]]:
+    """Extract ``(marker, description)`` pairs from a workbook legend cell."""
+    rows: list[tuple[str, str]] = []
+    for line in (line.strip() for line in text.splitlines()):
+        if not line:
+            continue
+        if line.startswith("Skills marked with "):
+            m = re.match(r"Skills marked with ([¹²³])\s+(.*)", line)
+            if m:
+                rows.append((m.group(1), m.group(2).strip()))
+            continue
+        if line.startswith(("1 ", "2 ", "3 ", "¹ ", "² ", "³ ", "× ")):
+            marker, description = line.split(None, 1)
+            rows.append((_normalize_footnote_marker(marker), description.strip()))
+            continue
+        for marker, description in re.findall(
+            r"(\*\*|\*)\s+(.+?)(?=(?:\s{2,}\*\*|\s{2,}\*|$))", line
+        ):
+            rows.append((marker, description.strip()))
+    return rows
 
 
 def _lstrip_separator(text: str) -> str:
@@ -207,6 +240,15 @@ def _extract_skill_footnotes(wb: object) -> list[tuple[object, ...]]:
             logger.warning("Could not normalize skill footnote row: %r", raw_name)
             continue
         rows.append((name, raw_name, marker))
+    return rows
+
+
+def _extract_skill_footnote_definitions(wb: object) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    for sheet_name, cell in _SKILL_FOOTNOTE_LEGEND_CELLS:
+        legend = _cell_value(wb[sheet_name][cell])  # type: ignore[index]
+        for marker, description in _parse_skill_footnote_legend(legend):
+            rows.append((sheet_name, marker, description))
     return rows
 
 
@@ -490,6 +532,13 @@ _WORKBOOK_TABLES: tuple[_WorkbookTable, ...] = (
         ("skill_name", "raw_name", "marker"),
         _extract_skill_footnotes,
         unique_by=("skill_name", "marker"),
+    ),
+    _WorkbookTable(
+        "skill_footnote_definitions",
+        "Character Sheet I",
+        ("source_sheet", "marker", "description"),
+        _extract_skill_footnote_definitions,
+        unique_by=("source_sheet", "marker"),
     ),
     _WorkbookTable(
         "skill_tricks",
