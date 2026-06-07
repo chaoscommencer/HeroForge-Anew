@@ -232,7 +232,13 @@ The following tables map directly from workbook sheets or existing data files. C
 
 #### Character Save Data
 
-These tables store per-character data (written on save, read on load):
+These tables store per-character data (written on save, read on load).  They
+are **not** part of the source-of-truth `heroforge.db`; that database is
+treated as read-only ROM that only changes when the Excel workbook is
+re-imported.  Each character is instead persisted to its own standalone
+`.hfc` save file (a SQLite database carrying only these `character_*` tables),
+keeping the user's volatile, runtime data cleanly separated from the
+application's source data.
 
 | SQLite Table | Contents |
 |---|---|
@@ -249,7 +255,8 @@ These tables store per-character data (written on save, read on load):
 | `character_languages` | Languages known |
 | `character_traits` | Traits and flaws selected |
 | `character_maneuvers` | Maneuvers and stances known |
-| `character_notes` | Free-text notes (replaces Game Log) |
+| `character_grafts` | Grafts attached, with body slot |
+| `character_notes` | Free-text game-log entries (replaces Game Log) |
 
 ### 6.3 Seed Script (`src/heroforge/db/seed.py`)
 

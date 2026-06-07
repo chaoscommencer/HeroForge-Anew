@@ -53,6 +53,34 @@ Common
 Elven
 Celestial
 
+[SpellsKnown]
+Wizard|1|Magic Missile
+Wizard|0|Light
+
+[SpellsPrepared]
+Wizard|1|Magic Missile
+
+[Soulmelds]
+Incarnate Avatar|Crown|2
+
+[Maneuvers]
+Steel Wind|1
+
+[Stances]
+Punishing Stance
+
+[Grafts]
+Fiendish Arm|arms|Grants a claw attack
+
+[Traits]
+Aggressive|0
+
+[Flaws]
+Shaky
+
+[GameLog]
+2024-01-01T10:00:00|Set out from Verbobonc.
+
 [Notes]
 A paladin-turned-wizard seeking redemption.
 Carries his late mentor's spellbook.

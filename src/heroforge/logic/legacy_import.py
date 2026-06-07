@@ -40,10 +40,38 @@ Recognised layout (INI-like, sections in any order)::
     [Languages]
     Common
 
+    [SpellsKnown]
+    Wizard|1|Magic Missile
+
+    [SpellsPrepared]
+    Wizard|1|Magic Missile
+
+    [Soulmelds]
+    Incarnate Avatar|Crown|2
+
+    [Maneuvers]
+    Steel Wind|1
+
+    [Stances]
+    Punishing Stance
+
+    [Grafts]
+    Fiendish Arm|arms|Grants a claw attack
+
+    [Traits]
+    Aggressive|0
+
+    [Flaws]
+    Shaky
+
+    [GameLog]
+    2024-01-01T10:00:00|Set out from Verbobonc.
+
     [Notes]
     Free-text notes, preserved verbatim.
 
-Order is preserved for classes, feats, equipment, buffs and languages.
+Order is preserved for classes, feats, equipment, buffs, languages, spells,
+soulmelds, maneuvers, stances, grafts, traits and game-log entries.
 """
 
 from __future__ import annotations
@@ -84,6 +112,10 @@ def _to_float(value: str, default: float = 0.0) -> float:
         return float(value.strip())
     except (TypeError, ValueError):
         return default
+
+
+def _to_bool(value: str) -> bool:
+    return value.strip().lower() in ("1", "true", "yes")
 
 
 def parse_hfg(text: str) -> Character:
@@ -166,6 +198,57 @@ def parse_hfg(text: str) -> Character:
 
         elif section == "languages":
             character.languages.append(stripped)
+
+        elif section in ("spellsknown", "spellsprepared"):
+            parts = stripped.split("|")
+            spell: dict[str, object] = {"class_name": parts[0].strip()}
+            spell["spell_level"] = _to_int(parts[1]) if len(parts) > 1 else 0
+            spell["spell_name"] = parts[2].strip() if len(parts) > 2 else ""
+            if section == "spellsknown":
+                character.spells_known.append(spell)
+            else:
+                character.spells_prepared.append(spell)
+
+        elif section == "soulmelds":
+            parts = stripped.split("|")
+            meld: dict[str, object] = {"soulmeld_name": parts[0].strip()}
+            meld["chakra_bound"] = (
+                (parts[1].strip() or None) if len(parts) > 1 else None
+            )
+            meld["essentia_invested"] = _to_int(parts[2]) if len(parts) > 2 else 0
+            character.soulmelds.append(meld)
+
+        elif section in ("maneuvers", "stances"):
+            parts = stripped.split("|")
+            maneuver: dict[str, object] = {"maneuver_name": parts[0].strip()}
+            # Stances are always active; maneuvers carry an explicit readied flag.
+            maneuver["readied"] = (
+                _to_bool(parts[1]) if len(parts) > 1 else section == "stances"
+            )
+            character.maneuvers.append(maneuver)
+
+        elif section == "grafts":
+            parts = stripped.split("|")
+            graft: dict[str, object] = {"graft_name": parts[0].strip()}
+            graft["body_slot"] = (parts[1].strip() or None) if len(parts) > 1 else None
+            graft["notes"] = (parts[2].strip() or None) if len(parts) > 2 else None
+            character.grafts.append(graft)
+
+        elif section in ("traits", "flaws"):
+            parts = stripped.split("|")
+            is_flaw = section == "flaws" or (len(parts) > 1 and _to_bool(parts[1]))
+            character.traits.append(
+                {"trait_name": parts[0].strip(), "is_flaw": is_flaw}
+            )
+
+        elif section == "gamelog":
+            timestamp, sep, content = stripped.partition("|")
+            if sep:
+                character.game_log.append(
+                    {"timestamp": timestamp.strip(), "content": content.strip()}
+                )
+            else:
+                character.game_log.append({"timestamp": "", "content": stripped})
 
     if note_lines:
         character.notes = "\n".join(note_lines).strip("\n")

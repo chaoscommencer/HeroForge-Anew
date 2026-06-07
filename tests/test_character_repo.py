@@ -14,7 +14,7 @@ from heroforge.db.character_repo import (
     save_character,
     save_character_to_file,
 )
-from heroforge.db.schema import get_connection, initialize_database
+from heroforge.db.schema import get_connection, initialize_character_database
 from heroforge.models.character import Character
 
 
@@ -68,13 +68,45 @@ def _sample_character() -> Character:
             },
         ],
         languages=["Common", "Elven", "Celestial"],
+        spells_known=[
+            {"class_name": "Wizard", "spell_level": 1, "spell_name": "Magic Missile"},
+            {"class_name": "Wizard", "spell_level": 0, "spell_name": "Light"},
+        ],
+        spells_prepared=[
+            {"class_name": "Wizard", "spell_level": 1, "spell_name": "Magic Missile"},
+        ],
+        soulmelds=[
+            {
+                "soulmeld_name": "Incarnate Avatar",
+                "chakra_bound": "Crown",
+                "essentia_invested": 2,
+            },
+        ],
+        maneuvers=[
+            {"maneuver_name": "Steel Wind", "readied": True},
+            {"maneuver_name": "Punishing Stance", "readied": False},
+        ],
+        grafts=[
+            {
+                "graft_name": "Fiendish Arm",
+                "body_slot": "arms",
+                "notes": "Grants a claw attack",
+            },
+        ],
+        traits=[
+            {"trait_name": "Aggressive", "is_flaw": False},
+            {"trait_name": "Shaky", "is_flaw": True},
+        ],
+        game_log=[
+            {"timestamp": "2024-01-01T10:00:00", "content": "Set out from Verbobonc."},
+        ],
     )
 
 
 @pytest.fixture()
 def conn(tmp_path: Path) -> sqlite3.Connection:
-    db_path = tmp_path / "chars.db"
-    connection = initialize_database(db_path)
+    db_path = tmp_path / "chars.hfc"
+    connection = initialize_character_database(db_path)
     yield connection
     connection.close()
 
@@ -116,6 +148,13 @@ class TestSaveLoadRoundTrip:
         assert loaded.buffs == char.buffs
         assert loaded.equipment == char.equipment
         assert loaded.languages == char.languages
+        assert loaded.spells_known == char.spells_known
+        assert loaded.spells_prepared == char.spells_prepared
+        assert loaded.soulmelds == char.soulmelds
+        assert loaded.maneuvers == char.maneuvers
+        assert loaded.grafts == char.grafts
+        assert loaded.traits == char.traits
+        assert loaded.game_log == char.game_log
 
     def test_writes_related_rows(self, conn: sqlite3.Connection) -> None:
         char = _sample_character()
@@ -129,6 +168,13 @@ class TestSaveLoadRoundTrip:
             "character_equipment": 2,
             "character_buffs": 2,
             "character_languages": 3,
+            "character_spells_known": 2,
+            "character_spells_prepared": 1,
+            "character_soulmelds": 1,
+            "character_maneuvers": 2,
+            "character_grafts": 1,
+            "character_traits": 2,
+            "character_notes": 1,
         }
         for table, expected in counts.items():
             n = conn.execute(

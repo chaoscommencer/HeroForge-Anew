@@ -1,7 +1,19 @@
 """SQLite schema definitions for HeroForge-Anew.
 
-All game data and character save tables are defined here.
-Call initialize_database() to create a fresh database.
+The schema is split into two independent halves so that read-only game data
+and volatile, user-owned character data never share a database file:
+
+* :data:`GAME_SCHEMA_SQL` defines the source-of-truth game data tables.  It is
+  applied to ``heroforge.db`` by :func:`initialize_database`.  Think of this
+  database as ROM: it is only ever rewritten when the original Excel workbook
+  is re-imported.
+* :data:`CHARACTER_SCHEMA_SQL` defines the per-character save tables.  It is
+  applied to a standalone ``.hfc`` save file by
+  :func:`initialize_character_database`.  Think of these files as RAM: each one
+  holds a single user's volatile character data.
+
+Keeping the two apart protects the application's source data from being
+mutated by ordinary character edits.
 """
 
 from __future__ import annotations
@@ -11,10 +23,10 @@ import sqlite3
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# DDL – complete schema
+# DDL – game data schema (source of truth; heroforge.db)
 # ---------------------------------------------------------------------------
 
-SCHEMA_SQL: str = """
+GAME_SCHEMA_SQL: str = """
 -- ============================================================
 -- Core game data tables
 -- ============================================================
@@ -424,6 +436,30 @@ CREATE TABLE IF NOT EXISTS sources (
 );
 
 -- ============================================================
+-- Indexes (game data)
+-- ============================================================
+
+CREATE INDEX IF NOT EXISTS idx_races_name     ON races(name);
+CREATE INDEX IF NOT EXISTS idx_classes_name   ON classes(name);
+CREATE INDEX IF NOT EXISTS idx_feats_name     ON feats(name);
+CREATE INDEX IF NOT EXISTS idx_skills_name    ON skills(name);
+CREATE INDEX IF NOT EXISTS idx_spells_name    ON spells(name);
+CREATE INDEX IF NOT EXISTS idx_weapons_name   ON weapons(name);
+CREATE INDEX IF NOT EXISTS idx_creatures_name ON creatures(name);
+CREATE INDEX IF NOT EXISTS idx_soulmelds_name ON soulmelds(name);
+"""
+
+# ---------------------------------------------------------------------------
+# DDL – character save schema (volatile, per-character .hfc files)
+# ---------------------------------------------------------------------------
+#
+# Character/runtime data is intentionally NOT part of the source-of-truth game
+# database.  It lives only in separate per-character ``.hfc`` save files so the
+# read-only game data and the user's volatile character data stay cleanly
+# separated.
+
+CHARACTER_SCHEMA_SQL: str = """
+-- ============================================================
 -- Character save tables
 -- ============================================================
 
@@ -552,23 +588,29 @@ CREATE TABLE IF NOT EXISTS character_notes (
     content         TEXT NOT NULL
 );
 
--- ============================================================
--- Indexes
--- ============================================================
-
-CREATE INDEX IF NOT EXISTS idx_races_name     ON races(name);
-CREATE INDEX IF NOT EXISTS idx_classes_name   ON classes(name);
-CREATE INDEX IF NOT EXISTS idx_feats_name     ON feats(name);
-CREATE INDEX IF NOT EXISTS idx_skills_name    ON skills(name);
-CREATE INDEX IF NOT EXISTS idx_spells_name    ON spells(name);
-CREATE INDEX IF NOT EXISTS idx_weapons_name   ON weapons(name);
-CREATE INDEX IF NOT EXISTS idx_creatures_name ON creatures(name);
-CREATE INDEX IF NOT EXISTS idx_soulmelds_name ON soulmelds(name);
+CREATE TABLE IF NOT EXISTS character_grafts (
+    id              INTEGER PRIMARY KEY,
+    character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    graft_name      TEXT NOT NULL,
+    body_slot       TEXT,
+    notes           TEXT
+);
 """
 
-# Derived at module load time from SCHEMA_SQL so it always stays in sync.
-_EXPECTED_TABLES: frozenset[str] = frozenset(
-    re.findall(r"CREATE TABLE IF NOT EXISTS\s+(\w+)", SCHEMA_SQL)
+# Backwards-compatible alias: ``heroforge.db`` (the source of truth) only ever
+# carries the game data schema.
+SCHEMA_SQL: str = GAME_SCHEMA_SQL
+
+# Derived at module load time so the table/index sets always stay in sync with
+# the DDL above.
+_GAME_TABLES: frozenset[str] = frozenset(
+    re.findall(r"CREATE TABLE IF NOT EXISTS\s+(\w+)", GAME_SCHEMA_SQL)
+)
+_GAME_INDEXES: frozenset[str] = frozenset(
+    re.findall(r"CREATE INDEX IF NOT EXISTS\s+(\w+)", GAME_SCHEMA_SQL)
+)
+_CHARACTER_TABLES: frozenset[str] = frozenset(
+    re.findall(r"CREATE TABLE IF NOT EXISTS\s+(\w+)", CHARACTER_SCHEMA_SQL)
 )
 
 
@@ -587,25 +629,17 @@ def get_connection(db_path: str | Path = "heroforge.db") -> sqlite3.Connection:
     return conn
 
 
-def initialize_database(db_path: str | Path = "heroforge.db") -> sqlite3.Connection:
-    """Create the database file (if absent) and apply the full schema.
+def _apply_schema_if_needed(
+    conn: sqlite3.Connection,
+    schema_sql: str,
+    expected_tables: frozenset[str],
+    expected_indexes: frozenset[str],
+) -> None:
+    """Apply *schema_sql* to *conn* unless every expected object already exists.
 
-    If the database file already exists and contains all expected schema tables,
-    this function returns the open connection without re-applying the schema.
-    If the file exists but is missing any expected tables (e.g. due to an
-    interrupted initialization or corruption), the schema is applied so all
-    missing tables are created.  Existing tables and their data are never
-    affected because every ``CREATE TABLE`` statement uses ``IF NOT EXISTS``.
-
-    Args:
-        db_path: Path where the SQLite file will be created/opened.
-
-    Returns:
-        An open :class:`sqlite3.Connection` to the initialised database.
+    Every ``CREATE`` statement uses ``IF NOT EXISTS`` so existing tables and
+    their data are never affected.
     """
-    db_path = Path(db_path)
-    conn = get_connection(db_path)
-
     existing_tables: frozenset[str] = frozenset(
         row[0]
         for row in conn.execute(
@@ -620,14 +654,55 @@ def initialize_database(db_path: str | Path = "heroforge.db") -> sqlite3.Connect
             "AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
     )
-    expected_indexes: frozenset[str] = frozenset(
-        re.findall(r"CREATE INDEX IF NOT EXISTS\s+(\w+)", SCHEMA_SQL)
-    )
-    if _EXPECTED_TABLES.issubset(existing_tables) and expected_indexes.issubset(
+    if expected_tables.issubset(existing_tables) and expected_indexes.issubset(
         existing_indexes
     ):
-        return conn
+        return
 
-    conn.executescript(SCHEMA_SQL)
+    conn.executescript(schema_sql)
     conn.commit()
+
+
+def initialize_database(db_path: str | Path = "heroforge.db") -> sqlite3.Connection:
+    """Create the game database file (if absent) and apply the game schema.
+
+    This is the application's source-of-truth database (``heroforge.db``).  It
+    holds **only** game data tables; volatile character data is stored
+    separately in ``.hfc`` files (see :func:`initialize_character_database`).
+
+    If the database file already exists and contains all expected game tables,
+    this function returns the open connection without re-applying the schema.
+    If the file exists but is missing any expected tables (e.g. due to an
+    interrupted initialization or corruption), the schema is applied so all
+    missing tables are created.  Existing tables and their data are never
+    affected because every ``CREATE TABLE`` statement uses ``IF NOT EXISTS``.
+
+    Args:
+        db_path: Path where the SQLite file will be created/opened.
+
+    Returns:
+        An open :class:`sqlite3.Connection` to the initialised database.
+    """
+    conn = get_connection(Path(db_path))
+    _apply_schema_if_needed(conn, GAME_SCHEMA_SQL, _GAME_TABLES, _GAME_INDEXES)
+    return conn
+
+
+def initialize_character_database(
+    db_path: str | Path,
+) -> sqlite3.Connection:
+    """Create a character save database file (if absent) and apply its schema.
+
+    Character databases (``.hfc`` files) are independent of the source-of-truth
+    game database: each one holds a single user's volatile character data and
+    carries **only** the ``character_*`` save tables.
+
+    Args:
+        db_path: Path where the SQLite save file will be created/opened.
+
+    Returns:
+        An open :class:`sqlite3.Connection` to the initialised save database.
+    """
+    conn = get_connection(Path(db_path))
+    _apply_schema_if_needed(conn, CHARACTER_SCHEMA_SQL, _CHARACTER_TABLES, frozenset())
     return conn

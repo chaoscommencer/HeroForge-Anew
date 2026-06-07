@@ -55,6 +55,20 @@ class Character:
     buffs: list[str] = field(default_factory=list)
     equipment: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
     languages: list[str] = field(default_factory=list)
+    spells_known: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Spells known, each ``{class_name, spell_level, spell_name}``."""
+    spells_prepared: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Spells prepared, each ``{class_name, spell_level, spell_name}``."""
+    soulmelds: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Soulmelds shaped, each ``{soulmeld_name, chakra_bound, essentia_invested}``."""
+    maneuvers: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Martial maneuvers and stances, each ``{maneuver_name, readied}``."""
+    grafts: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Grafts attached, each ``{graft_name, body_slot, notes}``."""
+    traits: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Traits and flaws, each ``{trait_name, is_flaw}``."""
+    game_log: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Timestamped free-text log entries, each ``{timestamp, content}``."""
 
     @property
     def total_level(self) -> int:

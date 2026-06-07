@@ -1,15 +1,18 @@
 """Persistence layer for HeroForge-Anew :class:`Character` objects.
 
 This module reads and writes the ``character_*`` save tables defined in
-:mod:`heroforge.db.schema`.  Two layers are provided:
+:mod:`heroforge.db.schema`.  Character data is **volatile, user-owned state**
+and is deliberately kept out of the source-of-truth game database
+(``heroforge.db``); it lives only in standalone ``*.hfc`` save files.  Two
+layers are provided:
 
 * :func:`save_character` / :func:`load_character` / :func:`list_characters`
-  operate on an open :class:`sqlite3.Connection` (e.g. the shared
-  ``heroforge.db``) and may hold many characters.
+  operate on an open :class:`sqlite3.Connection` to a character save database
+  (created via :func:`heroforge.db.schema.initialize_character_database`).
 * :func:`save_character_to_file` / :func:`load_character_from_file` read and
   write a self-contained ``*.hfc`` save file, which is simply a SQLite
-  database holding a single character.  This is the new save format that
-  legacy ``.hfg`` files are migrated to.
+  database holding a single character with only the ``character_*`` tables.
+  This is the new save format that legacy ``.hfg`` files are migrated to.
 
 All writes are transactional: related ``character_*`` rows are replaced
 atomically so a failed save never leaves a partially written character.
@@ -24,7 +27,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from heroforge.db.schema import get_connection, initialize_database
+from heroforge.db.schema import get_connection, initialize_character_database
 from heroforge.models.character import Character
 
 # Related tables that are fully replaced whenever a character is saved.
@@ -36,6 +39,13 @@ _RELATED_TABLES: tuple[str, ...] = (
     "character_equipment",
     "character_buffs",
     "character_languages",
+    "character_spells_known",
+    "character_spells_prepared",
+    "character_soulmelds",
+    "character_maneuvers",
+    "character_grafts",
+    "character_traits",
+    "character_notes",
 )
 
 _ABILITIES: tuple[str, ...] = ("STR", "DEX", "CON", "INT", "WIS", "CHA")
@@ -197,6 +207,97 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
             "INSERT INTO character_languages " "(character_id, language) VALUES (?, ?)",
             [(cid, language) for language in character.languages],
         )
+        cur.executemany(
+            "INSERT INTO character_spells_known "
+            "(character_id, class_name, spell_level, spell_name) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(spell.get("class_name", "")),
+                    int(spell.get("spell_level", 0)),
+                    str(spell.get("spell_name", "")),
+                )
+                for spell in character.spells_known
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_spells_prepared "
+            "(character_id, class_name, spell_level, spell_name) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(spell.get("class_name", "")),
+                    int(spell.get("spell_level", 0)),
+                    str(spell.get("spell_name", "")),
+                )
+                for spell in character.spells_prepared
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_soulmelds "
+            "(character_id, soulmeld_name, chakra_bound, essentia_invested) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(meld.get("soulmeld_name", "")),
+                    meld.get("chakra_bound"),
+                    int(meld.get("essentia_invested", 0)),
+                )
+                for meld in character.soulmelds
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_maneuvers "
+            "(character_id, maneuver_name, readied) VALUES (?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(maneuver.get("maneuver_name", "")),
+                    1 if maneuver.get("readied") else 0,
+                )
+                for maneuver in character.maneuvers
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_grafts "
+            "(character_id, graft_name, body_slot, notes) VALUES (?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(graft.get("graft_name", "")),
+                    graft.get("body_slot"),
+                    graft.get("notes"),
+                )
+                for graft in character.grafts
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_traits "
+            "(character_id, trait_name, is_flaw) VALUES (?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(trait.get("trait_name", "")),
+                    1 if trait.get("is_flaw") else 0,
+                )
+                for trait in character.traits
+            ],
+        )
+        cur.executemany(
+            "INSERT INTO character_notes "
+            "(character_id, timestamp, content) VALUES (?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(entry.get("timestamp", "")),
+                    str(entry.get("content", "")),
+                )
+                for entry in character.game_log
+            ],
+        )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -318,6 +419,85 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
         ).fetchall()
     ]
 
+    character.spells_known = [
+        {
+            "class_name": sr["class_name"],
+            "spell_level": sr["spell_level"],
+            "spell_name": sr["spell_name"],
+        }
+        for sr in conn.execute(
+            "SELECT class_name, spell_level, spell_name FROM character_spells_known "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.spells_prepared = [
+        {
+            "class_name": sr["class_name"],
+            "spell_level": sr["spell_level"],
+            "spell_name": sr["spell_name"],
+        }
+        for sr in conn.execute(
+            "SELECT class_name, spell_level, spell_name FROM character_spells_prepared "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.soulmelds = [
+        {
+            "soulmeld_name": mr["soulmeld_name"],
+            "chakra_bound": mr["chakra_bound"],
+            "essentia_invested": mr["essentia_invested"],
+        }
+        for mr in conn.execute(
+            "SELECT soulmeld_name, chakra_bound, essentia_invested "
+            "FROM character_soulmelds WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.maneuvers = [
+        {"maneuver_name": mr["maneuver_name"], "readied": bool(mr["readied"])}
+        for mr in conn.execute(
+            "SELECT maneuver_name, readied FROM character_maneuvers "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.grafts = [
+        {
+            "graft_name": gr["graft_name"],
+            "body_slot": gr["body_slot"],
+            "notes": gr["notes"],
+        }
+        for gr in conn.execute(
+            "SELECT graft_name, body_slot, notes FROM character_grafts "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.traits = [
+        {"trait_name": tr["trait_name"], "is_flaw": bool(tr["is_flaw"])}
+        for tr in conn.execute(
+            "SELECT trait_name, is_flaw FROM character_traits "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
+    character.game_log = [
+        {"timestamp": nr["timestamp"], "content": nr["content"]}
+        for nr in conn.execute(
+            "SELECT timestamp, content FROM character_notes "
+            "WHERE character_id = ? ORDER BY id",
+            (character_id,),
+        ).fetchall()
+    ]
+
     return character
 
 
@@ -356,7 +536,7 @@ def save_character_to_file(character: Character, path: str | Path) -> int:
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        conn = initialize_database(tmp_path)
+        conn = initialize_character_database(tmp_path)
         try:
             # A .hfc holds exactly one character; assign it id 1 in the file.
             character.id = None
