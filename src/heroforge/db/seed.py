@@ -92,7 +92,7 @@ def _col(row: tuple[object, ...], letter: str) -> str:
 def _sheet_rows(
     ws: object, start_row: int, max_blank: int = 60
 ) -> list[tuple[object, ...]]:
-    """Yield data rows of *ws* starting at *start_row* (0-based).
+    """Return data rows of *ws* starting at *start_row* (0-based).
 
     Iteration stops once *max_blank* consecutive fully-blank rows are seen.
     Several worksheets declare an enormous nominal dimension (e.g.
@@ -115,7 +115,11 @@ def _sheet_rows(
 
 
 def _strip_footnotes(name: str) -> str:
-    """Remove trailing footnote markers (superscripts, asterisks) from a name."""
+    """Remove trailing footnote markers (superscripts, asterisks) from a name.
+
+    The stripped markers are not persisted separately; workbook seeding keeps
+    normalized display names only.
+    """
     return re.sub(r"[\u00b9\u00b2\u00b3\u2026\*\s]+$", "", name).strip()
 
 
@@ -125,7 +129,11 @@ def _lstrip_separator(text: str) -> str:
 
 
 def _is_sql_identifier(name: str) -> bool:
-    """Return ``True`` if *name* is a plain SQL identifier (table/column name)."""
+    """Return ``True`` when *name* has safe SQL identifier syntax.
+
+    This validates identifier shape only; it does not check whether the name
+    exists in schema metadata.
+    """
     return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name))
 
 
@@ -407,8 +415,8 @@ def _extract_soulmeld_abilities(wb: object) -> list[tuple[object, ...]]:
 #
 # ``columns`` lists the destination columns (in tuple order).  ``unique_by``
 # names the column(s) backed by a UNIQUE constraint in ``schema.py``; it is
-# used both to choose ``INSERT OR REPLACE`` de-duplication semantics and so
-# tests can verify the persisted row count against the source.
+# used by tests to verify persisted row counts against the source workbook
+# using the same UNIQUE-key deduplication semantics as SQLite.
 # ---------------------------------------------------------------------------
 
 
@@ -595,9 +603,12 @@ def _seed_workbook_table(
 ) -> None:
     """Populate a single workbook-backed table from *wb* per *spec*.
 
-    The destination table is cleared first so re-running the seed never
-    duplicates rows (idempotent).  ``INSERT OR REPLACE`` then collapses any
-    rows that share a UNIQUE key in the schema.
+    Rows are extracted first, then the destination table is replaced in full:
+    existing rows are deleted and fresh workbook rows inserted.  This mirrors
+    the original workbook-first application model where each seed run
+    regenerates these reference tables from workbook data.  ``INSERT OR
+    REPLACE`` additionally collapses duplicates within extracted rows that
+    share a schema UNIQUE key.
     """
     try:
         rows = spec.extractor(wb)
