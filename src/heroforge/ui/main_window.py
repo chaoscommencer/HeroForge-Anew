@@ -75,10 +75,10 @@ class CharacterModel(QObject):
     buff_toggled = pyqtSignal(str, bool)
     """Emitted when a buff is enabled/disabled. Args: (buff_name, active)."""
 
-    character_loaded = pyqtSignal(object)
+    character_loaded = pyqtSignal(int)
     """Emitted after a character file is loaded from disk.
 
-    Args: (character_id,) – loaded character id (``int``) or ``None``.
+    Args: (character_id,) – loaded character id; ``0`` for unsaved imports.
     """
 
     character_reset = pyqtSignal()
@@ -115,7 +115,7 @@ class CharacterModel(QObject):
         else:
             character = load_character_from_file(path)
         self._character = character
-        self.character_loaded.emit(character.id)
+        self.character_loaded.emit(character.id or 0)
         return character
 
     def save_character(self, path: str) -> Character:
