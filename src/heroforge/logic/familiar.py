@@ -154,6 +154,9 @@ def save_bonuses(
 
     Returns:
         Mapping of save key → bonus value (empty when nothing applies).
+        Values accumulate additively when several unconditional save bonuses
+        share a target, so custom multi-bonus familiars are summed correctly;
+        the standard PHB familiars each define a single save bonus.
     """
     if not creature_name:
         return {}

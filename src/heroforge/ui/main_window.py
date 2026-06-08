@@ -25,12 +25,8 @@ from heroforge.db.character_repo import (
 )
 from heroforge.db.data_access import GameDataRepository
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
-from heroforge.logic.familiar import (
-    save_bonuses as familiar_save_bonuses,
-)
-from heroforge.logic.familiar import (
-    selected_familiar_kind,
-)
+from heroforge.logic.familiar import save_bonuses as familiar_save_bonuses
+from heroforge.logic.familiar import selected_familiar_kind
 from heroforge.logic.legacy_import import import_hfg
 from heroforge.models.character import Character
 from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
