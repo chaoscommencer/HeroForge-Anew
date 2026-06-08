@@ -213,7 +213,8 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
             ],
         )
         cur.executemany(
-            "INSERT INTO character_buffs (id, character_id, buff_name) VALUES (?, ?, ?)",
+            "INSERT INTO character_buffs "
+            "(id, character_id, buff_name) VALUES (?, ?, ?)",
             [(buff["id"], cid, buff["name"]) for buff in character.buffs],
         )
         cur.executemany(
