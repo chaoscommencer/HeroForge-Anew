@@ -145,13 +145,25 @@ class FeatsTab(QWidget):
             if item:
                 item.setHidden(text.lower() not in item.text().lower())
 
+    def _sync_feats_to_character(self) -> None:
+        """Write the current taken-feats list back into the character model."""
+        if self._model is None:
+            return
+        self._model.character.feats = [
+            self._taken_list.item(i).text()
+            for i in range(self._taken_list.count())
+        ]
+        self._apply_prereq_status()
+
     def _add_feat(self) -> None:
         for item in self._avail_list.selectedItems():
             self._taken_list.addItem(item.text())
+        self._sync_feats_to_character()
 
     def _remove_feat(self) -> None:
         for item in self._taken_list.selectedItems():
             self._taken_list.takeItem(self._taken_list.row(item))
+        self._sync_feats_to_character()
 
     def _reset(self) -> None:
         self._taken_list.clear()
