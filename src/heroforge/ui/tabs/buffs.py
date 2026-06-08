@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QListWidget,
+    QListWidgetItem,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -27,6 +29,7 @@ class BuffsTab(QWidget):
     ) -> None:
         super().__init__(parent)
         self._model = model
+        self._next_id: int = 0
         self._build_ui()
         if model:
             model.character_reset.connect(self._reset)
@@ -62,15 +65,22 @@ class BuffsTab(QWidget):
     def add_buff(self, name: str) -> None:
         """Add an active buff named *name* and announce it (§8.4).
 
-        Broadcasts :attr:`CharacterModel.buff_toggled` with ``active=True`` so
-        the model records the buff and dependent tabs recalculate.
+        Each buff instance is assigned a unique integer ID that is stored in
+        the :class:`~PyQt6.QtWidgets.QListWidgetItem` via
+        ``Qt.ItemDataRole.UserRole``.  The ID is forwarded through
+        :attr:`CharacterModel.buff_toggled` so the model can later remove
+        exactly this instance regardless of duplicate names.
         """
         name = name.strip()
         if not name:
             return
-        self._buff_list.addItem(name)
+        buff_id = self._next_id
+        self._next_id += 1
+        item = QListWidgetItem(name)
+        item.setData(Qt.ItemDataRole.UserRole, buff_id)
+        self._buff_list.addItem(item)
         if self._model:
-            self._model.buff_toggled.emit(name, True)
+            self._model.buff_toggled.emit(buff_id, name, True)
 
     def _add_buff(self) -> None:
         name, ok = QInputDialog.getText(self, "Add Buff", "Buff name:")
@@ -79,10 +89,12 @@ class BuffsTab(QWidget):
 
     def _remove_buff(self) -> None:
         for item in self._buff_list.selectedItems():
+            buff_id: int = item.data(Qt.ItemDataRole.UserRole)
             name = item.text()
             self._buff_list.takeItem(self._buff_list.row(item))
             if self._model:
-                self._model.buff_toggled.emit(name, False)
+                self._model.buff_toggled.emit(buff_id, name, False)
 
     def _reset(self) -> None:
         self._buff_list.clear()
+        self._next_id = 0

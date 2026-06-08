@@ -238,7 +238,7 @@ def parse_hfg(text: str) -> Character:
             character.equipment.append(item)
 
         elif section == "buffs":
-            character.buffs.append(stripped)
+            character.buffs.append({"id": len(character.buffs), "name": stripped})
 
         elif section == "languages":
             character.languages.append(stripped)

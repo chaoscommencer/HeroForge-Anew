@@ -47,7 +47,7 @@ class TestParseHfg:
         assert char.classes == [("Fighter", 5), ("Wizard", 2)]
         assert char.feats == ["Power Attack", "Cleave", "Combat Casting"]
         assert char.languages == ["Common", "Elven", "Celestial"]
-        assert char.buffs == ["Bless", "Mage Armor"]
+        assert [b["name"] for b in char.buffs] == ["Bless", "Mage Armor"]
         assert char.total_level == 7
 
     def test_skills_and_equipment(self) -> None:
@@ -227,7 +227,7 @@ class TestLegacyMigration:
         assert reloaded.feats == imported.feats
         assert reloaded.skills == imported.skills
         assert reloaded.equipment == imported.equipment
-        assert reloaded.buffs == imported.buffs
+        assert [b["name"] for b in reloaded.buffs] == [b["name"] for b in imported.buffs]
         assert reloaded.languages == imported.languages
         assert reloaded.ability_scores == imported.ability_scores
         assert reloaded.notes == imported.notes

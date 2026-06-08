@@ -100,8 +100,8 @@ class CharacterModel(QObject):
     still refresh automatically.
     """
 
-    buff_toggled = pyqtSignal(str, bool)
-    """Emitted when a buff is enabled/disabled. Args: (buff_name, active)."""
+    buff_toggled = pyqtSignal(int, str, bool)
+    """Emitted when a buff is enabled/disabled. Args: (buff_id, buff_name, active)."""
 
     character_loaded = pyqtSignal(int)
     """Emitted after a character file is loaded from disk.
@@ -178,19 +178,23 @@ class CharacterModel(QObject):
             self._character.feats.append(feat)
         self.derived_stats_changed.emit()
 
-    def _on_buff_toggled(self, buff: str, active: bool) -> None:
+    def _on_buff_toggled(self, buff_id: int, buff: str, active: bool) -> None:
         """Activate/deactivate a buff and announce derived-stat updates.
 
-        Duplicate buff names are intentional: the same buff (e.g. "Bless")
-        can be received from multiple sources and may stack depending on bonus
-        type.  Each ``active=True`` emission appends a new entry; each
-        ``active=False`` emission removes only the first occurrence, mirroring
-        the UI's single-item removal behaviour.
+        Each buff instance is tracked by a unique *buff_id* so that duplicate
+        buff names (e.g. two castings of "Bless" from different sources) can
+        be managed individually.  ``active=True`` appends a new
+        ``{"id": buff_id, "name": buff}`` entry; ``active=False`` removes
+        exactly the entry whose ``id`` matches *buff_id*, leaving any other
+        instances with the same name intact.
         """
         if active:
-            self._character.buffs.append(buff)
-        elif buff in self._character.buffs:
-            self._character.buffs.remove(buff)
+            self._character.buffs.append({"id": buff_id, "name": buff})
+        else:
+            for i, entry in enumerate(self._character.buffs):
+                if entry.get("id") == buff_id:
+                    del self._character.buffs[i]
+                    break
         self.derived_stats_changed.emit()
 
     def derived_stats(self) -> DerivedStats:

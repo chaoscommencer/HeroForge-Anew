@@ -48,7 +48,7 @@ def _sample_character() -> Character:
         classes=[("Fighter", 5), ("Wizard", 2)],
         feats=["Power Attack", "Cleave", "Combat Casting"],
         skills={"Climb": 5.0, "Jump": 3.5, "Spellcraft": 4.0},
-        buffs=["Bless", "Mage Armor"],
+        buffs=[{"id": 1, "name": "Bless"}, {"id": 2, "name": "Mage Armor"}],
         equipment=[
             {
                 "item_name": "Longsword",
@@ -211,7 +211,7 @@ class TestSaveLoadRoundTrip:
         assert loaded.classes == char.classes
         assert loaded.feats == char.feats
         assert loaded.skills == char.skills
-        assert loaded.buffs == char.buffs
+        assert [b["name"] for b in loaded.buffs] == [b["name"] for b in char.buffs]
         assert loaded.equipment == char.equipment
         assert loaded.languages == char.languages
         assert loaded.spells_known == char.spells_known

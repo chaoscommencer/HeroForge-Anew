@@ -52,7 +52,8 @@ class Character:
     """List of ``(class_name, level)`` tuples in the order they were taken."""
     feats: list[str] = field(default_factory=list)
     skills: dict[str, float] = field(default_factory=dict)
-    buffs: list[str] = field(default_factory=list)
+    buffs: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """Active buffs, each ``{"id": int, "name": str}``."""
     equipment: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
     languages: list[str] = field(default_factory=list)
     spells_known: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
