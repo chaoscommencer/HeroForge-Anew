@@ -7,6 +7,7 @@ the source workbook, and that re-seeding is idempotent.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import openpyxl
@@ -250,3 +251,38 @@ class TestHelpers:
         assert seed._col(("a", "b"), "Z") == ""
         assert seed._col(("a", None), "A") == "a"
         assert seed._col(("a", None), "B") == ""
+
+    def test_extract_spell_progression_accepts_integral_float_values(self) -> None:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Spells per Day"
+        ws.append((None, "Wizard"))
+        ws.append((1.0, 0.0, 1.0))
+        ws.append((1.0, 4.0, "2.0"))
+        ws.append((2.0, "5.0", None))
+
+        rows = seed._extract_spell_progression(wb, "Spells per Day")
+
+        assert rows == [
+            ("Wizard", 1, 0, 4),
+            ("Wizard", 1, 1, 2),
+            ("Wizard", 2, 0, 5),
+        ]
+
+    def test_extract_spell_progression_logs_on_non_integral_data_loss(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Spells per Day"
+        ws.append((None, "Wizard"))
+        ws.append((1, 0, 1))
+        ws.append((1, 4, "x"))
+        ws.append((1.5, 5, 3))
+
+        caplog.set_level(logging.WARNING, logger=seed.__name__)
+        rows = seed._extract_spell_progression(wb, "Spells per Day")
+
+        assert rows == [("Wizard", 1, 0, 4)]
+        assert "non-integral count 'x'" in caplog.text
+        assert "non-integral caster level 1.5" in caplog.text

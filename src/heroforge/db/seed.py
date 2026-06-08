@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+import math
 import re
 import sqlite3
 from collections.abc import Callable
@@ -577,8 +578,22 @@ def _extract_spell_progression(wb: object, sheet: str) -> list[tuple[object, ...
     grid = [tuple(r) for r in ws.iter_rows(values_only=True)]
 
     def _as_int(value: object) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        if isinstance(value, float):
+            if math.isfinite(value) and value.is_integer():
+                return int(value)
+            return None
+        text = str(value).strip()
+        if text == "":
+            return None
         try:
-            return int(str(value).strip())
+            numeric = float(text)
+            if not math.isfinite(numeric) or not numeric.is_integer():
+                return None
+            return int(numeric)
         except (TypeError, ValueError):
             return None
 
@@ -627,12 +642,30 @@ def _extract_spell_progression(wb: object, sheet: str) -> list[tuple[object, ...
                 cell = data_row[level_col]
                 if cell is None or str(cell).strip() == "":
                     continue  # tolerate intra-block blank separators
+                logger.warning(
+                    "Skipping %s block %r row %d: non-integral caster level %r",
+                    sheet,
+                    class_name,
+                    d_idx + 1,
+                    cell,
+                )
                 break
             for spell_col, spell_level in spell_cols:
                 if spell_col >= len(data_row):
                     continue
                 count = _as_int(data_row[spell_col])
                 if count is None:
+                    cell = data_row[spell_col]
+                    if cell is not None and str(cell).strip() != "":
+                        logger.warning(
+                            "Skipping %s block %r row %d spell level %d: "
+                            "non-integral count %r",
+                            sheet,
+                            class_name,
+                            d_idx + 1,
+                            spell_level,
+                            cell,
+                        )
                     continue
                 rows.append((class_name, caster_level, spell_level, count))
     return rows
