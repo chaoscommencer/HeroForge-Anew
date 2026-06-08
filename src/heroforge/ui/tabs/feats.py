@@ -28,6 +28,7 @@ class FeatsTab(QWidget):
     ) -> None:
         super().__init__(parent)
         self._model = model
+        self._descriptions: dict[str, str] = {}
         self._build_ui()
         if model:
             model.character_reset.connect(self._reset)
@@ -50,6 +51,7 @@ class FeatsTab(QWidget):
         self._search_edit.textChanged.connect(self._filter)
         avail_layout.addWidget(self._search_edit)
         self._avail_list = QListWidget()
+        self._avail_list.currentTextChanged.connect(self._show_description)
         avail_layout.addWidget(self._avail_list)
         inner_layout.addWidget(avail_box)
 
@@ -79,6 +81,22 @@ class FeatsTab(QWidget):
         inner_layout.addStretch()
         scroll.setWidget(inner)
         layout.addWidget(scroll)
+
+        self._load_feats()
+
+    def _load_feats(self) -> None:
+        """Populate the available-feats list from the seeded database."""
+        self._avail_list.clear()
+        self._desc_text.clear()
+        self._descriptions = {}
+        if self._model is None:
+            return
+        for feat in self._model.game_data().list_feats():
+            self._avail_list.addItem(feat.name)
+            self._descriptions[feat.name] = feat.description or feat.benefit
+
+    def _show_description(self, name: str) -> None:
+        self._desc_text.setPlainText(self._descriptions.get(name, ""))
 
     def _filter(self, text: str) -> None:
         for i in range(self._avail_list.count()):

@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+import math
 import re
 import sqlite3
 from collections.abc import Callable
@@ -518,6 +519,182 @@ def _extract_buffs(wb: object) -> list[tuple[object, ...]]:
     return rows
 
 
+def _extract_races(wb: object) -> list[tuple[object, ...]]:
+    """Extract the base race list from the ``Race Info`` sheet.
+
+    The sheet's race-type lookup block tags each base race/creature category in
+    column ``A`` with the literal ``"Racial"`` in column ``B``.  These names are
+    the selectable races in HeroForge's data model; richer per-race statistics
+    are computed by the workbook at runtime and are not stored as a flat table.
+    """
+    ws = wb["Race Info"]  # type: ignore[index]
+    rows: list[tuple[object, ...]] = []
+    seen: set[str] = set()
+    for row in _sheet_rows(ws, 0):
+        name = _col(row, "A")
+        category = _col(row, "B")
+        if category != "Racial" or not name or name in seen:
+            continue
+        seen.add(name)
+        rows.append((name,))
+    return rows
+
+
+def _extract_templates(wb: object) -> list[tuple[object, ...]]:
+    """Extract the template catalogue from the ``Template Info`` sheet.
+
+    The template table begins below the ``Template*`` header row; each data row
+    carries the template name in column ``A`` plus optional type/subtype changes
+    in columns ``D``/``E``.  The ``Custom Template`` placeholder row is skipped.
+    """
+    ws = wb["Template Info"]  # type: ignore[index]
+    rows: list[tuple[object, ...]] = []
+    seen: set[str] = set()
+    started = False
+    for row in _sheet_rows(ws, 13):
+        name = _col(row, "A")
+        if not started:
+            if name == "Template*":
+                started = True
+            continue
+        if not name or name.lstrip().startswith("Custom Template") or name in seen:
+            continue
+        seen.add(name)
+        rows.append((name, _col(row, "D"), _col(row, "E")))
+    return rows
+
+
+def _extract_spell_progression(wb: object, sheet: str) -> list[tuple[object, ...]]:
+    """Extract a class/level/spell-level/count grid from a spell sheet.
+
+    Both ``Spells per Day`` and ``Spells Known`` lay out many class blocks in a
+    grid.  Each block has a class name in its header cell; the row immediately
+    below holds spell-level headers (``0``-``9``); the column just left of the
+    first spell-level column holds the caster level; subsequent rows give the
+    slot/known count per spell level.  Returns ``(class_name, caster_level,
+    spell_level, count)`` tuples (blank cells, meaning "no slots", are skipped).
+    """
+    ws = wb[sheet]  # type: ignore[index]
+    grid = [tuple(r) for r in ws.iter_rows(values_only=True)]
+
+    def _as_int(value: object, *, warn_on_loss: bool = True) -> int | None:
+        def _warn(reason: str) -> None:
+            if warn_on_loss:
+                logger.warning(
+                    "Dropping non-integral value while extracting sheet %s: %r (%s)",
+                    sheet,
+                    value,
+                    reason,
+                )
+
+        if value is None:
+            return None
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+        if isinstance(value, float):
+            if math.isfinite(value) and value.is_integer():
+                return int(value)
+            _warn("float is not an integral finite value")
+            return None
+        text = str(value).strip()
+        if text == "":
+            return None
+        try:
+            numeric = float(text)
+            if not math.isfinite(numeric) or not numeric.is_integer():
+                _warn("parsed value is not a finite integer")
+                return None
+            return int(numeric)
+        except (TypeError, ValueError):
+            _warn("failed to parse as numeric value")
+            return None
+
+    # Locate class-name header cells: non-numeric, non-empty labels that are not
+    # the level-column markers used inside some blocks.
+    headers: list[tuple[int, int, str]] = []
+    for r_idx, row in enumerate(grid):
+        for c_idx, cell in enumerate(row):
+            if cell is None:
+                continue
+            text = str(cell).strip()
+            if (
+                text
+                and _as_int(text, warn_on_loss=False) is None
+                and text not in ("CL", "Lvl")
+            ):
+                headers.append((r_idx, c_idx, text))
+
+    rows: list[tuple[object, ...]] = []
+    for r_idx, c_idx, class_name in headers:
+        if r_idx + 1 >= len(grid):
+            continue
+        level_header = grid[r_idx + 1]
+        # Spell-level columns are the run of integer (0-9) headers starting at
+        # the class-name column.
+        spell_cols: list[tuple[int, int]] = []
+        col = c_idx
+        while col < len(level_header):
+            value = _as_int(level_header[col], warn_on_loss=False)
+            if value is None or not 0 <= value <= 9:
+                break
+            spell_cols.append((col, value))
+            col += 1
+        if not spell_cols:
+            continue
+        level_col = spell_cols[0][0] - 1
+        if level_col < 0:
+            continue
+        # Data rows run until the next class block in the same column.
+        next_row = len(grid)
+        for hr, hc, _ in headers:
+            if hc == c_idx and r_idx < hr < next_row:
+                next_row = hr
+        for d_idx in range(r_idx + 2, next_row):
+            data_row = grid[d_idx]
+            if level_col >= len(data_row):
+                break
+            caster_level = _as_int(data_row[level_col])
+            if caster_level is None:
+                cell = data_row[level_col]
+                if cell is None or str(cell).strip() == "":
+                    continue  # tolerate intra-block blank separators
+                logger.warning(
+                    "Skipping %s block %r row %d: non-integral caster level %r",
+                    sheet,
+                    class_name,
+                    d_idx + 1,
+                    cell,
+                )
+                break
+            for spell_col, spell_level in spell_cols:
+                if spell_col >= len(data_row):
+                    continue
+                count = _as_int(data_row[spell_col])
+                if count is None:
+                    cell = data_row[spell_col]
+                    if cell is not None and str(cell).strip() != "":
+                        logger.warning(
+                            "Skipping %s block %r row %d spell level %d: "
+                            "non-integral count %r",
+                            sheet,
+                            class_name,
+                            d_idx + 1,
+                            spell_level,
+                            cell,
+                        )
+                    continue
+                rows.append((class_name, caster_level, spell_level, count))
+    return rows
+
+
+def _extract_spells_per_day(wb: object) -> list[tuple[object, ...]]:
+    return _extract_spell_progression(wb, "Spells per Day")
+
+
+def _extract_spells_known(wb: object) -> list[tuple[object, ...]]:
+    return _extract_spell_progression(wb, "Spells Known")
+
+
 # ---------------------------------------------------------------------------
 # Workbook table registry
 #
@@ -723,6 +900,32 @@ _WORKBOOK_TABLES: tuple[_WorkbookTable, ...] = (
         ("name", "category", "spell_level", "bonus_type", "description", "source"),
         _extract_buffs,
         unique_by=("name", "category"),
+    ),
+    _WorkbookTable(
+        "races",
+        "Race Info",
+        ("name",),
+        _extract_races,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "templates",
+        "Template Info",
+        ("name", "type_change", "subtype_added"),
+        _extract_templates,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "spells_per_day",
+        "Spells per Day",
+        ("class_name", "caster_level", "spell_level", "slots"),
+        _extract_spells_per_day,
+    ),
+    _WorkbookTable(
+        "spells_known",
+        "Spells Known",
+        ("class_name", "caster_level", "spell_level", "count"),
+        _extract_spells_known,
     ),
 )
 

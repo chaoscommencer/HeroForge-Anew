@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QDialog,
     QDialogButtonBox,
     QLabel,
@@ -11,12 +14,25 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+if TYPE_CHECKING:
+    from heroforge.db.data_access import GameDataRepository
+
 
 class SourceSelectDialog(QDialog):
-    """Select which sourcebooks to include in lists."""
+    """Select which sourcebooks to include in lists.
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    The sourcebook list is loaded from the ``sources`` table via the shared
+    :class:`~heroforge.db.data_access.GameDataRepository` rather than being
+    hardcoded, so it always reflects the seeded database.
+    """
+
+    def __init__(
+        self,
+        repo: GameDataRepository | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
+        self._repo = repo
         self.setWindowTitle("Select Sources")
         self.setMinimumSize(400, 400)
         self._build_ui()
@@ -25,21 +41,12 @@ class SourceSelectDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Enable sourcebooks to include in lookups:"))
         self._source_list = QListWidget()
-        self._source_list.addItems(
-            [
-                "PHB – Player's Handbook",
-                "DMG – Dungeon Master's Guide",
-                "MM – Monster Manual",
-                "CAd – Complete Adventurer",
-                "CAr – Complete Arcane",
-                "CD – Complete Divine",
-                "CW – Complete Warrior",
-                "MoI – Magic of Incarnum",
-                "ToB – Tome of Battle",
-                "XPH – Expanded Psionics Handbook",
-                "UA – Unearthed Arcana",
-            ]
+        self._source_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.MultiSelection
         )
+        if self._repo is not None:
+            for source in self._repo.list_sources():
+                self._source_list.addItem(source.label)
         layout.addWidget(self._source_list)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
