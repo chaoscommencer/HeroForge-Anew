@@ -1,0 +1,27 @@
+# Isolated runtime for HeroForge Anew QA / user-in-the-loop testing.
+#
+# Spin up:   docker compose up --build
+# Then open: http://localhost:6080/vnc.html
+#
+# The PyQt application runs entirely inside the container on a virtual display
+# and is streamed to your browser via noVNC, so nothing is installed on (or
+# rendered by) the host.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: heroforge-anew:latest
+    container_name: heroforge-anew
+    ports:
+      - "6080:6080"  # noVNC web UI (browser)
+      - "5900:5900"  # raw VNC (optional, for native VNC clients)
+    environment:
+      SCREEN_GEOMETRY: "1280x800x24"
+      # Set a password to require authentication for the desktop:
+      # VNC_PASSWORD: "changeme"
+    # Live-mount the source for rapid iteration during QA.
+    volumes:
+      - ./src:/app/src:ro
+    shm_size: "256m"
+    stop_grace_period: 5s

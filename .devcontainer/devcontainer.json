@@ -1,0 +1,31 @@
+{
+    "name": "HeroForge Anew (Isolated Runtime)",
+    "build": {
+        "context": "..",
+        "dockerfile": "../Dockerfile"
+    },
+    "overrideCommand": true,
+    "forwardPorts": [6080, 5900],
+    "portsAttributes": {
+        "6080": {
+            "label": "HeroForge Anew (noVNC desktop)",
+            "onAutoForward": "openPreview"
+        },
+        "5900": {
+            "label": "VNC",
+            "onAutoForward": "silent"
+        }
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python"
+            ]
+        }
+    },
+    "remoteEnv": {
+        "DISPLAY": ":1",
+        "QT_QPA_PLATFORM": "xcb"
+    },
+    "postStartCommand": "nohup /usr/local/bin/entrypoint.sh > /tmp/heroforge-runtime.log 2>&1 &"
+}
