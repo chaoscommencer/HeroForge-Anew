@@ -7,7 +7,7 @@ name = "heroforge"
 version = "8.0.0"
 description = "HeroForge Anew – D&D 3.5 character builder (Python/PyQt6 edition)"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
     "PyQt6>=6.6",
@@ -35,11 +35,11 @@ where = ["src"]
 
 [tool.black]
 line-length = 88
-target-version = ["py311"]
+target-version = ["py312"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py311"
+target-version = "py312"
 src = ["src"]
 
 [tool.ruff.lint]
@@ -47,7 +47,7 @@ select = ["E", "W", "F", "I", "UP", "N"]
 ignore = ["N802", "N803"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 mypy_path = "src"
 packages = ["heroforge"]
