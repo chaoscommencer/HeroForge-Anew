@@ -17,6 +17,13 @@ sheets, keyed on the familiar's creature name (``FamiliarEquivType``):
 The Hawk and Owl bonuses (Spot, but only under specific lighting) are
 *situational* and were therefore never baked into a total by the workbook.
 
+Every familiar additionally grants its master a set of *universal* benefits
+(Alertness, Scry on Familiar and Natural Link).  In the workbook these are the
+indented lines beneath the ``× Familiar`` entry in the Character Sheet's
+*Special Abilities* section (``Class Abilities!A162:A164``); they are captured
+here as :class:`FamiliarMasterAbility` records and seeded into the
+``familiar_master_abilities`` table.
+
 This module captures that data once, as structured :class:`FamiliarBonus`
 records, and is the single source of truth used by
 
@@ -90,6 +97,48 @@ STANDARD_FAMILIAR_BONUSES: tuple[FamiliarBonus, ...] = (
     FamiliarBonus("Snake", 3, KIND_SKILL, "Bluff"),
     FamiliarBonus("Toad", 3, KIND_HP),
     FamiliarBonus("Weasel", 2, KIND_SAVE, "Reflex"),
+)
+
+
+@dataclass(frozen=True)
+class FamiliarMasterAbility:
+    """A universal benefit every standard familiar grants its master.
+
+    Unlike :class:`FamiliarBonus` (which varies by creature), these benefits are
+    common to *all* familiars.  In the original Excel source they are the
+    indented lines that appear immediately beneath the
+    ``× Familiar: You have called a <creature> …`` line in the Character Sheet's
+    *Special Abilities* section, generated from ``Class Abilities!A162:A164``.
+
+    Attributes:
+        name:        The benefit's name (e.g. ``"Alertness"``).
+        description: The descriptive text shown to the user.
+    """
+
+    name: str
+    description: str
+
+
+# The universal familiar master benefits, common to every standard familiar.
+# Mirrors ``Class Abilities!A162:A164`` of the reference workbook and is used as
+# the offline fallback when the ``familiar_master_abilities`` table has not been
+# seeded (see :meth:`heroforge.db.data_access.GameDataRepository`).
+STANDARD_FAMILIAR_MASTER_ABILITIES: tuple[FamiliarMasterAbility, ...] = (
+    FamiliarMasterAbility(
+        "Alertness",
+        "While the familiar is within arms reach; you gain the Alertness feat "
+        "(+2 to Spot & Listen checks).",
+    ),
+    FamiliarMasterAbility(
+        "Scry on Familiar (Sp)",
+        "You may scry on your familiar once per day.",
+    ),
+    FamiliarMasterAbility(
+        "Natural Link (Su)",
+        "When your familiar is within arms reach, your bonus on skills, saves, "
+        "or hit points doubles. Your familiar does not have the ability to "
+        "deliver touch spells or speak with animals of its kind.",
+    ),
 )
 
 

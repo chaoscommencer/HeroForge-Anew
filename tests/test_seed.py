@@ -136,6 +136,27 @@ class TestWorkbookSeeding:
             "type": "Boost",
         }
 
+    def test_familiar_master_abilities_seeded_from_workbook(
+        self, seeded_db: Path
+    ) -> None:
+        """The universal familiar master benefits round-trip from the workbook.
+
+        These are the indented lines beneath the Special Abilities → Familiar
+        entry (``Class Abilities!A162:A164``).
+        """
+        conn = get_connection(seeded_db)
+        try:
+            rows = conn.execute(
+                "SELECT name, description FROM familiar_master_abilities "
+                "ORDER BY sort_order, id"
+            ).fetchall()
+        finally:
+            conn.close()
+        names = [r["name"] for r in rows]
+        assert names == ["Alertness", "Scry on Familiar (Sp)", "Natural Link (Su)"]
+        alertness = rows[0]["description"]
+        assert "+2 to Spot & Listen checks" in alertness
+
     def test_skill_footnotes_preserve_marked_names(self, seeded_db: Path) -> None:
         conn = get_connection(seeded_db)
         try:

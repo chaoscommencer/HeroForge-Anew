@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 
 from heroforge.logic.familiar import (
     STANDARD_FAMILIAR_BONUSES,
+    STANDARD_FAMILIAR_MASTER_ABILITIES,
     describe_bonus,
 )
 from heroforge.ui.tabs._tab_helper import pick_from_catalog
@@ -45,6 +46,11 @@ _FAMILIAR_BONUSES: dict[str, str] = {
     bonus.creature_name.lower(): describe_bonus(bonus)
     for bonus in STANDARD_FAMILIAR_BONUSES
 }
+
+# Universal master benefits every familiar grants (Alertness, Scry, Natural
+# Link).  Offline fallback for when ``familiar_master_abilities`` has not been
+# seeded (see ``GameDataRepository.get_familiar_master_abilities``).
+_FAMILIAR_MASTER_ABILITIES = STANDARD_FAMILIAR_MASTER_ABILITIES
 
 
 class FamiliarTab(QWidget):
@@ -106,7 +112,11 @@ class FamiliarTab(QWidget):
         self._bonus_lbl = QLabel("(Select a familiar kind – see PHB p52.)")
         self._bonus_lbl.setWordWrap(True)
         bonuses_layout.addWidget(self._bonus_lbl)
+        self._master_abilities_lbl = QLabel("")
+        self._master_abilities_lbl.setWordWrap(True)
+        bonuses_layout.addWidget(self._master_abilities_lbl)
         inner_layout.addWidget(bonuses_box)
+        self._refresh_master_abilities()
 
         inner_layout.addStretch()
         scroll.setWidget(inner)
@@ -125,6 +135,23 @@ class FamiliarTab(QWidget):
         ) or _FAMILIAR_BONUSES
         self._bonus_lbl.setText(
             bonuses.get(kind, "(Select a standard familiar kind – see PHB p52.)")
+        )
+
+    def _refresh_master_abilities(self) -> None:
+        """Show the universal benefits every familiar grants its master.
+
+        These are read from the seeded ``familiar_master_abilities`` table (the
+        workbook's Special Abilities → Familiar entry), with an offline fallback
+        to the canonical constant.
+        """
+        abilities = (
+            self._model.game_data().get_familiar_master_abilities()
+            if self._model is not None
+            else []
+        ) or list(_FAMILIAR_MASTER_ABILITIES)
+        lines = "\n".join(f"• {a.name}: {a.description}" for a in abilities)
+        self._master_abilities_lbl.setText(
+            f"All familiars also grant their master:\n{lines}" if lines else ""
         )
 
     def _entry(self) -> dict | None:  # type: ignore[type-arg]

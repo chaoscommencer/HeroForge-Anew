@@ -416,6 +416,13 @@ CREATE TABLE IF NOT EXISTS familiar_bonuses (
     condition       TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS familiar_master_abilities (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT UNIQUE NOT NULL,
+    description     TEXT NOT NULL,
+    sort_order      INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS languages (
     id                  INTEGER PRIMARY KEY,
     name                TEXT UNIQUE NOT NULL,

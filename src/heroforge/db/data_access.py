@@ -28,7 +28,11 @@ from pathlib import Path
 
 from heroforge.db.schema import get_connection
 from heroforge.logic.derived_stats import ClassProgression
-from heroforge.logic.familiar import FamiliarBonus, describe_bonus
+from heroforge.logic.familiar import (
+    FamiliarBonus,
+    FamiliarMasterAbility,
+    describe_bonus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -688,3 +692,25 @@ class GameDataRepository:
             bonus.creature_name.lower(): describe_bonus(bonus)
             for bonus in self.get_familiar_bonus_records()
         }
+
+    def get_familiar_master_abilities(self) -> list[FamiliarMasterAbility]:
+        """Return the universal familiar master benefits in display order.
+
+        These are the benefits every standard familiar grants its master
+        (Alertness, Scry on Familiar, Natural Link).  Data is read from the
+        ``familiar_master_abilities`` table, which is seeded from the reference
+        workbook's *Special Abilities* → Familiar entry
+        (``Class Abilities!A162:A164``).  Returns an empty list when the database
+        is unavailable or the table has not been seeded yet; callers can fall
+        back to
+        :data:`heroforge.logic.familiar.STANDARD_FAMILIAR_MASTER_ABILITIES`.
+        """
+        rows = self._query(
+            "SELECT name, description FROM familiar_master_abilities "
+            "ORDER BY sort_order, id"
+        )
+        return [
+            FamiliarMasterAbility(name=r["name"], description=r["description"])
+            for r in rows
+            if r["name"]
+        ]

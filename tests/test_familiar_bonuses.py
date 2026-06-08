@@ -16,6 +16,7 @@ from heroforge.db.seed import seed_familiar_bonuses
 from heroforge.logic.derived_stats import compute_derived_stats
 from heroforge.logic.familiar import (
     STANDARD_FAMILIAR_BONUSES,
+    STANDARD_FAMILIAR_MASTER_ABILITIES,
     describe_bonus,
     save_bonuses,
     selected_familiar_kind,
@@ -96,6 +97,44 @@ def test_seed_and_repository_round_trip(tmp_path: Path) -> None:
     assert rat.condition == ""
 
     assert repo.get_familiar_bonuses() == _EXPECTED_TEXT
+
+
+def test_master_abilities_constant_matches_workbook_source() -> None:
+    """The canonical universal benefits mirror Class Abilities!A162:A164."""
+    names = [a.name for a in STANDARD_FAMILIAR_MASTER_ABILITIES]
+    assert names == ["Alertness", "Scry on Familiar (Sp)", "Natural Link (Su)"]
+    alertness = STANDARD_FAMILIAR_MASTER_ABILITIES[0]
+    assert "+2 to Spot & Listen checks" in alertness.description
+
+
+def test_master_abilities_repository_round_trip(tmp_path: Path) -> None:
+    """Seeded master-ability rows are read back in declared display order."""
+    db_path = tmp_path / "game.db"
+    conn = initialize_database(db_path)
+    try:
+        conn.executemany(
+            "INSERT INTO familiar_master_abilities "
+            "(name, description, sort_order) VALUES (?, ?, ?)",
+            [
+                (a.name, a.description, i)
+                for i, a in enumerate(STANDARD_FAMILIAR_MASTER_ABILITIES)
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    repo = GameDataRepository(db_path)
+    abilities = repo.get_familiar_master_abilities()
+    assert abilities == list(STANDARD_FAMILIAR_MASTER_ABILITIES)
+
+
+def test_master_abilities_empty_when_unseeded(tmp_path: Path) -> None:
+    """An unseeded table yields an empty list so callers can fall back."""
+    db_path = tmp_path / "game.db"
+    initialize_database(db_path).close()
+    repo = GameDataRepository(db_path)
+    assert repo.get_familiar_master_abilities() == []
 
 
 def test_derived_stats_apply_familiar_save_bonus() -> None:

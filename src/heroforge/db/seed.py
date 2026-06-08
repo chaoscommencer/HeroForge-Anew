@@ -452,6 +452,61 @@ def _extract_graft_abilities(wb: object) -> list[tuple[object, ...]]:
     return rows
 
 
+# Matches the wizard "× Familiar:" class-feature header that introduces the
+# universal master benefits in the Character Sheet's Special Abilities section.
+_FAMILIAR_PARENT_RE = re.compile(r"^\s*[\u00d7]\s*Familiar\s*:", re.IGNORECASE)
+
+
+def _parse_master_ability(text: str) -> tuple[str, str]:
+    """Split a ``"× Name: description"`` bullet into ``(name, description)``."""
+    body = re.sub(r"^[\u00d7\s]+", "", text)
+    name, _sep, description = body.partition(":")
+    return name.strip(), description.strip()
+
+
+def _extract_familiar_master_abilities(wb: object) -> list[tuple[object, ...]]:
+    """Extract the universal familiar master benefits from ``Class Abilities``.
+
+    These are the indented lines that appear immediately beneath the
+    ``× Familiar: You have called a <creature> …`` wizard class-feature entry in
+    the Character Sheet's *Special Abilities* section
+    (``Class Abilities!A162:A164`` in the reference workbook): Alertness, Scry on
+    Familiar and Natural Link.  They are detected structurally – the parent
+    ``× Familiar:`` line followed by its indented ``×`` children – so the
+    extractor tolerates row shifts in future workbook revisions.
+    """
+    ws = wb["Class Abilities"]  # type: ignore[index]
+    rows: list[tuple[object, ...]] = []
+    in_block = False
+    order = 0
+    for (value,) in ws.iter_rows(  # type: ignore[attr-defined]
+        min_col=1, max_col=1, values_only=True
+    ):
+        if value is None:
+            if in_block:
+                break
+            continue
+        text = str(value)
+        stripped = text.strip()
+        if not in_block:
+            if (
+                _FAMILIAR_PARENT_RE.match(text)
+                and "magical companion" in stripped.lower()
+            ):
+                in_block = True
+            continue
+        # In-block: collect the indented "×" child bullets, stopping at the next
+        # non-indented ability (or any non-bullet line).
+        if text[:1].isspace() and stripped.startswith("\u00d7"):
+            name, description = _parse_master_ability(stripped)
+            if name and description:
+                rows.append((name, description, order))
+                order += 1
+            continue
+        break
+    return rows
+
+
 def _extract_soulmelds(wb: object) -> list[tuple[object, ...]]:
     rows: list[tuple[object, ...]] = []
     ws = wb["SoulmeldsInfo"]  # type: ignore[index]
@@ -873,6 +928,13 @@ _WORKBOOK_TABLES: tuple[_WorkbookTable, ...] = (
         "Graft Abilities",
         ("graft_name", "ability_name", "description"),
         _extract_graft_abilities,
+    ),
+    _WorkbookTable(
+        "familiar_master_abilities",
+        "Class Abilities",
+        ("name", "description", "sort_order"),
+        _extract_familiar_master_abilities,
+        unique_by=("name",),
     ),
     _WorkbookTable(
         "soulmelds",
