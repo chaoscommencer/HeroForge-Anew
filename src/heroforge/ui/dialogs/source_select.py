@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QDialog,
     QDialogButtonBox,
     QLabel,
@@ -40,6 +41,9 @@ class SourceSelectDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Enable sourcebooks to include in lookups:"))
         self._source_list = QListWidget()
+        self._source_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.MultiSelection
+        )
         if self._repo is not None:
             for source in self._repo.list_sources():
                 self._source_list.addItem(source.label)
