@@ -67,9 +67,11 @@ class TestCharacterSheetData:
         data = character_sheet_data(character)
         data["feats"].append("Whirlwind Attack")
         data["ability_scores"]["STR"] = 99
+        data["equipment"][0]["quantity"] = 2
 
         assert character.feats == ["Power Attack", "Cleave"]
         assert character.ability_scores["STR"] == 16
+        assert character.equipment[0]["quantity"] == 1
 
     def test_includes_derived_combat_block_when_supplied(self) -> None:
         character = _populated_character()

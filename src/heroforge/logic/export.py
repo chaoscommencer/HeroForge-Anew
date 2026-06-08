@@ -43,7 +43,7 @@ def character_sheet_data(
         "ability_scores": dict(character.ability_scores),
         "feats": list(character.feats),
         "skills": dict(character.skills),
-        "equipment": list(character.equipment),
+        "equipment": [dict(item) for item in character.equipment],
         "languages": list(character.languages),
         "notes": character.notes,
     }
