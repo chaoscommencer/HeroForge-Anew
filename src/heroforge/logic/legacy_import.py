@@ -174,6 +174,7 @@ def parse_hfg(text: str) -> Character:
     character = Character()
     section = ""
     note_lines: list[str] = []
+    _buff_counter: int = 0
 
     for raw_line in text.splitlines():
         line = raw_line.rstrip("\n")
@@ -238,7 +239,8 @@ def parse_hfg(text: str) -> Character:
             character.equipment.append(item)
 
         elif section == "buffs":
-            character.buffs.append({"id": len(character.buffs), "name": stripped})
+            character.buffs.append({"id": _buff_counter, "name": stripped})
+            _buff_counter += 1
 
         elif section == "languages":
             character.languages.append(stripped)

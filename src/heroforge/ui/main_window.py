@@ -159,7 +159,7 @@ class CharacterModel(QObject):
         """
         if self._character.buffs:
             self._next_buff_id = (
-                max(b["id"] for b in self._character.buffs) + 1
+                max(b.get("id", 0) for b in self._character.buffs) + 1
             )
         else:
             self._next_buff_id = 0
