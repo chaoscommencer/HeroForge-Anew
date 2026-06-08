@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from heroforge.logic.export import export_character_sheet_text
+from heroforge.logic.export import character_sheet_data, export_character_sheet_text
 
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
@@ -30,6 +30,7 @@ class CharacterSheetTab(QWidget):
         if model:
             model.character_reset.connect(self._refresh)
             model.character_loaded.connect(self._refresh)
+            model.derived_stats_changed.connect(self._refresh)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -53,6 +54,10 @@ class CharacterSheetTab(QWidget):
 
     def _refresh(self) -> None:
         data: dict = {}  # type: ignore[type-arg]
+        if self._model is not None:
+            data = character_sheet_data(
+                self._model.character, self._model.derived_stats()
+            )
         text = export_character_sheet_text(data)
         self._text_edit.setPlainText(text)
 

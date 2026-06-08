@@ -32,6 +32,16 @@ def seeded_db(tmp_path: Path) -> Path:
             ],
         )
         conn.executemany(
+            "INSERT INTO feat_prerequisites (feat_name, prerequisite) VALUES (?, ?)",
+            [("Power Attack", "STR 13"), ("Cleave", "Power Attack")],
+        )
+        conn.execute(
+            "INSERT INTO classes (name, is_prestige, hit_die, bab_progression, "
+            "fort_progression, ref_progression, will_progression, "
+            "skill_points_per_level, source) VALUES "
+            "('Fighter', 0, 10, 'fast', 'good', 'poor', 'poor', 2, 'PHB')"
+        )
+        conn.executemany(
             "INSERT INTO races (name, source) VALUES (?, ?)",
             [("Human", "PHB"), ("Elf", "PHB")],
         )
@@ -175,3 +185,146 @@ class TestMainWindowWiring:
         # exposes it as a read-only repository distinct from character state.
         assert window.model.game_data().db_path == seeded_db
         assert window.model.game_data().available is True
+
+
+class TestDerivedStatsRealtime:
+    """§8.6: changing ability scores updates derived values in real time."""
+
+    def test_strength_updates_attacks_grapple_and_carry(
+        self, empty_model: object
+    ) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        stats = StatsAndCharacterDetailsTab(model=empty_model)
+        attacks = AttacksTab(model=empty_model)
+
+        stats._ability_spinboxes["STR"].setValue(18)
+
+        assert empty_model.character.ability_scores["STR"] == 18
+        assert stats._derived_labels["melee"].text() == "+4"
+        assert stats._derived_labels["grapple"].text() == "+4"
+        assert stats._derived_labels["carry"].text() == "100 / 200 / 300 lb."
+        # The Attacks tab tracks the same computed values, not static labels.
+        assert attacks._melee_lbl.text() == "+4"
+        assert attacks._grapple_lbl.text() == "+4"
+
+    def test_dexterity_updates_initiative_ranged_ac_and_reflex(
+        self, empty_model: object
+    ) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        stats = StatsAndCharacterDetailsTab(model=empty_model)
+        attacks = AttacksTab(model=empty_model)
+
+        stats._ability_spinboxes["DEX"].setValue(16)
+
+        # Initiative is computed via logic.combat.initiative, not hardcoded +0.
+        assert stats._init_label.text() == "+3"
+        assert stats._derived_labels["ranged"].text() == "+3"
+        assert stats._derived_labels["ac"].text() == "13"
+        assert stats._derived_labels["ref"].text() == "+3"
+        assert attacks._ranged_lbl.text() == "+3"
+
+    def test_constitution_updates_fortitude(self, empty_model: object) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        stats = StatsAndCharacterDetailsTab(model=empty_model)
+        stats._ability_spinboxes["CON"].setValue(14)
+        assert stats._derived_labels["fort"].text() == "+2"
+
+    def test_wisdom_updates_will(self, empty_model: object) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        stats = StatsAndCharacterDetailsTab(model=empty_model)
+        stats._ability_spinboxes["WIS"].setValue(12)
+        assert stats._derived_labels["will"].text() == "+1"
+
+    def test_skill_ability_modifier_updates_in_real_time(
+        self, empty_model: object
+    ) -> None:
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        tab = SkillsTab(model=empty_model)
+        climb_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Climb")
+
+        empty_model.ability_score_changed.emit("STR", 18)
+
+        assert tab._table.item(climb_row, 4).text() == "4"
+
+
+class TestCharacterSheetTabRealData:
+    def test_sheet_shows_computed_combat_not_placeholders(
+        self, empty_model: object
+    ) -> None:
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+
+        tab = CharacterSheetTab(model=empty_model)
+        empty_model.character.name = "Aragorn"
+        empty_model.ability_score_changed.emit("DEX", 16)
+
+        text = tab._text_edit.toPlainText()
+        assert "Aragorn" in text
+        # The COMBAT block renders real numbers instead of the "?" placeholder.
+        assert "Initiative: 3" in text
+        assert "AC: 13" in text
+        assert "Ref: 3" in text
+
+
+class TestFeatsTabPrerequisites:
+    def test_unmet_prereq_disables_feat(self, model: object) -> None:
+        from PyQt6.QtCore import Qt
+
+        from heroforge.ui.tabs.feats import FeatsTab
+
+        tab = FeatsTab(model=model)
+        items = {
+            tab._avail_list.item(i).text(): tab._avail_list.item(i)
+            for i in range(tab._avail_list.count())
+        }
+        # Power Attack requires STR 13; the default STR 10 leaves it disabled.
+        assert not (items["Power Attack"].flags() & Qt.ItemFlag.ItemIsEnabled)
+
+    def test_meeting_prereq_enables_feat_in_real_time(self, model: object) -> None:
+        from PyQt6.QtCore import Qt
+
+        from heroforge.ui.tabs.feats import FeatsTab
+
+        tab = FeatsTab(model=model)
+        model.ability_score_changed.emit("STR", 13)
+
+        power_attack = next(
+            tab._avail_list.item(i)
+            for i in range(tab._avail_list.count())
+            if tab._avail_list.item(i).text() == "Power Attack"
+        )
+        assert power_attack.flags() & Qt.ItemFlag.ItemIsEnabled
+
+
+class TestGameDataProgressions:
+    def test_class_progressions_loaded(self, model: object) -> None:
+        progressions = model.game_data().class_progressions()
+        assert "Fighter" in progressions
+        assert progressions["Fighter"].bab == "fast"
+        assert progressions["Fighter"].fort == "good"
+
+    def test_feat_prerequisites_loaded(self, model: object) -> None:
+        prereqs = model.game_data().feat_prerequisites()
+        assert prereqs["Power Attack"] == ["STR 13"]
+        assert prereqs["Cleave"] == ["Power Attack"]
+
+    def test_derived_stats_uses_class_progressions(self, model: object) -> None:
+        model.character.classes = [("Fighter", 5)]
+        model.ability_score_changed.emit("CON", 14)
+        stats = model.derived_stats()
+        assert stats.base_attack_bonus == 5
+        assert stats.fortitude == 6

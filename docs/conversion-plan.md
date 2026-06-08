@@ -526,12 +526,54 @@ CharacterModel (QObject)
     buff_toggled(buff_name: str, active: bool)
     character_loaded(character: Character)
     character_reset()
+    derived_stats_changed()
 
 Each tab widget connects to relevant signals and recalculates its
 displayed values when those signals fire.
 ```
 
-### 8.5 Style
+The `derived_stats_changed` signal is the single fan-out for real-time
+recomputation. `CharacterModel` keeps its `Character.ability_scores` in sync
+with `ability_score_changed`, then emits `derived_stats_changed` (it also
+re-emits on `class_levels_changed`, `character_reset`, and `character_loaded`).
+Tabs that show computed values call `CharacterModel.derived_stats()`, which
+delegates to `heroforge.logic.derived_stats.compute_derived_stats`. That helper
+is the **single source of truth** that composes the `combat`, `saving_throws`,
+and `ability_scores` logic modules into an immutable `DerivedStats` snapshot, so
+the UI never re-implements rules math.
+
+### 8.5 Derived-stat wiring & remaining integration points
+
+The derived-stat path described above is consumed by:
+
+| Tab | Logic module(s) used | Values surfaced |
+|---|---|---|
+| Stats & Details | `derived_stats` → `combat`, `saving_throws` | BAB, melee/ranged/grapple, AC/touch/flat-footed, initiative, Fort/Ref/Will, carrying capacity |
+| Attacks | `derived_stats` → `combat` | BAB, melee, ranged, grapple |
+| Skills | `ability_scores`, `skills` | per-skill ability modifier + total |
+| Feats | `feats.check_prerequisites` + `derived_stats` | enables/disables feats by live prerequisite checks |
+| Character Sheet | `export.character_sheet_data` + `derived_stats` | full computed combat/save block |
+
+The remaining logic modules plug into the **same** `derived_stats_changed` /
+`GameDataRepository` pattern; their integration points are:
+
+- **`equipment`** – Armor/Magic Equipment tabs feed armor/shield/deflection
+  bonuses and carried weight into `compute_derived_stats` (extend the signature
+  with an equipment summary) so AC and encumbrance become live.
+- **`prestige`** – Prestige Classes tab validates entry requirements via
+  `prestige` against the same `DerivedStats` + `GameDataRepository`
+  (`class_progressions`) used by Feats, and contributes BAB/save progressions.
+- **`buffs`** – Buffs tab maps `buff_toggled` onto the `misc` parameters already
+  exposed by `combat`/`saving_throws`, recomputing through `derived_stats`.
+- **`spells` / `psionics`** – Spells/Psionics tabs already read
+  `GameDataRepository`; bind/save DCs and points use the relevant ability
+  modifier from `DerivedStats.ability_modifiers`.
+- **`incarnum`** – Soulmelds tab drives essentia/chakra limits from
+  `total_level` exposed on `DerivedStats`.
+- **`wild_shape`** – when active, supplies an alternate `size` and physical
+  ability scores to `compute_derived_stats` (already size-aware).
+
+### 8.5.1 Style
 
 - Application-wide stylesheet in `src/heroforge/ui/styles/default.qss`.
 - Tab icons (optional) stored in `src/heroforge/ui/resources/`.

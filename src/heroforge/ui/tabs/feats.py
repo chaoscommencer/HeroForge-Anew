@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -15,6 +16,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from heroforge.logic.feats import check_prerequisites
 
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
@@ -29,9 +32,11 @@ class FeatsTab(QWidget):
         super().__init__(parent)
         self._model = model
         self._descriptions: dict[str, str] = {}
+        self._prerequisites: dict[str, list[str]] = {}
         self._build_ui()
         if model:
             model.character_reset.connect(self._reset)
+            model.derived_stats_changed.connect(self._apply_prereq_status)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -89,11 +94,47 @@ class FeatsTab(QWidget):
         self._avail_list.clear()
         self._desc_text.clear()
         self._descriptions = {}
+        self._prerequisites = {}
         if self._model is None:
             return
+        self._prerequisites = self._model.game_data().feat_prerequisites()
         for feat in self._model.game_data().list_feats():
             self._avail_list.addItem(feat.name)
             self._descriptions[feat.name] = feat.description or feat.benefit
+        self._apply_prereq_status()
+
+    def _apply_prereq_status(self) -> None:
+        """Enable/disable available feats by prerequisite satisfaction (§8.6).
+
+        Feats whose prerequisites are not met are shown disabled with an
+        explanatory tooltip, recomputed in real time as ability scores, BAB,
+        skills, and feats change.  Validation uses
+        :func:`heroforge.logic.feats.check_prerequisites`.
+        """
+        if self._model is None:
+            return
+        stats = self._model.derived_stats()
+        char = self._model.character
+        for i in range(self._avail_list.count()):
+            item = self._avail_list.item(i)
+            if item is None:
+                continue
+            prereqs = self._prerequisites.get(item.text(), [])
+            met = check_prerequisites(
+                prereqs,
+                stats.base_attack_bonus,
+                char.ability_scores,
+                char.skills,
+                char.feats,
+                char.total_level,
+            )
+            flags = item.flags()
+            if met or not prereqs:
+                item.setFlags(flags | Qt.ItemFlag.ItemIsEnabled)
+                item.setToolTip("")
+            else:
+                item.setFlags(flags & ~Qt.ItemFlag.ItemIsEnabled)
+                item.setToolTip("Prerequisites not met: " + ", ".join(prereqs))
 
     def _show_description(self, name: str) -> None:
         self._desc_text.setPlainText(self._descriptions.get(name, ""))

@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from heroforge.db.schema import get_connection
+from heroforge.logic.derived_stats import ClassProgression
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +168,48 @@ class GameDataRepository:
             )
             for r in rows
         ]
+
+    def feat_prerequisites(self) -> dict[str, list[str]]:
+        """Return a mapping of feat name → list of prerequisite strings.
+
+        Feats with no recorded prerequisites are simply absent from the
+        mapping.  Used by the UI to validate which feats a character qualifies
+        for via :func:`heroforge.logic.feats.check_prerequisites`.
+        """
+        rows = self._query(
+            "SELECT feat_name, prerequisite FROM feat_prerequisites "
+            "ORDER BY feat_name, id"
+        )
+        result: dict[str, list[str]] = {}
+        for r in rows:
+            result.setdefault(r["feat_name"], []).append(r["prerequisite"])
+        return result
+
+    # ------------------------------------------------------------------
+    # Classes
+    # ------------------------------------------------------------------
+
+    def class_progressions(self) -> dict[str, ClassProgression]:
+        """Return a mapping of class name → :class:`ClassProgression`.
+
+        Supplies the BAB and saving-throw progression types used to compute a
+        character's derived combat/save values.  ``NULL`` columns fall back to
+        the D&D defaults (``medium`` BAB, ``poor`` saves).
+        """
+        rows = self._query(
+            "SELECT name, bab_progression, fort_progression, "
+            "ref_progression, will_progression FROM classes"
+        )
+        return {
+            r["name"]: ClassProgression(
+                name=r["name"],
+                bab=r["bab_progression"] or "medium",
+                fort=r["fort_progression"] or "poor",
+                ref=r["ref_progression"] or "poor",
+                will=r["will_progression"] or "poor",
+            )
+            for r in rows
+        }
 
     # ------------------------------------------------------------------
     # Races & templates
