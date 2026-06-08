@@ -39,7 +39,7 @@ This document describes the strategy and step-by-step plan for converting the He
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| Language | Python 3.11+ | Modern language features; rich ecosystem |
+| Language | Python 3.12+ | Modern language features; rich ecosystem |
 | GUI framework | PyQt6 | Mature, cross-platform; direct Qt API access |
 | Database | SQLite via `sqlite3` stdlib | Zero-dependency, file-based, sufficient for this use case |
 | ORM (optional) | SQLAlchemy Core | Cleaner SQL generation; can be added incrementally |
