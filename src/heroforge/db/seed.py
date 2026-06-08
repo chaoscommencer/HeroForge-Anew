@@ -577,7 +577,16 @@ def _extract_spell_progression(wb: object, sheet: str) -> list[tuple[object, ...
     ws = wb[sheet]  # type: ignore[index]
     grid = [tuple(r) for r in ws.iter_rows(values_only=True)]
 
-    def _as_int(value: object) -> int | None:
+    def _as_int(value: object, *, warn_on_loss: bool = True) -> int | None:
+        def _warn(reason: str) -> None:
+            if warn_on_loss:
+                logger.warning(
+                    "Dropping non-integral value while extracting %s: %r (%s)",
+                    sheet,
+                    value,
+                    reason,
+                )
+
         if value is None:
             return None
         if isinstance(value, int) and not isinstance(value, bool):
@@ -585,6 +594,7 @@ def _extract_spell_progression(wb: object, sheet: str) -> list[tuple[object, ...
         if isinstance(value, float):
             if math.isfinite(value) and value.is_integer():
                 return int(value)
+            _warn("float is not a finite integer")
             return None
         text = str(value).strip()
         if text == "":
@@ -592,9 +602,11 @@ def _extract_spell_progression(wb: object, sheet: str) -> list[tuple[object, ...
         try:
             numeric = float(text)
             if not math.isfinite(numeric) or not numeric.is_integer():
+                _warn("text is not a finite integer")
                 return None
             return int(numeric)
         except (TypeError, ValueError):
+            _warn("failed to parse numeric text")
             return None
 
     # Locate class-name header cells: non-numeric, non-empty labels that are not
@@ -605,7 +617,11 @@ def _extract_spell_progression(wb: object, sheet: str) -> list[tuple[object, ...
             if cell is None:
                 continue
             text = str(cell).strip()
-            if text and _as_int(text) is None and text not in ("CL", "Lvl"):
+            if (
+                text
+                and _as_int(text, warn_on_loss=False) is None
+                and text not in ("CL", "Lvl")
+            ):
                 headers.append((r_idx, c_idx, text))
 
     rows: list[tuple[object, ...]] = []
@@ -618,7 +634,7 @@ def _extract_spell_progression(wb: object, sheet: str) -> list[tuple[object, ...
         spell_cols: list[tuple[int, int]] = []
         col = c_idx
         while col < len(level_header):
-            value = _as_int(level_header[col])
+            value = _as_int(level_header[col], warn_on_loss=False)
             if value is None or not 0 <= value <= 9:
                 break
             spell_cols.append((col, value))

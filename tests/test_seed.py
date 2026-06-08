@@ -284,5 +284,13 @@ class TestHelpers:
         rows = seed._extract_spell_progression(wb, "Spells per Day")
 
         assert rows == [("Wizard", 1, 0, 4)]
+        assert (
+            "Dropping non-integral value while extracting Spells per Day: 'x'"
+            in caplog.text
+        )
+        assert (
+            "Dropping non-integral value while extracting Spells per Day: 1.5"
+            in caplog.text
+        )
         assert "non-integral count 'x'" in caplog.text
         assert "non-integral caster level 1.5" in caplog.text
