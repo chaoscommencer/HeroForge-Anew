@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -63,6 +63,131 @@ class SpellSlots:
     caster_level: int
     spell_level: int
     count: int
+
+
+@dataclass(frozen=True)
+class ArmorItem:
+    """An armor or shield entry from the ``armor`` table."""
+
+    name: str
+    type: str
+    ac_bonus: int
+    max_dex_bonus: int | None
+    check_penalty: int
+    arcane_spell_failure: int
+    weight: float
+    source: str
+
+    @property
+    def is_shield(self) -> bool:
+        """``True`` when this entry is a shield rather than body armor."""
+        return "shield" in (self.type or "").lower()
+
+
+@dataclass(frozen=True)
+class WeaponItem:
+    """A weapon entry from the ``weapons`` table."""
+
+    name: str
+    category: str
+    damage: str
+    critical: str
+    range_increment: int
+    damage_type: str
+    source: str
+
+
+@dataclass(frozen=True)
+class GraftItem:
+    """A graft entry from the ``grafts`` table."""
+
+    name: str
+    type: str
+    body_slot: str
+    description: str
+    source: str
+
+
+@dataclass(frozen=True)
+class SoulmeldItem:
+    """A soulmeld entry from the ``soulmelds`` table."""
+
+    name: str
+    chakra: str
+    essentia_capacity: int
+    description: str
+    source: str
+
+
+@dataclass(frozen=True)
+class PsionicPower:
+    """A psionic power entry from the ``psionic_powers`` table."""
+
+    name: str
+    discipline: str
+    power_points: int
+    manifester_level_min: int
+    description: str
+    source: str
+
+
+@dataclass(frozen=True)
+class Maneuver:
+    """A martial maneuver/stance entry from the ``maneuvers`` table."""
+
+    name: str
+    discipline: str
+    level: int
+    type: str
+    source: str
+
+    @property
+    def is_stance(self) -> bool:
+        """``True`` when this entry is a stance rather than a maneuver."""
+        return "stance" in (self.type or "").lower()
+
+
+@dataclass(frozen=True)
+class MagicEnhancement:
+    """A magic weapon/armor enhancement from the ``magic_enhancements`` table."""
+
+    name: str
+    type: str
+    bonus_equivalent: int
+    description: str
+    source: str
+
+
+@dataclass(frozen=True)
+class MagicItem:
+    """A magic item entry from the ``magic_equipment`` table."""
+
+    name: str
+    slot: str
+    description: str
+    source: str
+
+
+@dataclass(frozen=True)
+class SkillTrick:
+    """A skill trick entry from the ``skill_tricks`` table."""
+
+    name: str
+    cost: int
+    description: str
+    prerequisite: str
+
+
+@dataclass(frozen=True)
+class Creature:
+    """A creature entry from the ``creatures`` table (companions/familiars)."""
+
+    name: str
+    size: str
+    type: str
+    hit_dice: str
+    ability_scores: Mapping[str, int]
+    armor_class: int
 
 
 class GameDataRepository:
@@ -266,4 +391,261 @@ class GameDataRepository:
         )
         return [
             SpellSlots(r["caster_level"], r["spell_level"], r["count"]) for r in rows
+        ]
+
+    # ------------------------------------------------------------------
+    # Equipment catalogues (armor, weapons, magic items, enhancements)
+    # ------------------------------------------------------------------
+
+    def list_armor(self, sources: Iterable[str] | None = None) -> list[ArmorItem]:
+        """Return armor and shield entries ordered by name.
+
+        Used by the Armor tab to offer real catalogue choices (with their AC,
+        max-Dex, check-penalty, and arcane-spell-failure values) instead of
+        free-form spinboxes.
+        """
+        fragment, params = self._source_filter("source", sources)
+        where = f"WHERE {fragment}" if fragment else ""
+        rows = self._query(
+            "SELECT name, type, ac_bonus, max_dex_bonus, check_penalty, "
+            "arcane_spell_failure, weight, source "
+            f"FROM armor {where} ORDER BY name",
+            params,
+        )
+        return [
+            ArmorItem(
+                name=r["name"],
+                type=r["type"] or "",
+                ac_bonus=int(r["ac_bonus"] or 0),
+                max_dex_bonus=(
+                    None if r["max_dex_bonus"] is None else int(r["max_dex_bonus"])
+                ),
+                check_penalty=int(r["check_penalty"] or 0),
+                arcane_spell_failure=int(r["arcane_spell_failure"] or 0),
+                weight=float(r["weight"] or 0.0),
+                source=r["source"] or "",
+            )
+            for r in rows
+        ]
+
+    def list_weapons(self, sources: Iterable[str] | None = None) -> list[WeaponItem]:
+        """Return weapon entries ordered by name."""
+        fragment, params = self._source_filter("source", sources)
+        where = f"WHERE {fragment}" if fragment else ""
+        rows = self._query(
+            "SELECT name, category, damage_medium, critical, range_increment, "
+            f"damage_type, source FROM weapons {where} ORDER BY name",
+            params,
+        )
+        return [
+            WeaponItem(
+                name=r["name"],
+                category=r["category"] or "",
+                damage=r["damage_medium"] or "",
+                critical=r["critical"] or "",
+                range_increment=int(r["range_increment"] or 0),
+                damage_type=r["damage_type"] or "",
+                source=r["source"] or "",
+            )
+            for r in rows
+        ]
+
+    def list_magic_enhancements(
+        self, sources: Iterable[str] | None = None
+    ) -> list[MagicEnhancement]:
+        """Return magic weapon/armor enhancements ordered by name."""
+        fragment, params = self._source_filter("source", sources)
+        where = f"WHERE {fragment}" if fragment else ""
+        rows = self._query(
+            "SELECT name, type, bonus_equivalent, description, source "
+            f"FROM magic_enhancements {where} ORDER BY name",
+            params,
+        )
+        return [
+            MagicEnhancement(
+                name=r["name"],
+                type=r["type"] or "",
+                bonus_equivalent=int(r["bonus_equivalent"] or 0),
+                description=r["description"] or "",
+                source=r["source"] or "",
+            )
+            for r in rows
+        ]
+
+    def list_magic_equipment(
+        self, sources: Iterable[str] | None = None
+    ) -> list[MagicItem]:
+        """Return magic-item entries ordered by name."""
+        fragment, params = self._source_filter("source", sources)
+        where = f"WHERE {fragment}" if fragment else ""
+        rows = self._query(
+            "SELECT name, slot, description, source "
+            f"FROM magic_equipment {where} ORDER BY name",
+            params,
+        )
+        return [
+            MagicItem(
+                name=r["name"],
+                slot=r["slot"] or "",
+                description=r["description"] or "",
+                source=r["source"] or "",
+            )
+            for r in rows
+        ]
+
+    # ------------------------------------------------------------------
+    # Grafts, soulmelds, psionics, maneuvers
+    # ------------------------------------------------------------------
+
+    def list_grafts(self, sources: Iterable[str] | None = None) -> list[GraftItem]:
+        """Return graft entries ordered by name."""
+        fragment, params = self._source_filter("source", sources)
+        where = f"WHERE {fragment}" if fragment else ""
+        rows = self._query(
+            "SELECT name, type, body_slot, description, source "
+            f"FROM grafts {where} ORDER BY name",
+            params,
+        )
+        return [
+            GraftItem(
+                name=r["name"],
+                type=r["type"] or "",
+                body_slot=r["body_slot"] or "",
+                description=r["description"] or "",
+                source=r["source"] or "",
+            )
+            for r in rows
+        ]
+
+    def list_soulmelds(
+        self, sources: Iterable[str] | None = None
+    ) -> list[SoulmeldItem]:
+        """Return soulmeld entries ordered by name."""
+        fragment, params = self._source_filter("source", sources)
+        where = f"WHERE {fragment}" if fragment else ""
+        rows = self._query(
+            "SELECT name, chakra, essentia_capacity, description, source "
+            f"FROM soulmelds {where} ORDER BY name",
+            params,
+        )
+        return [
+            SoulmeldItem(
+                name=r["name"],
+                chakra=r["chakra"] or "",
+                essentia_capacity=int(r["essentia_capacity"] or 0),
+                description=r["description"] or "",
+                source=r["source"] or "",
+            )
+            for r in rows
+        ]
+
+    def list_psionic_powers(
+        self, sources: Iterable[str] | None = None
+    ) -> list[PsionicPower]:
+        """Return psionic power entries ordered by name."""
+        fragment, params = self._source_filter("source", sources)
+        where = f"WHERE {fragment}" if fragment else ""
+        rows = self._query(
+            "SELECT name, discipline, power_points, manifester_level_min, "
+            f"description, source FROM psionic_powers {where} ORDER BY name",
+            params,
+        )
+        return [
+            PsionicPower(
+                name=r["name"],
+                discipline=r["discipline"] or "",
+                power_points=int(r["power_points"] or 0),
+                manifester_level_min=int(r["manifester_level_min"] or 0),
+                description=r["description"] or "",
+                source=r["source"] or "",
+            )
+            for r in rows
+        ]
+
+    def list_maneuvers(self, sources: Iterable[str] | None = None) -> list[Maneuver]:
+        """Return martial maneuver/stance entries ordered by discipline, level."""
+        fragment, params = self._source_filter("source", sources)
+        where = f"WHERE {fragment}" if fragment else ""
+        rows = self._query(
+            "SELECT name, discipline, level, type, source "
+            f"FROM maneuvers {where} ORDER BY discipline, level, name",
+            params,
+        )
+        return [
+            Maneuver(
+                name=r["name"],
+                discipline=r["discipline"] or "",
+                level=int(r["level"] or 0),
+                type=r["type"] or "",
+                source=r["source"] or "",
+            )
+            for r in rows
+        ]
+
+    # ------------------------------------------------------------------
+    # Languages, traits, flaws, skill tricks, creatures
+    # ------------------------------------------------------------------
+
+    def list_languages(self) -> list[str]:
+        """Return language names ordered alphabetically."""
+        rows = self._query("SELECT name FROM languages ORDER BY name")
+        return [r["name"] for r in rows]
+
+    def list_traits(self, sources: Iterable[str] | None = None) -> list[str]:
+        """Return trait names ordered alphabetically (Unearthed Arcana)."""
+        fragment, params = self._source_filter("source", sources)
+        where = f"WHERE {fragment}" if fragment else ""
+        rows = self._query(f"SELECT name FROM traits {where} ORDER BY name", params)
+        return [r["name"] for r in rows]
+
+    def list_flaws(self, sources: Iterable[str] | None = None) -> list[str]:
+        """Return flaw names ordered alphabetically (Unearthed Arcana)."""
+        fragment, params = self._source_filter("source", sources)
+        where = f"WHERE {fragment}" if fragment else ""
+        rows = self._query(f"SELECT name FROM flaws {where} ORDER BY name", params)
+        return [r["name"] for r in rows]
+
+    def list_skill_tricks(self) -> list[SkillTrick]:
+        """Return skill-trick entries ordered by name."""
+        rows = self._query(
+            "SELECT name, cost, description, prerequisite "
+            "FROM skill_tricks ORDER BY name"
+        )
+        return [
+            SkillTrick(
+                name=r["name"],
+                cost=int(r["cost"] or 2),
+                description=r["description"] or "",
+                prerequisite=r["prerequisite"] or "",
+            )
+            for r in rows
+        ]
+
+    def list_creatures(self, sources: Iterable[str] | None = None) -> list[Creature]:
+        """Return creature entries ordered by name (companions/familiars)."""
+        fragment, params = self._source_filter("source", sources)
+        where = f"WHERE {fragment}" if fragment else ""
+        rows = self._query(
+            "SELECT name, size, type, hit_dice, str_score, dex_score, con_score, "
+            "int_score, wis_score, cha_score, armor_class "
+            f"FROM creatures {where} ORDER BY name",
+            params,
+        )
+        return [
+            Creature(
+                name=r["name"],
+                size=r["size"] or "",
+                type=r["type"] or "",
+                hit_dice=r["hit_dice"] or "",
+                ability_scores={
+                    "STR": int(r["str_score"] or 10),
+                    "DEX": int(r["dex_score"] or 10),
+                    "CON": int(r["con_score"] or 10),
+                    "INT": int(r["int_score"] or 10),
+                    "WIS": int(r["wis_score"] or 10),
+                    "CHA": int(r["cha_score"] or 10),
+                },
+                armor_class=int(r["armor_class"] or 10),
+            )
+            for r in rows
         ]

@@ -1,36 +1,67 @@
 """Familiar tab for HeroForge-Anew.
 
-Reference: PHB p52 (Wizard class feature).
+Reference: PHB p52 (Wizard class feature).  The familiar's kind can be chosen
+from the seeded ``creatures`` catalogue and all fields are persisted to
+:attr:`Character.companions` as a single ``companion_type == "familiar"`` entry
+(detailed stats serialised into the ``notes`` column as JSON so they round-trip
+through save/load).  Standard familiars grant their master a fixed bonus shown
+below.
 """
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
+from heroforge.ui.tabs._tab_helper import pick_from_catalog
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
+_COMPANION_TYPE = "familiar"
+
+# Standard familiar bonuses granted to the master (PHB p52–53).
+_FAMILIAR_BONUSES: dict[str, str] = {
+    "bat": "Master gains +3 bonus on Listen checks.",
+    "cat": "Master gains +3 bonus on Move Silently checks.",
+    "hawk": "Master gains +3 bonus on Spot checks in daylight.",
+    "lizard": "Master gains +3 bonus on Climb checks.",
+    "owl": "Master gains +3 bonus on Spot checks in shadows/darkness.",
+    "rat": "Master gains +2 bonus on Fortitude saves.",
+    "raven": "Master gains +3 bonus on Appraise checks.",
+    "snake": "Master gains +3 bonus on Bluff checks.",
+    "toad": "Master gains +3 hit points.",
+    "weasel": "Master gains +2 bonus on Reflex saves.",
+}
+
 
 class FamiliarTab(QWidget):
-    """Familiar statistics and bonuses granted to master."""
+    """Familiar statistics and bonuses granted to master, backed by the model."""
 
     def __init__(
         self, model: CharacterModel | None = None, parent: QWidget | None = None
     ) -> None:
         super().__init__(parent)
         self._model = model
+        self._loading = False
         self._build_ui()
+        if model:
+            model.character_reset.connect(self._sync_from_model)
+            model.character_loaded.connect(lambda _id: self._sync_from_model())
+            self._sync_from_model()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -45,8 +76,15 @@ class FamiliarTab(QWidget):
         id_form = QFormLayout(id_box)
         self._name_edit = QLineEdit()
         self._kind_edit = QLineEdit()
+        self._name_edit.editingFinished.connect(self._on_changed)
+        self._kind_edit.editingFinished.connect(self._on_kind_changed)
+        kind_row = QHBoxLayout()
+        kind_row.addWidget(self._kind_edit)
+        select_btn = QPushButton("Select…")
+        select_btn.clicked.connect(self._select_kind)
+        kind_row.addWidget(select_btn)
         id_form.addRow("Name:", self._name_edit)
-        id_form.addRow("Kind:", self._kind_edit)
+        id_form.addRow("Kind:", kind_row)
         inner_layout.addWidget(id_box)
 
         stats_box = QGroupBox("Familiar Statistics")
@@ -57,6 +95,8 @@ class FamiliarTab(QWidget):
         self._int_spin.setRange(1, 30)
         self._nat_armor_spin = QSpinBox()
         self._nat_armor_spin.setRange(0, 20)
+        for spin in (self._hp_spin, self._int_spin, self._nat_armor_spin):
+            spin.valueChanged.connect(self._on_changed)
         stats_form.addRow("HP:", self._hp_spin)
         stats_form.addRow("Intelligence:", self._int_spin)
         stats_form.addRow("Natural Armor Bonus:", self._nat_armor_spin)
@@ -64,9 +104,95 @@ class FamiliarTab(QWidget):
 
         bonuses_box = QGroupBox("Bonuses Granted to Master")
         bonuses_layout = QVBoxLayout(bonuses_box)
-        bonuses_layout.addWidget(QLabel("(Based on familiar type – see PHB p52.)"))
+        self._bonus_lbl = QLabel("(Select a familiar kind – see PHB p52.)")
+        self._bonus_lbl.setWordWrap(True)
+        bonuses_layout.addWidget(self._bonus_lbl)
         inner_layout.addWidget(bonuses_box)
 
         inner_layout.addStretch()
         scroll.setWidget(inner)
         layout.addWidget(scroll)
+
+    # ------------------------------------------------------------------
+    # State helpers
+    # ------------------------------------------------------------------
+
+    def _refresh_bonus(self) -> None:
+        kind = self._kind_edit.text().strip().lower()
+        self._bonus_lbl.setText(
+            _FAMILIAR_BONUSES.get(
+                kind, "(Select a standard familiar kind – see PHB p52.)"
+            )
+        )
+
+    def _entry(self) -> dict | None:  # type: ignore[type-arg]
+        name = self._name_edit.text().strip()
+        kind = self._kind_edit.text().strip()
+        notes = {
+            "hp": self._hp_spin.value(),
+            "int": self._int_spin.value(),
+            "natural_armor": self._nat_armor_spin.value(),
+        }
+        if not name and not kind and notes["hp"] == 0 and notes["natural_armor"] == 0:
+            return None
+        return {
+            "companion_type": _COMPANION_TYPE,
+            "name": name,
+            "creature": kind,
+            "notes": json.dumps(notes),
+        }
+
+    def _sync_to_model(self) -> None:
+        if self._model is None:
+            return
+        others = [
+            c
+            for c in self._model.character.companions
+            if c.get("companion_type") != _COMPANION_TYPE
+        ]
+        entry = self._entry()
+        self._model.character.companions = (
+            others + [entry] if entry is not None else others
+        )
+
+    def _on_changed(self, *_args: object) -> None:
+        if not self._loading:
+            self._sync_to_model()
+
+    def _on_kind_changed(self) -> None:
+        self._refresh_bonus()
+        self._on_changed()
+
+    def _select_kind(self) -> None:
+        creatures = self._model.game_data().list_creatures() if self._model else []
+        options = [c.name for c in creatures]
+        name = pick_from_catalog(self, "Select Familiar", "Kind:", options)
+        if name is not None:
+            self._kind_edit.setText(name)
+            self._refresh_bonus()
+            self._sync_to_model()
+
+    def _sync_from_model(self) -> None:
+        self._loading = True
+        self._name_edit.clear()
+        self._kind_edit.clear()
+        self._hp_spin.setValue(0)
+        self._int_spin.setValue(1)
+        self._nat_armor_spin.setValue(0)
+        if self._model is not None:
+            for entry in self._model.character.companions:
+                if entry.get("companion_type") != _COMPANION_TYPE:
+                    continue
+                self._name_edit.setText(entry.get("name", ""))
+                self._kind_edit.setText(entry.get("creature", ""))
+                notes = entry.get("notes", "")
+                try:
+                    data = json.loads(notes) if notes else {}
+                except (TypeError, ValueError):
+                    data = {}
+                self._hp_spin.setValue(int(data.get("hp", 0) or 0))
+                self._int_spin.setValue(int(data.get("int", 1) or 1))
+                self._nat_armor_spin.setValue(int(data.get("natural_armor", 0) or 0))
+                break
+        self._loading = False
+        self._refresh_bonus()
