@@ -1,0 +1,3 @@
+# Runtime dependencies for HeroForge Anew (Python edition).
+# Pinned to the current stable PyQt6 release line; see docs/conversion-plan.md.
+PyQt6>=6.6,<7

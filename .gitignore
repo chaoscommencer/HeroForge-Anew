@@ -214,3 +214,17 @@ pip-log.txt
 
 #Mr Developer
 .mr.developer.cfg
+
+# mypy / pytest caches
+.mypy_cache/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Generated SQLite database
+heroforge.db
+
+# Container runtime logs
+*.runtime.log

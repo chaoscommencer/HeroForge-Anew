@@ -1,0 +1,13 @@
+# Keep the image build context small and reproducible.
+.git
+.github
+docs
+*.xlsm
+data
+tests
+**/__pycache__
+*.pyc
+.mypy_cache
+.pytest_cache
+.venv
+heroforge.db

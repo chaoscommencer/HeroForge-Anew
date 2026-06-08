@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heroforge-anew"
+version = "8.0.0.dev0"
+description = "HeroForge Anew – D&D 3.5 character builder (Python edition)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["PyQt6>=6.6,<7"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-qt>=4"]
+
+[project.scripts]
+heroforge = "heroforge.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
