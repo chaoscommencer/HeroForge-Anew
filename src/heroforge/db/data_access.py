@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -186,7 +186,7 @@ class Creature:
     size: str
     type: str
     hit_dice: str
-    ability_scores: Mapping[str, int]
+    ability_scores: dict[str, int]
     armor_class: int
 
 

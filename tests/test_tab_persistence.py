@@ -43,6 +43,14 @@ class TestLanguageRules:
         assert bonus_language_slots(16) == 3
         assert bonus_language_slots(8) == 0
 
+    def test_subtype_prefix_resolves_to_base_race(self) -> None:
+        assert "Dwarven" in automatic_languages("Mountain Dwarf")
+        assert "Elven" in automatic_languages("Wood Elf")
+
+    def test_incidental_substring_does_not_match(self) -> None:
+        # "elf" appears inside "selfish" but must not grant Elven.
+        assert automatic_languages("Selfish Construct") == ["Common"]
+
 
 # ---------------------------------------------------------------------------
 # Widget fixtures
@@ -181,7 +189,7 @@ class TestLanguagesTab:
         from heroforge.ui.tabs.languages import LanguagesTab
 
         model.character.race = "Human"
-        model.character.ability_scores["INT"] = 14  # +2 -> two bonus slots
+        model.character.ability_scores["INT"] = 14  # +2 modifier = 2 bonus slots
         tab = LanguagesTab(model=model)
         model.derived_stats_changed.emit()
 

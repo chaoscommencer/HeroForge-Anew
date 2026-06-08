@@ -66,7 +66,7 @@ class TraitsAndFlawsTab(QWidget):
             lst = QListWidget()
             box_layout.addWidget(lst)
             btn_row = QHBoxLayout()
-            add_btn = QPushButton(f"Add {section.capitalize()[:-1]}…")
+            add_btn = QPushButton(f"Add {self._singular(section)}…")
             rm_btn = QPushButton("Remove Selected")
             add_btn.clicked.connect(lambda _, s=section: self._add(s))
             rm_btn.clicked.connect(lambda _, s=section: self._remove(s))
@@ -82,6 +82,10 @@ class TraitsAndFlawsTab(QWidget):
         inner_layout.addStretch()
         scroll.setWidget(inner)
         layout.addWidget(scroll)
+
+    def _singular(self, section: str) -> str:
+        """Return the title-cased singular label for a section ("Trait"/"Flaw")."""
+        return section.rstrip("s").capitalize()
 
     def _list(self, section: str) -> QListWidget:
         return getattr(self, f"_{section}_list")  # type: ignore[no-any-return]
@@ -118,10 +122,11 @@ class TraitsAndFlawsTab(QWidget):
     def _add(self, section: str) -> None:
         is_flaw = section == "flaws"
         limit = _MAX_FLAWS if is_flaw else _MAX_TRAITS
+        singular = self._singular(section)
         if len(self._names(section)) >= limit:
             QMessageBox.information(
                 self,
-                f"Add {section.capitalize()[:-1]}",
+                f"Add {singular}",
                 f"A character may take at most {limit} {section}.",
             )
             return
@@ -134,13 +139,11 @@ class TraitsAndFlawsTab(QWidget):
         else:
             options = []
         options = [o for o in options if o not in self._names(section)]
-        name = pick_from_catalog(
-            self, f"Add {section.capitalize()[:-1]}", "Name:", options
-        )
+        name = pick_from_catalog(self, f"Add {singular}", "Name:", options)
         if name and not self.add_trait(name, is_flaw=is_flaw):
             QMessageBox.information(
                 self,
-                f"Add {section.capitalize()[:-1]}",
+                f"Add {singular}",
                 f"Could not add '{name}'.",
             )
 
