@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -123,8 +124,6 @@ class GraftsTab(QWidget):
             return
         slot = self._slots.get(name, "")
         if not self.add_graft(name, slot):
-            from PyQt6.QtWidgets import QMessageBox
-
             QMessageBox.information(
                 self,
                 "Add Graft",

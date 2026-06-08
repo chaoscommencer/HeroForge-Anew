@@ -50,6 +50,9 @@ class TestLanguageRules:
     def test_incidental_substring_does_not_match(self) -> None:
         # "elf" appears inside "selfish" but must not grant Elven.
         assert automatic_languages("Selfish Construct") == ["Common"]
+        # "half" appears inside "halfling" but Halfling must resolve to Halfling
+        # (its own entry), not to the "half-elf"/"half-orc" entries.
+        assert automatic_languages("Halfling") == ["Common", "Halfling"]
 
 
 # ---------------------------------------------------------------------------
