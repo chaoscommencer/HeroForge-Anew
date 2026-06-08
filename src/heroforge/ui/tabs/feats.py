@@ -86,13 +86,14 @@ class FeatsTab(QWidget):
 
     def _load_feats(self) -> None:
         """Populate the available-feats list from the seeded database."""
+        self._avail_list.clear()
+        self._desc_text.clear()
         self._descriptions = {}
         if self._model is None:
             return
         for feat in self._model.game_data().list_feats():
             self._avail_list.addItem(feat.name)
             self._descriptions[feat.name] = feat.description or feat.benefit
-
     def _show_description(self, name: str) -> None:
         self._desc_text.setPlainText(self._descriptions.get(name, ""))
 
