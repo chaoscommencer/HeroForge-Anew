@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QInputDialog, QLabel, QVBoxLayout, QWidget
+
+logger = logging.getLogger(__name__)
 
 
 def pick_from_catalog(
@@ -27,6 +30,7 @@ def pick_from_catalog(
     else:
         choice, ok = QInputDialog.getText(parent, title, label)
     if not ok:
+        logger.debug("pick_from_catalog cancelled: title=%r", title)
         return None
     choice = choice.strip()
     return choice or None

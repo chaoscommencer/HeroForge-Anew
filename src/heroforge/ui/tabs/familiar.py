@@ -34,6 +34,8 @@ if TYPE_CHECKING:
 _COMPANION_TYPE = "familiar"
 
 # Standard familiar bonuses granted to the master (PHB p52–53).
+# Used as a fallback when the game database has not been seeded with
+# ``familiar_bonuses`` rows (see ``GameDataRepository.get_familiar_bonuses``).
 _FAMILIAR_BONUSES: dict[str, str] = {
     "bat": "Master gains +3 bonus on Listen checks.",
     "cat": "Master gains +3 bonus on Move Silently checks.",
@@ -119,8 +121,13 @@ class FamiliarTab(QWidget):
 
     def _refresh_bonus(self) -> None:
         kind = self._kind_edit.text().strip().lower()
+        bonuses = (
+            self._model.game_data().get_familiar_bonuses()
+            if self._model is not None
+            else {}
+        ) or _FAMILIAR_BONUSES
         self._bonus_lbl.setText(
-            _FAMILIAR_BONUSES.get(
+            bonuses.get(
                 kind, "(Select a standard familiar kind – see PHB p52.)"
             )
         )

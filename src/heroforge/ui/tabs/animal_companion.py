@@ -105,6 +105,8 @@ class AnimalCompanionTab(QWidget):
         notes = {
             "scores": {a: self._ability_spins[a].value() for a in _ABILITIES},
             "hp": self._hp_spin.value(),
+            # "hd" stores the Hit Dice string (e.g. "3d8+6") shown in the
+            # Hit Dice row; it determines HP-per-level and affects CR.
             "hd": self._hd_edit.text().strip(),
         }
         # Only persist when there's meaningful data to store.
