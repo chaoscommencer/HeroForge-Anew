@@ -179,10 +179,16 @@ class CharacterModel(QObject):
         self.derived_stats_changed.emit()
 
     def _on_buff_toggled(self, buff: str, active: bool) -> None:
-        """Activate/deactivate a buff and announce derived-stat updates."""
+        """Activate/deactivate a buff and announce derived-stat updates.
+
+        Duplicate buff names are intentional: the same buff (e.g. "Bless")
+        can be received from multiple sources and may stack depending on bonus
+        type.  Each ``active=True`` emission appends a new entry; each
+        ``active=False`` emission removes only the first occurrence, mirroring
+        the UI's single-item removal behaviour.
+        """
         if active:
-            if buff not in self._character.buffs:
-                self._character.buffs.append(buff)
+            self._character.buffs.append(buff)
         elif buff in self._character.buffs:
             self._character.buffs.remove(buff)
         self.derived_stats_changed.emit()

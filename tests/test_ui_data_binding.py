@@ -452,6 +452,19 @@ class TestCrossTabSignalPropagation:
         assert list(spy[-1]) == ["Bless", True]
         assert "Bless" in empty_model.character.buffs
 
+        # Adding the same buff name again is allowed: a buff can come from
+        # multiple sources (backward-compatible with the original Excel).
+        tab.add_buff("Bless")
+        assert list(spy[-1]) == ["Bless", True]
+        assert empty_model.character.buffs.count("Bless") == 2
+
+        # Removing one UI item removes only the first occurrence in the model.
+        tab._buff_list.setCurrentRow(0)
+        tab._remove_buff()
+        assert list(spy[-1]) == ["Bless", False]
+        assert empty_model.character.buffs.count("Bless") == 1
+
+        # Removing the last instance clears it entirely.
         tab._buff_list.setCurrentRow(0)
         tab._remove_buff()
         assert list(spy[-1]) == ["Bless", False]

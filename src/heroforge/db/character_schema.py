@@ -132,6 +132,10 @@ CREATE TABLE IF NOT EXISTS character_buffs (
     buff_name       TEXT NOT NULL,
     active          INTEGER DEFAULT 1,
     parameters      TEXT
+    -- No UNIQUE constraint on (character_id, buff_name): the same buff can be
+    -- active from multiple sources simultaneously (e.g. two castings of Bless
+    -- from different allies).  Duplicate rows are intentional and preserve the
+    -- original Excel workbook's behaviour.
 );
 
 CREATE TABLE IF NOT EXISTS character_languages (
