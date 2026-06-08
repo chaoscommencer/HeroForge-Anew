@@ -441,6 +441,8 @@ class TestCrossTabSignalPropagation:
         assert "Power Attack" not in model.character.feats
 
     def test_buff_toggled_emitted_on_add_and_remove(self, empty_model: object) -> None:
+        import uuid as _uuid
+
         from PyQt6.QtTest import QSignalSpy
 
         from heroforge.ui.tabs.buffs import BuffsTab
@@ -449,29 +451,35 @@ class TestCrossTabSignalPropagation:
         spy = QSignalSpy(empty_model.buff_toggled)
 
         tab.add_buff("Bless")
-        assert list(spy[-1]) == [0, "Bless", True]
+        first_id: str = spy[-1][0]
+        # ID must be a valid UUID string.
+        _uuid.UUID(first_id)
+        assert list(spy[-1])[1:] == ["Bless", True]
         assert any(b["name"] == "Bless" for b in empty_model.character.buffs)
 
         # Adding the same buff name again is allowed: a buff can come from
         # multiple sources (backward-compatible with the original Excel).
         tab.add_buff("Bless")
-        assert list(spy[-1]) == [1, "Bless", True]
+        second_id: str = spy[-1][0]
+        _uuid.UUID(second_id)
+        assert second_id != first_id
+        assert list(spy[-1])[1:] == ["Bless", True]
         assert sum(1 for b in empty_model.character.buffs if b["name"] == "Bless") == 2
 
-        # Removing the first UI item removes the instance with ID=0, leaving
-        # the second instance (ID=1) untouched — the ID-based lookup ensures
-        # the correct duplicate is removed even when names are identical.
+        # Removing the first UI item removes the instance with the first UUID,
+        # leaving the second instance (second_id) untouched — the ID-based
+        # lookup ensures the correct duplicate is removed even when names match.
         tab._buff_list.setCurrentRow(0)
         tab._remove_buff()
-        assert list(spy[-1]) == [0, "Bless", False]
+        assert list(spy[-1]) == [first_id, "Bless", False]
         remaining = [b for b in empty_model.character.buffs if b["name"] == "Bless"]
         assert len(remaining) == 1
-        assert remaining[0]["id"] == 1
+        assert remaining[0]["id"] == second_id
 
         # Removing the last instance clears it entirely.
         tab._buff_list.setCurrentRow(0)
         tab._remove_buff()
-        assert list(spy[-1]) == [1, "Bless", False]
+        assert list(spy[-1]) == [second_id, "Bless", False]
         assert not any(b["name"] == "Bless" for b in empty_model.character.buffs)
 
     def test_class_levels_changed_updates_attacks_bab(self, model: object) -> None:

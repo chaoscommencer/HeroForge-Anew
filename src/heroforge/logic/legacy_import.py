@@ -120,6 +120,7 @@ content, Living Greyhawk records, and game-log entries.
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 from heroforge.models.character import Character
@@ -174,7 +175,6 @@ def parse_hfg(text: str) -> Character:
     character = Character()
     section = ""
     note_lines: list[str] = []
-    _buff_counter: int = 0
 
     for raw_line in text.splitlines():
         line = raw_line.rstrip("\n")
@@ -239,8 +239,7 @@ def parse_hfg(text: str) -> Character:
             character.equipment.append(item)
 
         elif section == "buffs":
-            character.buffs.append({"id": _buff_counter, "name": stripped})
-            _buff_counter += 1
+            character.buffs.append({"id": str(uuid.uuid4()), "name": stripped})
 
         elif section == "languages":
             character.languages.append(stripped)

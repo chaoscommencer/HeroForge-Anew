@@ -24,6 +24,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -583,9 +584,9 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
     ]
 
     character.buffs = [
-        {"id": br["id"], "name": br["buff_name"]}
+        {"id": str(uuid.uuid4()), "name": br["buff_name"]}
         for br in conn.execute(
-            "SELECT id, buff_name FROM character_buffs "
+            "SELECT buff_name FROM character_buffs "
             "WHERE character_id = ? ORDER BY id",
             (character_id,),
         ).fetchall()

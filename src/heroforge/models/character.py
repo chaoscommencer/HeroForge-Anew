@@ -53,7 +53,7 @@ class Character:
     feats: list[str] = field(default_factory=list)
     skills: dict[str, float] = field(default_factory=dict)
     buffs: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
-    """Active buffs, each ``{"id": int, "name": str}``."""
+    """Active buffs, each ``{"id": str, "name": str}`` where *id* is a UUID."""
     equipment: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
     languages: list[str] = field(default_factory=list)
     spells_known: list[dict] = field(default_factory=list)  # type: ignore[type-arg]

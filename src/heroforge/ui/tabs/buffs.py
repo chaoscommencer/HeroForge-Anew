@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
@@ -29,11 +30,6 @@ class BuffsTab(QWidget):
     ) -> None:
         super().__init__(parent)
         self._model = model
-        # Fallback counter used when no model is attached (e.g. standalone
-        # widget tests).  When a model IS present, IDs are allocated via
-        # :meth:`CharacterModel.alloc_buff_id` so the counter stays in sync
-        # with any buffs already loaded into the character.
-        self._next_id: int = 0
         self._build_ui()
         if model:
             model.character_reset.connect(self._reset)
@@ -69,8 +65,8 @@ class BuffsTab(QWidget):
     def add_buff(self, name: str) -> None:
         """Add an active buff named *name* and announce it (§8.4).
 
-        The model (or a fallback counter when no model is attached) allocates a
-        unique integer ID for this instance.  The ID is stored in the
+        The model (or a UUID fallback when no model is attached) allocates a
+        unique ID for this instance.  The ID is stored in the
         :class:`~PyQt6.QtWidgets.QListWidgetItem` via
         ``Qt.ItemDataRole.UserRole`` and forwarded through
         :attr:`CharacterModel.buff_toggled` so the model can later remove
@@ -82,8 +78,7 @@ class BuffsTab(QWidget):
         if self._model:
             buff_id = self._model.alloc_buff_id()
         else:
-            buff_id = self._next_id
-            self._next_id += 1
+            buff_id = str(uuid.uuid4())
         item = QListWidgetItem(name)
         item.setData(Qt.ItemDataRole.UserRole, buff_id)
         self._buff_list.addItem(item)
@@ -97,7 +92,7 @@ class BuffsTab(QWidget):
 
     def _remove_buff(self) -> None:
         for item in self._buff_list.selectedItems():
-            buff_id: int = item.data(Qt.ItemDataRole.UserRole)
+            buff_id: str = item.data(Qt.ItemDataRole.UserRole)
             name = item.text()
             self._buff_list.takeItem(self._buff_list.row(item))
             if self._model:
@@ -105,4 +100,3 @@ class BuffsTab(QWidget):
 
     def _reset(self) -> None:
         self._buff_list.clear()
-        self._next_id = 0

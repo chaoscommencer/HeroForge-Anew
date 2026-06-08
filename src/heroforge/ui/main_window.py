@@ -7,6 +7,8 @@ central data bus between tabs via Qt signals.
 
 from __future__ import annotations
 
+import uuid
+
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -100,7 +102,7 @@ class CharacterModel(QObject):
     still refresh automatically.
     """
 
-    buff_toggled = pyqtSignal(int, str, bool)
+    buff_toggled = pyqtSignal(str, str, bool)
     """Emitted when a buff is enabled/disabled. Args: (buff_id, buff_name, active)."""
 
     character_loaded = pyqtSignal(int)
@@ -122,11 +124,6 @@ class CharacterModel(QObject):
         # per-character state below; this model never mutates or persists it.
         self._game_data: GameDataRepository = game_data or GameDataRepository(None)
         self._character = Character()
-        # Monotonically-increasing counter used to assign unique IDs to buff
-        # instances within a session.  The counter is re-synchronised whenever
-        # a new character is loaded so that UI-generated IDs never collide with
-        # buff entries that were already present in the loaded character.
-        self._next_buff_id: int = 0
 
         # Keep the active character's state in sync with the UI and re-broadcast
         # a derived-stats refresh so every dependent tab updates in real time.
@@ -141,40 +138,23 @@ class CharacterModel(QObject):
         self.buff_toggled.connect(self._on_buff_toggled)
         self.class_levels_changed.connect(self.derived_stats_changed)
         self.character_reset.connect(self.derived_stats_changed)
-        self.character_reset.connect(lambda: setattr(self, "_next_buff_id", 0))
         self.character_loaded.connect(lambda _id: self.derived_stats_changed.emit())
-        self.character_loaded.connect(lambda _id: self._sync_buff_id_counter())
         # Bridge: skill_stats_changed → derived_stats_changed so tabs that only
         # connect to the broader signal still refresh when skill ranks change.
         self.skill_stats_changed.connect(
             lambda _skills: self.derived_stats_changed.emit()
         )
 
-    def _sync_buff_id_counter(self) -> None:
-        """Advance :attr:`_next_buff_id` past all buff IDs already in the character.
-
-        Called after a character is loaded so that any buff instances
-        subsequently added via the UI receive IDs that do not collide with
-        entries that were already present in the loaded character.
-        """
-        if self._character.buffs:
-            self._next_buff_id = (
-                max(b.get("id", 0) for b in self._character.buffs) + 1
-            )
-        else:
-            self._next_buff_id = 0
-
-    def alloc_buff_id(self) -> int:
-        """Allocate and return the next unique buff instance ID.
+    def alloc_buff_id(self) -> str:
+        """Allocate and return a unique buff instance ID (UUID).
 
         The UI calls this before emitting :attr:`buff_toggled` so that the
         returned ID is both stored in the :class:`~PyQt6.QtWidgets.QListWidgetItem`
         and forwarded through the signal to the model, keeping UI and model in
-        sync for the lifetime of the current session.
+        sync for the lifetime of the current session.  UUIDs are globally
+        unique so no counter synchronisation is needed after save/load.
         """
-        bid = self._next_buff_id
-        self._next_buff_id += 1
-        return bid
+        return str(uuid.uuid4())
 
     def _on_ability_score_changed(self, ability: str, value: int) -> None:
         """Persist an ability-score change and announce derived-stat updates."""
@@ -211,7 +191,7 @@ class CharacterModel(QObject):
             self._character.feats.append(feat)
         self.derived_stats_changed.emit()
 
-    def _on_buff_toggled(self, buff_id: int, buff: str, active: bool) -> None:
+    def _on_buff_toggled(self, buff_id: str, buff: str, active: bool) -> None:
         """Activate/deactivate a buff and announce derived-stat updates.
 
         Each buff instance is tracked by a unique *buff_id* so that duplicate
