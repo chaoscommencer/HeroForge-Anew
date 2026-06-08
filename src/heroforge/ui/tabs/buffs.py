@@ -33,6 +33,7 @@ class BuffsTab(QWidget):
         self._build_ui()
         if model:
             model.character_reset.connect(self._reset)
+            model.character_loaded.connect(lambda _id: self._sync_from_model())
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -99,4 +100,25 @@ class BuffsTab(QWidget):
                 self._model.buff_toggled.emit(buff_id, name, False)
 
     def _reset(self) -> None:
+        self._sync_from_model()
+
+    def _sync_from_model(self) -> None:
+        """Rebuild the buff list from the model's active character.
+
+        Called on :attr:`CharacterModel.character_loaded` and
+        :attr:`CharacterModel.character_reset` to ensure the UI stays in sync
+        with the authoritative character state after a load or reset.  Each
+        buff entry's UUID is stored in the
+        :class:`~PyQt6.QtWidgets.QListWidgetItem` via
+        ``Qt.ItemDataRole.UserRole`` so that removal targets the exact instance
+        regardless of duplicate names.
+        """
         self._buff_list.clear()
+        if self._model is None:
+            return
+        for entry in self._model.character.buffs:
+            buff_id: str = entry.get("id", "")
+            name: str = entry.get("name", "")
+            item = QListWidgetItem(name)
+            item.setData(Qt.ItemDataRole.UserRole, buff_id)
+            self._buff_list.addItem(item)

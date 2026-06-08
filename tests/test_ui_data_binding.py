@@ -502,3 +502,34 @@ class TestCrossTabSignalPropagation:
         assert model.character.classes == [("Fighter", 5)]
         # Fighter 5 (fast BAB) -> +5, surfaced on the Attacks tab via the model.
         assert attacks._bab_lbl.text() == "+5"
+
+    def test_buffs_tab_syncs_from_model_on_character_loaded(
+        self, empty_model: object
+    ) -> None:
+        import uuid
+
+        from PyQt6.QtCore import Qt
+
+        from heroforge.ui.tabs.buffs import BuffsTab
+
+        tab = BuffsTab(model=empty_model)
+
+        # Pre-populate the character with two buffs (as if loaded from disk).
+        id1 = str(uuid.uuid4())
+        id2 = str(uuid.uuid4())
+        empty_model.character.buffs = [
+            {"id": id1, "name": "Bless"},
+            {"id": id2, "name": "Haste"},
+        ]
+        empty_model.character_loaded.emit(0)
+
+        # The tab must reflect both buffs with correct names and stored IDs.
+        assert tab._buff_list.count() == 2
+        assert tab._buff_list.item(0).text() == "Bless"
+        assert tab._buff_list.item(0).data(Qt.ItemDataRole.UserRole) == id1
+        assert tab._buff_list.item(1).text() == "Haste"
+        assert tab._buff_list.item(1).data(Qt.ItemDataRole.UserRole) == id2
+
+        # A subsequent character_reset must clear the list.
+        empty_model.new_character()
+        assert tab._buff_list.count() == 0
