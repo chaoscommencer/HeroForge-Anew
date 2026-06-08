@@ -90,7 +90,7 @@ src/
 
 ### 5. Pre-Completion Quality Checks
 
-Before finishing any set of changes, always run the following checks and resolve all reported issues:
+`ruff` and `black` are pre-installed in Copilot's development environment via `.github/workflows/copilot-setup-steps.yml` (which runs `pip install -e ".[dev]"`). Before finishing any set of changes, always run the following checks and resolve all reported issues:
 
 1. **Format with Black** – run `black src/ tests/` to auto-format all source and test files.
 2. **Lint with Ruff** – run `ruff check src/` and fix every reported violation before committing. The CI gate runs `ruff check src/`, so the check must pass with exit code 0.
