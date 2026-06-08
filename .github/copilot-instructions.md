@@ -88,7 +88,19 @@ src/
 - Use `pathlib.Path` instead of `os.path` for all file-system operations.
 - Prefer `dataclasses` or `pydantic` models over raw dictionaries for structured data passed between layers.
 
-### 5. Commit and Branch Conventions
+### 5. Pre-Completion Quality Checks
+
+`ruff`, `black`, and `pytest` are pre-installed in Copilot's development environment via `.github/workflows/copilot-setup-steps.yml` (which runs `pip install -e ".[dev]"`). Each tool has a skill definition under `.github/skills/<tool>/SKILL.md` that provides full usage instructions.
+
+**Only when Python files have been added or modified**, run the following checks in order before finishing the task:
+
+1. **Invoke the `pytest` skill** – follow its instructions to run the full test suite. All tests must pass (exit 0) before proceeding.
+2. **Invoke the `black` skill** – follow its instructions to run `black src/ tests/` (format) and then `black --check src/ tests/` (verify). The check must exit 0.
+3. **Invoke the `ruff` skill** – follow its instructions to run `ruff check src/`. Fix every reported violation so the check exits 0.
+
+These steps mirror the *Run tests with pytest*, *Lint with Ruff*, and *Check formatting with Black* steps in `.github/workflows/ci.yml`. Generated code must pass all three checks before the task is considered complete.
+
+### 6. Commit and Branch Conventions
 
 - Branch names: `feature/<short-description>`, `bugfix/<short-description>`, `data/<sheet-name>`.
 - Commit messages follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:  
@@ -123,6 +135,8 @@ Copilot should use these terms consistently in variable names, comments, and doc
 - Add or update tests whenever logic is added or modified.
 - Use SQLite transactions for all multi-statement writes.
 - Ask for clarification (via inline `TODO` or PR comment) when a VBA formula is ambiguous.
+- When Python files have been added or modified, invoke the `pytest`, `black`, and `ruff` skills (in that order) before finishing the task, follow their instructions, and fix all issues so every check exits 0 (matching the CI workflow checks).
+- If a request conflicts with, or would break from, the rules, architecture, or conventions established in this file, propose appropriate revisions to this instructions file as part of the response rather than silently deviating from it.
 
 **Don't:**
 - Hard-code game data in Python source files.
