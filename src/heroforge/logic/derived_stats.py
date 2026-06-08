@@ -104,9 +104,8 @@ def compute_derived_stats(
     """
     progressions = progressions or {}
     scores = character.ability_scores
-    mods: Mapping[str, int] = MappingProxyType(
-        {a: ability_modifier(int(scores.get(a, 10))) for a in _ABILITIES}
-    )
+    mods_dict = {a: ability_modifier(int(scores.get(a, 10))) for a in _ABILITIES}
+    mods: Mapping[str, int] = MappingProxyType(mods_dict)
     str_mod, dex_mod = mods["STR"], mods["DEX"]
     con_mod, wis_mod = mods["CON"], mods["WIS"]
 
