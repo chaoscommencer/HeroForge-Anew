@@ -150,8 +150,9 @@ class FeatsTab(QWidget):
         if self._model is None:
             return
         self._model.character.feats = [
-            self._taken_list.item(i).text()
+            item.text()
             for i in range(self._taken_list.count())
+            if (item := self._taken_list.item(i)) is not None
         ]
         self._apply_prereq_status()
 
