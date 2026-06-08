@@ -88,7 +88,17 @@ src/
 - Use `pathlib.Path` instead of `os.path` for all file-system operations.
 - Prefer `dataclasses` or `pydantic` models over raw dictionaries for structured data passed between layers.
 
-### 5. Commit and Branch Conventions
+### 5. Pre-Completion Quality Checks
+
+Before finishing any set of changes, always run the following checks and resolve all reported issues:
+
+1. **Format with Black** – run `black src/ tests/` to auto-format all source and test files.
+2. **Lint with Ruff** – run `ruff check src/` and fix every reported violation before committing. The CI gate runs `ruff check src/`, so the check must pass with exit code 0.
+3. **Verify formatting** – run `black --check src/ tests/` to confirm no files were left unformatted. This is the exact command used by the CI workflow.
+
+These three steps mirror the *Lint with Ruff* and *Check formatting with Black* steps in `.github/workflows/ci.yml`. Generated code must pass both checks before the task is considered complete.
+
+### 6. Commit and Branch Conventions
 
 - Branch names: `feature/<short-description>`, `bugfix/<short-description>`, `data/<sheet-name>`.
 - Commit messages follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:  
@@ -123,6 +133,7 @@ Copilot should use these terms consistently in variable names, comments, and doc
 - Add or update tests whenever logic is added or modified.
 - Use SQLite transactions for all multi-statement writes.
 - Ask for clarification (via inline `TODO` or PR comment) when a VBA formula is ambiguous.
+- Run `black src/ tests/` and `ruff check src/` before finishing any task, and fix all issues so that `black --check src/ tests/` exits 0 (matching the CI workflow checks).
 
 **Don't:**
 - Hard-code game data in Python source files.
