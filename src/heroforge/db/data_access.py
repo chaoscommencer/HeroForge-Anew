@@ -28,6 +28,7 @@ from pathlib import Path
 
 from heroforge.db.schema import get_connection
 from heroforge.logic.derived_stats import ClassProgression
+from heroforge.logic.familiar import FamiliarBonus, describe_bonus
 
 logger = logging.getLogger(__name__)
 
@@ -650,18 +651,40 @@ class GameDataRepository:
             for r in rows
         ]
 
-    def get_familiar_bonuses(self) -> dict[str, str]:
-        """Return a mapping of familiar name (lower-case) → master bonus text.
+    def get_familiar_bonus_records(self) -> list[FamiliarBonus]:
+        """Return the structured standard-familiar bonus rows.
 
-        Data is read from the ``familiar_bonuses`` table, seeded from
-        ``FamiliarBonuses.csv``.  Returns an empty dict when the database is
-        unavailable or the table has not been seeded yet.
+        Data is read from the ``familiar_bonuses`` table (seeded from
+        :data:`heroforge.logic.familiar.STANDARD_FAMILIAR_BONUSES`).  Returns an
+        empty list when the database is unavailable or the table has not been
+        seeded yet.
         """
         rows = self._query(
-            "SELECT creature_name, master_bonus FROM familiar_bonuses"
+            "SELECT creature_name, value, bonus_kind, target, condition "
+            "FROM familiar_bonuses"
         )
-        return {
-            r["creature_name"].lower(): r["master_bonus"]
+        return [
+            FamiliarBonus(
+                creature_name=r["creature_name"],
+                value=int(r["value"] or 0),
+                kind=r["bonus_kind"] or "",
+                target=r["target"] or "",
+                condition=r["condition"] or "",
+            )
             for r in rows
             if r["creature_name"]
+        ]
+
+    def get_familiar_bonuses(self) -> dict[str, str]:
+        """Return a mapping of familiar name (lower-case) → master-bonus text.
+
+        The descriptive text is *generated* from the structured rows via
+        :func:`heroforge.logic.familiar.describe_bonus`, so it always reflects
+        the stored numbers and can never drift out of sync with the mechanical
+        bonus.  Returns an empty dict when the database is unavailable or the
+        table has not been seeded yet.
+        """
+        return {
+            bonus.creature_name.lower(): describe_bonus(bonus)
+            for bonus in self.get_familiar_bonus_records()
         }

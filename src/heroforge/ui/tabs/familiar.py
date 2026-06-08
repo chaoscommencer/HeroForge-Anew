@@ -26,6 +26,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from heroforge.logic.familiar import (
+    STANDARD_FAMILIAR_BONUSES,
+    describe_bonus,
+)
 from heroforge.ui.tabs._tab_helper import pick_from_catalog
 
 if TYPE_CHECKING:
@@ -33,20 +37,13 @@ if TYPE_CHECKING:
 
 _COMPANION_TYPE = "familiar"
 
-# Standard familiar bonuses granted to the master (PHB p52–53).
-# Used as a fallback when the game database has not been seeded with
-# ``familiar_bonuses`` rows (see ``GameDataRepository.get_familiar_bonuses``).
+# Standard familiar bonuses granted to the master (PHB p52–53), generated from
+# the single structured source so the fallback text matches the seeded data.
+# Used when the game database has not been seeded with ``familiar_bonuses`` rows
+# (see ``GameDataRepository.get_familiar_bonuses``).
 _FAMILIAR_BONUSES: dict[str, str] = {
-    "bat": "Master gains +3 bonus on Listen checks.",
-    "cat": "Master gains +3 bonus on Move Silently checks.",
-    "hawk": "Master gains +3 bonus on Spot checks in daylight.",
-    "lizard": "Master gains +3 bonus on Climb checks.",
-    "owl": "Master gains +3 bonus on Spot checks in shadows/darkness.",
-    "rat": "Master gains +2 bonus on Fortitude saves.",
-    "raven": "Master gains +3 bonus on Appraise checks.",
-    "snake": "Master gains +3 bonus on Bluff checks.",
-    "toad": "Master gains +3 hit points.",
-    "weasel": "Master gains +2 bonus on Reflex saves.",
+    bonus.creature_name.lower(): describe_bonus(bonus)
+    for bonus in STANDARD_FAMILIAR_BONUSES
 }
 
 
@@ -127,9 +124,7 @@ class FamiliarTab(QWidget):
             else {}
         ) or _FAMILIAR_BONUSES
         self._bonus_lbl.setText(
-            bonuses.get(
-                kind, "(Select a standard familiar kind – see PHB p52.)"
-            )
+            bonuses.get(kind, "(Select a standard familiar kind – see PHB p52.)")
         )
 
     def _entry(self) -> dict | None:  # type: ignore[type-arg]
@@ -161,6 +156,9 @@ class FamiliarTab(QWidget):
         self._model.character.companions = (
             others + [entry] if entry is not None else others
         )
+        # A familiar's master benefit can feed derived saves (e.g. Rat/Weasel),
+        # so announce the change to refresh dependent tabs.
+        self._model.derived_stats_changed.emit()
 
     def _on_changed(self, *_args: object) -> None:
         if not self._loading:

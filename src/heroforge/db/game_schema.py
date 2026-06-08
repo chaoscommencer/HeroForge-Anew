@@ -410,7 +410,10 @@ CREATE TABLE IF NOT EXISTS tables (
 CREATE TABLE IF NOT EXISTS familiar_bonuses (
     id              INTEGER PRIMARY KEY,
     creature_name   TEXT UNIQUE NOT NULL,
-    master_bonus    TEXT NOT NULL
+    value           INTEGER NOT NULL,
+    bonus_kind      TEXT NOT NULL,
+    target          TEXT NOT NULL DEFAULT '',
+    condition       TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS languages (
