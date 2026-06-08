@@ -66,6 +66,8 @@ class StatsAndCharacterDetailsTab(QWidget):
         if model:
             model.character_reset.connect(self._reset)
             model.ability_score_changed.connect(self._on_ability_score_changed)
+            model.derived_stats_changed.connect(self._refresh_derived)
+            self._refresh_derived()
 
     # ------------------------------------------------------------------
 
@@ -83,6 +85,7 @@ class StatsAndCharacterDetailsTab(QWidget):
         inner_layout.addWidget(self._build_identity_group())
         inner_layout.addWidget(self._build_ability_group())
         inner_layout.addWidget(self._build_combat_group())
+        inner_layout.addWidget(self._build_derived_group())
         inner_layout.addStretch()
 
         scroll.setWidget(inner)
@@ -186,6 +189,58 @@ class StatsAndCharacterDetailsTab(QWidget):
 
         self._xp_spin.valueChanged.connect(self._update_next_level)
         return box
+
+    def _build_derived_group(self) -> QGroupBox:
+        box = QGroupBox("Derived Combat & Saves")
+        form = QFormLayout(box)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        self._derived_labels: dict[str, QLabel] = {}
+        rows = [
+            ("bab", "Base Attack Bonus:"),
+            ("melee", "Melee Attack:"),
+            ("ranged", "Ranged Attack:"),
+            ("grapple", "Grapple:"),
+            ("ac", "Armor Class:"),
+            ("touch", "Touch AC:"),
+            ("flat", "Flat-Footed AC:"),
+            ("fort", "Fortitude:"),
+            ("ref", "Reflex:"),
+            ("will", "Will:"),
+            ("carry", "Carrying Capacity (L/M/H):"),
+        ]
+        for key, label in rows:
+            value_label = QLabel("—")
+            self._derived_labels[key] = value_label
+            form.addRow(label, value_label)
+        return box
+
+    # ------------------------------------------------------------------
+    # Derived-stat rendering
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _signed(value: int) -> str:
+        return f"+{value}" if value >= 0 else str(value)
+
+    def _refresh_derived(self) -> None:
+        """Recompute and display the derived combat/save readouts."""
+        if not self._model:
+            return
+        stats = self._model.derived_stats()
+        self._init_label.setText(self._signed(stats.initiative))
+        self._derived_labels["bab"].setText(self._signed(stats.base_attack_bonus))
+        self._derived_labels["melee"].setText(self._signed(stats.melee_attack))
+        self._derived_labels["ranged"].setText(self._signed(stats.ranged_attack))
+        self._derived_labels["grapple"].setText(self._signed(stats.grapple))
+        self._derived_labels["ac"].setText(str(stats.armor_class))
+        self._derived_labels["touch"].setText(str(stats.touch_ac))
+        self._derived_labels["flat"].setText(str(stats.flat_footed_ac))
+        self._derived_labels["fort"].setText(self._signed(stats.fortitude))
+        self._derived_labels["ref"].setText(self._signed(stats.reflex))
+        self._derived_labels["will"].setText(self._signed(stats.will))
+        light, medium, heavy = stats.carrying_capacity
+        self._derived_labels["carry"].setText(f"{light} / {medium} / {heavy} lb.")
 
     # ------------------------------------------------------------------
     # Signal handlers

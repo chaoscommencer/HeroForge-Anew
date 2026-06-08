@@ -30,6 +30,9 @@ class AttacksTab(QWidget):
         super().__init__(parent)
         self._model = model
         self._build_ui()
+        if model:
+            model.derived_stats_changed.connect(self._refresh_combat_stats)
+            self._refresh_combat_stats()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -80,3 +83,22 @@ class AttacksTab(QWidget):
         row = self._weapons_table.rowCount()
         self._weapons_table.insertRow(row)
         self._weapons_table.setItem(row, 0, QTableWidgetItem("New Weapon"))
+
+    def _refresh_combat_stats(self) -> None:
+        """Display BAB/melee/ranged/grapple computed from the active character.
+
+        Values come from :mod:`heroforge.logic.combat` (via the model's derived
+        stats) rather than being hardcoded, so they track ability-score and
+        class changes in real time.
+        """
+        if not self._model:
+            return
+        stats = self._model.derived_stats()
+
+        def signed(value: int) -> str:
+            return f"+{value}" if value >= 0 else str(value)
+
+        self._bab_lbl.setText(signed(stats.base_attack_bonus))
+        self._melee_lbl.setText(signed(stats.melee_attack))
+        self._ranged_lbl.setText(signed(stats.ranged_attack))
+        self._grapple_lbl.setText(signed(stats.grapple))

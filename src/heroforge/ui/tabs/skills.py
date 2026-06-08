@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from heroforge.logic.ability_scores import ability_modifier
 from heroforge.logic.skills import skill_modifier
 
 if TYPE_CHECKING:
@@ -83,6 +84,8 @@ class SkillsTab(QWidget):
         self._build_ui()
         if model:
             model.character_reset.connect(self._reset)
+            model.ability_score_changed.connect(self._on_ability_score_changed)
+            self._update_ability_mods()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -143,6 +146,26 @@ class SkillsTab(QWidget):
         box_layout.addWidget(self._table)
         layout.addWidget(box)
 
+    def _on_ability_score_changed(self, ability: str, value: int) -> None:
+        """Update each skill's ability modifier when a score changes (§8.6)."""
+        mod = ability_modifier(value)
+        for row, (_sname, skill_ability, _trained, _acp) in enumerate(_SKILLS):
+            if skill_ability == ability:
+                item = self._table.item(row, 4)
+                if item:
+                    item.setText(str(mod))
+        self._recalculate()
+
+    def _update_ability_mods(self) -> None:
+        """Seed each skill's ability-modifier column from the active character."""
+        scores = self._model.character.ability_scores if self._model else {}
+        for row, (_sname, skill_ability, _trained, _acp) in enumerate(_SKILLS):
+            mod = ability_modifier(int(scores.get(skill_ability, 10)))
+            item = self._table.item(row, 4)
+            if item:
+                item.setText(str(mod))
+        self._recalculate()
+
     def _recalculate(self) -> None:
         for row in range(self._table.rowCount()):
             class_item = self._table.item(row, 2)
@@ -164,4 +187,4 @@ class SkillsTab(QWidget):
     def _reset(self) -> None:
         for spin in self._rank_spinboxes:
             spin.setValue(0.0)
-        self._recalculate()
+        self._update_ability_mods()

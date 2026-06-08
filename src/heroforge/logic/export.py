@@ -2,7 +2,65 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from heroforge.logic.ability_scores import ability_modifier
+
+if TYPE_CHECKING:
+    from heroforge.logic.derived_stats import DerivedStats
+    from heroforge.models.character import Character
+
+
+def character_sheet_data(
+    character: Character,
+    derived: DerivedStats | None = None,
+) -> dict:  # type: ignore[type-arg]
+    """Build the :func:`export_character_sheet_text` payload for *character*.
+
+    This bridges the :class:`~heroforge.models.character.Character` model and
+    the optional :class:`~heroforge.logic.derived_stats.DerivedStats` snapshot
+    into the flat ``dict`` the text exporter expects, so combat fields render
+    real computed values instead of placeholders.
+    """
+    data: dict = {  # type: ignore[type-arg]
+        "name": character.name,
+        "player": character.player,
+        "campaign": character.campaign,
+        "alignment": character.alignment,
+        "race": character.race,
+        "classes": list(character.classes),
+        "total_level": character.total_level,
+        "experience": character.experience,
+        "deity": character.deity,
+        "homeland": character.homeland,
+        "gender": character.gender,
+        "age": character.age,
+        "height": character.height,
+        "weight": character.weight,
+        "eyes": character.eyes,
+        "hair": character.hair,
+        "skin": character.skin,
+        "ability_scores": dict(character.ability_scores),
+        "feats": list(character.feats),
+        "skills": dict(character.skills),
+        "equipment": list(character.equipment),
+        "languages": list(character.languages),
+        "notes": character.notes,
+    }
+    if derived is not None:
+        data.update(
+            {
+                "initiative": derived.initiative,
+                "bab": derived.base_attack_bonus,
+                "fort": derived.fortitude,
+                "ref": derived.reflex,
+                "will": derived.will,
+                "ac": derived.armor_class,
+                "touch_ac": derived.touch_ac,
+                "flat_footed_ac": derived.flat_footed_ac,
+            }
+        )
+    return data
 
 
 def export_character_sheet_text(character_data: dict) -> str:  # type: ignore[type-arg]

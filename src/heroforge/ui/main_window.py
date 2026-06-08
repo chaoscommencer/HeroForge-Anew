@@ -22,6 +22,7 @@ from heroforge.db.character_repo import (
     save_character_to_file,
 )
 from heroforge.db.data_access import GameDataRepository
+from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
 from heroforge.logic.legacy_import import import_hfg
 from heroforge.models.character import Character
 from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
@@ -74,6 +75,14 @@ class CharacterModel(QObject):
     class_levels_changed = pyqtSignal()
     """Emitted when class/level selections change."""
 
+    derived_stats_changed = pyqtSignal()
+    """Emitted whenever a derived combat/save value may have changed.
+
+    Tabs that display computed values (BAB, AC, saves, initiative, attacks …)
+    connect to this and re-read :meth:`derived_stats` to refresh in real time
+    (``docs/conversion-plan.md`` §8.6).
+    """
+
     feat_added = pyqtSignal(str)
     """Emitted when a feat is added. Args: (feat_name,)."""
 
@@ -102,6 +111,32 @@ class CharacterModel(QObject):
         # per-character state below; this model never mutates or persists it.
         self._game_data: GameDataRepository = game_data or GameDataRepository(None)
         self._character = Character()
+
+        # Keep the active character's ability scores in sync with the UI and
+        # re-broadcast a derived-stats refresh so every dependent tab updates in
+        # real time. Connected here (before any tab) so the model's own state is
+        # current by the time tab handlers for derived_stats_changed run.
+        self.ability_score_changed.connect(self._on_ability_score_changed)
+        self.class_levels_changed.connect(self.derived_stats_changed)
+        self.character_reset.connect(self.derived_stats_changed)
+        self.character_loaded.connect(lambda _id: self.derived_stats_changed.emit())
+
+    def _on_ability_score_changed(self, ability: str, value: int) -> None:
+        """Persist an ability-score change and announce derived-stat updates."""
+        self._character.ability_scores[ability] = value
+        self.derived_stats_changed.emit()
+
+    def derived_stats(self) -> DerivedStats:
+        """Compute the active character's derived combat/save values.
+
+        Combat and saving-throw math lives in the logic layer; this method
+        simply feeds the active character and the seeded class progressions
+        into :func:`heroforge.logic.derived_stats.compute_derived_stats`.
+        """
+        progressions = (
+            self._game_data.class_progressions() if self._game_data.available else {}
+        )
+        return compute_derived_stats(self._character, progressions)
 
     @property
     def character(self) -> Character:
