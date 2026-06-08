@@ -227,7 +227,7 @@ class TestLegacyMigration:
         assert reloaded.feats == imported.feats
         assert reloaded.skills == imported.skills
         assert reloaded.equipment == imported.equipment
-        assert [b["name"] for b in reloaded.buffs] == [b["name"] for b in imported.buffs]
+        assert reloaded.buffs == imported.buffs
         assert reloaded.languages == imported.languages
         assert reloaded.ability_scores == imported.ability_scores
         assert reloaded.notes == imported.notes
