@@ -279,6 +279,35 @@ class TestCharacterSheetTabRealData:
         assert "AC: 13" in text
         assert "Ref: 3" in text
 
+    def test_loaded_signal_refreshes_from_loaded_character(
+        self, empty_model: object
+    ) -> None:
+        from heroforge.models.character import Character
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+
+        tab = CharacterSheetTab(model=empty_model)
+        assert "Gandalf" not in tab._text_edit.toPlainText()
+
+        # Simulate a load: swap the active character and announce it.
+        empty_model.character = Character(name="Gandalf", race="Maia")
+        empty_model.character_loaded.emit(0)
+
+        text = tab._text_edit.toPlainText()
+        assert "Gandalf" in text
+        assert "Maia" in text
+
+    def test_reset_signal_clears_previous_character(self, empty_model: object) -> None:
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+
+        tab = CharacterSheetTab(model=empty_model)
+        empty_model.character.name = "Boromir"
+        empty_model.character_loaded.emit(0)
+        assert "Boromir" in tab._text_edit.toPlainText()
+
+        empty_model.new_character()
+
+        assert "Boromir" not in tab._text_edit.toPlainText()
+
 
 class TestFeatsTabPrerequisites:
     def test_unmet_prereq_disables_feat(self, model: object) -> None:
