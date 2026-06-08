@@ -372,13 +372,30 @@ class TestCrossTabSignalPropagation:
         tab = SkillsTab(model=empty_model)
         climb_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Climb")
         spy = QSignalSpy(empty_model.skill_ranks_changed)
+        skill_spy = QSignalSpy(empty_model.skill_stats_changed)
 
         tab._rank_spinboxes[climb_row].setValue(4.0)
 
         assert len(spy) == 1
         assert list(spy[0]) == ["Climb", 4.0]
+        # skill_stats_changed carries the list of affected skill names.
+        assert len(skill_spy) == 1
+        assert skill_spy[0][0] == ["Climb"]
         # The model records the rank authoritatively for dependent tabs.
         assert empty_model.character.skills["Climb"] == 4.0
+
+        # Setting the same value again must not emit a second time.
+        tab._rank_spinboxes[climb_row].setValue(4.0)
+        assert len(skill_spy) == 1
+
+        # Setting to 0 treats the skill as "unset" and removes the key.
+        tab._rank_spinboxes[climb_row].setValue(0.0)
+        assert len(skill_spy) == 2
+        assert "Climb" not in empty_model.character.skills
+
+        # Setting to 0 when already absent must not emit again.
+        tab._rank_spinboxes[climb_row].setValue(0.0)
+        assert len(skill_spy) == 2
 
     def test_feat_added_emitted_and_enables_dependent_feat(self, model: object) -> None:
         from PyQt6.QtCore import Qt

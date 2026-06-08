@@ -89,6 +89,17 @@ class CharacterModel(QObject):
     skill_ranks_changed = pyqtSignal(str, float)
     """Emitted when skill ranks change. Args: (skill_name, new_ranks)."""
 
+    skill_stats_changed = pyqtSignal(list)
+    """Emitted after skill ranks are persisted, carrying the affected skill names.
+
+    Args: (changed_skills,) – ``list[str]`` of the skill names whose stored
+    ranks actually changed.  Listeners that only watch specific skills can
+    connect here and inspect the list before doing any work, avoiding
+    unnecessary recalculations.  This signal is also bridged to
+    :attr:`derived_stats_changed` so tabs connected to the broader signal
+    still refresh automatically.
+    """
+
     buff_toggled = pyqtSignal(str, bool)
     """Emitted when a buff is enabled/disabled. Args: (buff_name, active)."""
 
@@ -126,6 +137,11 @@ class CharacterModel(QObject):
         self.class_levels_changed.connect(self.derived_stats_changed)
         self.character_reset.connect(self.derived_stats_changed)
         self.character_loaded.connect(lambda _id: self.derived_stats_changed.emit())
+        # Bridge: skill_stats_changed → derived_stats_changed so tabs that only
+        # connect to the broader signal still refresh when skill ranks change.
+        self.skill_stats_changed.connect(
+            lambda _skills: self.derived_stats_changed.emit()
+        )
 
     def _on_ability_score_changed(self, ability: str, value: int) -> None:
         """Persist an ability-score change and announce derived-stat updates."""
@@ -133,14 +149,24 @@ class CharacterModel(QObject):
         self.derived_stats_changed.emit()
 
     def _on_skill_ranks_changed(self, skill: str, ranks: float) -> None:
-        """Persist a skill-rank change and announce derived-stat updates.
+        """Persist a skill-rank change and announce which skills were affected.
 
-        Skill ranks feed feat prerequisites and other derived displays, so the
-        active character is updated authoritatively here before dependent tabs
-        (e.g. Feats) recalculate.
+        Treats zero ranks as "unset": the key is removed from
+        ``character.skills`` rather than stored as ``0.0``, keeping saved
+        characters lean.  Only emits :attr:`skill_stats_changed` (which is
+        bridged to :attr:`derived_stats_changed`) when the stored value
+        actually changes, preventing redundant recalculations triggered by
+        tab initialisation or programmatic spinbox resets.
         """
-        self._character.skills[skill] = ranks
-        self.derived_stats_changed.emit()
+        if ranks == 0.0:
+            if skill not in self._character.skills:
+                return  # already absent – nothing to update
+            del self._character.skills[skill]
+        else:
+            if self._character.skills.get(skill) == ranks:
+                return  # unchanged – skip redundant emission
+            self._character.skills[skill] = ranks
+        self.skill_stats_changed.emit([skill])
 
     def _on_feat_added(self, feat: str) -> None:
         """Record a newly-selected feat and announce derived-stat updates.
