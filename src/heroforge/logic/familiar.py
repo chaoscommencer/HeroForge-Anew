@@ -24,6 +24,16 @@ indented lines beneath the ``× Familiar`` entry in the Character Sheet's
 here as :class:`FamiliarMasterAbility` records and seeded into the
 ``familiar_master_abilities`` table.
 
+Two of those universal benefits are mechanical and feed computed totals:
+
+* **Alertness** grants the master +2 on Spot and Listen checks while a familiar
+  is present (the workbook's ``2*OR(HasFamiliar, …)`` Skills-sheet term); see
+  :func:`skill_bonuses`.
+* **Natural Link** doubles the master's familiar bonuses while the familiar is
+  within arm's reach.  Because that proximity is situational it is an opt-in
+  flag (see :func:`familiar_natural_link`) honoured by :func:`skill_bonuses`
+  and :func:`save_bonuses`.
+
 This module captures that data once, as structured :class:`FamiliarBonus`
 records, and is the single source of truth used by
 
@@ -39,6 +49,7 @@ same numbers that drive the mechanics.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
@@ -55,6 +66,13 @@ _SAVE_KEYS: dict[str, str] = {
     "Reflex": "ref",
     "Will": "will",
 }
+
+# The Alertness benefit every familiar grants its master while the familiar is
+# nearby (PHB p52): a +2 bonus on Spot and Listen checks.  In the reference
+# workbook this is applied as ``2*OR(HasFamiliar, …)`` on the Skills sheet — i.e.
+# it is gated solely on *having* a familiar, independent of the creature's kind.
+ALERTNESS_BONUS = 2
+ALERTNESS_SKILLS: tuple[str, ...] = ("Listen", "Spot")
 
 
 @dataclass(frozen=True)
@@ -185,9 +203,50 @@ def selected_familiar_kind(
     return None
 
 
+def familiar_natural_link(
+    companions: Iterable[Mapping[str, object]],
+) -> bool:
+    """Return whether the character's familiar has Natural Link active.
+
+    The Natural Link benefit (PHB p52, as treated by the reference workbook)
+    doubles a familiar's mechanical bonuses while the familiar is within arm's
+    reach.  Because that proximity is situational it is stored as an opt-in flag
+    on the familiar's companion entry (the ``natural_link`` key inside the JSON
+    ``notes`` blob written by the Familiar tab).
+
+    Args:
+        companions: The character's ``companions`` collection.
+
+    Returns:
+        ``True`` when a familiar is present and its ``natural_link`` flag is set,
+        otherwise ``False``.
+    """
+    for entry in companions:
+        if entry.get("companion_type") != "familiar":
+            continue
+        raw = entry.get("notes")
+        if isinstance(raw, str) and raw:
+            try:
+                data = json.loads(raw)
+            except (TypeError, ValueError):
+                return False
+            return bool(data.get("natural_link", False))
+        return False
+    return False
+
+
+def _doubled(values: dict[str, int], active: bool) -> dict[str, int]:
+    """Return *values* with each entry doubled when *active* (Natural Link)."""
+    if not active:
+        return values
+    return {key: value * 2 for key, value in values.items()}
+
+
 def save_bonuses(
     creature_name: str | None,
     bonuses: Iterable[FamiliarBonus],
+    *,
+    natural_link: bool = False,
 ) -> dict[str, int]:
     """Return the non-situational saving-throw bonuses for *creature_name*.
 
@@ -200,6 +259,8 @@ def save_bonuses(
         creature_name: The selected familiar's creature name (case-insensitive),
             or ``None``.
         bonuses:       Structured familiar-bonus records to search.
+        natural_link:  When ``True`` the master's familiar bonuses double
+            (Natural Link, PHB p52).
 
     Returns:
         Mapping of save key → bonus value (empty when nothing applies).
@@ -219,4 +280,48 @@ def save_bonuses(
         key = _SAVE_KEYS.get(bonus.target)
         if key is not None:
             result[key] = result.get(key, 0) + bonus.value
-    return result
+    return _doubled(result, natural_link)
+
+
+def skill_bonuses(
+    creature_name: str | None,
+    bonuses: Iterable[FamiliarBonus],
+    *,
+    natural_link: bool = False,
+) -> dict[str, int]:
+    """Return the non-situational skill bonuses a familiar grants its master.
+
+    Two sources are combined, keyed by skill name:
+
+    * the creature-specific unconditional skill bonus (e.g. a Bat's +3 Listen),
+      and
+    * the universal Alertness benefit (+2 to Spot and Listen), which every
+      familiar grants regardless of kind.
+
+    Situational bonuses (e.g. the Hawk/Owl lighting-dependent Spot bonus) are
+    skipped so they never feed a computed total.  When *natural_link* is set the
+    combined bonuses double (Natural Link, PHB p52).
+
+    Args:
+        creature_name: The selected familiar's creature name (case-insensitive),
+            or ``None``.
+        bonuses:       Structured familiar-bonus records to search.
+        natural_link:  When ``True`` the master's familiar bonuses double.
+
+    Returns:
+        Mapping of skill name → bonus value (empty when no familiar is set).
+    """
+    if not creature_name:
+        return {}
+    name = creature_name.strip().lower()
+    result: dict[str, int] = {}
+    for bonus in bonuses:
+        if bonus.creature_name.lower() != name:
+            continue
+        if bonus.kind != KIND_SKILL or bonus.conditional or not bonus.target:
+            continue
+        result[bonus.target] = result.get(bonus.target, 0) + bonus.value
+    # Alertness: every familiar grants its master +2 Spot & Listen.
+    for skill in ALERTNESS_SKILLS:
+        result[skill] = result.get(skill, 0) + ALERTNESS_BONUS
+    return _doubled(result, natural_link)

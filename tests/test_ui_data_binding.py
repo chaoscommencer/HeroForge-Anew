@@ -261,6 +261,46 @@ class TestDerivedStatsRealtime:
 
         assert tab._table.item(climb_row, 4).text() == "4"
 
+    def test_familiar_skill_bonus_feeds_total(self, empty_model: object) -> None:
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        tab = SkillsTab(model=empty_model)
+        listen_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Listen")
+        spot_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Spot")
+
+        # A Bat familiar grants +3 Listen plus the universal Alertness +2
+        # Spot/Listen; with no ranks/ability the totals reflect just the familiar.
+        empty_model.character.companions = [
+            {"companion_type": "familiar", "name": "Echo", "creature": "Bat"}
+        ]
+        empty_model.derived_stats_changed.emit()
+
+        assert tab._table.item(listen_row, 6).text() == "5"
+        assert tab._table.item(spot_row, 6).text() == "2"
+
+    def test_familiar_natural_link_doubles_skill_total(
+        self, empty_model: object
+    ) -> None:
+        import json
+
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        tab = SkillsTab(model=empty_model)
+        listen_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Listen")
+
+        empty_model.character.companions = [
+            {
+                "companion_type": "familiar",
+                "name": "Echo",
+                "creature": "Bat",
+                "notes": json.dumps({"natural_link": True}),
+            }
+        ]
+        empty_model.derived_stats_changed.emit()
+
+        # (3 + 2) Listen doubled by Natural Link = 10.
+        assert tab._table.item(listen_row, 6).text() == "10"
+
 
 class TestCharacterSheetTabRealData:
     def test_sheet_shows_computed_combat_not_placeholders(

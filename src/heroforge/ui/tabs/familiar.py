@@ -14,6 +14,7 @@ import json
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -115,6 +116,11 @@ class FamiliarTab(QWidget):
         self._master_abilities_lbl = QLabel("")
         self._master_abilities_lbl.setWordWrap(True)
         bonuses_layout.addWidget(self._master_abilities_lbl)
+        self._natural_link_check = QCheckBox(
+            "Natural Link active (familiar within arm's reach – doubles bonuses)"
+        )
+        self._natural_link_check.toggled.connect(self._on_changed)
+        bonuses_layout.addWidget(self._natural_link_check)
         inner_layout.addWidget(bonuses_box)
         self._refresh_master_abilities()
 
@@ -161,6 +167,7 @@ class FamiliarTab(QWidget):
             "hp": self._hp_spin.value(),
             "int": self._int_spin.value(),
             "natural_armor": self._nat_armor_spin.value(),
+            "natural_link": self._natural_link_check.isChecked(),
         }
         if not name and not kind and notes["hp"] == 0 and notes["natural_armor"] == 0:
             return None
@@ -211,6 +218,7 @@ class FamiliarTab(QWidget):
         self._hp_spin.setValue(0)
         self._int_spin.setValue(1)
         self._nat_armor_spin.setValue(0)
+        self._natural_link_check.setChecked(False)
         if self._model is not None:
             for entry in self._model.character.companions:
                 if entry.get("companion_type") != _COMPANION_TYPE:
@@ -225,6 +233,9 @@ class FamiliarTab(QWidget):
                 self._hp_spin.setValue(int(data.get("hp", 0) or 0))
                 self._int_spin.setValue(int(data.get("int", 1) or 1))
                 self._nat_armor_spin.setValue(int(data.get("natural_armor", 0) or 0))
+                self._natural_link_check.setChecked(
+                    bool(data.get("natural_link", False))
+                )
                 break
         self._loading = False
         self._refresh_bonus()

@@ -18,8 +18,10 @@ from heroforge.logic.familiar import (
     STANDARD_FAMILIAR_BONUSES,
     STANDARD_FAMILIAR_MASTER_ABILITIES,
     describe_bonus,
+    familiar_natural_link,
     save_bonuses,
     selected_familiar_kind,
+    skill_bonuses,
 )
 from heroforge.models.character import Character
 
@@ -62,6 +64,79 @@ def test_save_bonuses_apply_only_unconditional_saves() -> None:
     assert save_bonuses("Hawk", bonuses) == {}  # conditional Spot
     assert save_bonuses(None, bonuses) == {}
     assert save_bonuses("Unknown", bonuses) == {}
+
+
+def test_save_bonuses_double_with_natural_link() -> None:
+    """Natural Link doubles a familiar's unconditional save bonus."""
+    bonuses = STANDARD_FAMILIAR_BONUSES
+    assert save_bonuses("Rat", bonuses, natural_link=True) == {"fort": 4}
+    assert save_bonuses("Weasel", bonuses, natural_link=True) == {"ref": 4}
+    # No familiar → nothing to double.
+    assert save_bonuses(None, bonuses, natural_link=True) == {}
+
+
+def test_skill_bonuses_include_creature_and_alertness() -> None:
+    """Creature skill bonus and the universal Alertness +2 Spot/Listen combine."""
+    bonuses = STANDARD_FAMILIAR_BONUSES
+    # Bat: +3 Listen creature bonus stacks with Alertness's +2 Listen, plus the
+    # universal +2 Spot from Alertness.
+    assert skill_bonuses("Bat", bonuses) == {"Listen": 5, "Spot": 2}
+    # Cat: +3 Move Silently plus the universal Alertness bonuses.
+    assert skill_bonuses("Cat", bonuses) == {
+        "Move Silently": 3,
+        "Listen": 2,
+        "Spot": 2,
+    }
+    # A familiar with no skill bonus (Rat) still grants Alertness.
+    assert skill_bonuses("Rat", bonuses) == {"Listen": 2, "Spot": 2}
+    # No familiar → no skill bonuses at all.
+    assert skill_bonuses(None, bonuses) == {}
+
+
+def test_skill_bonuses_skip_conditional_spot() -> None:
+    """The Hawk/Owl situational Spot bonus never feeds the computed total."""
+    bonuses = STANDARD_FAMILIAR_BONUSES
+    # Only Alertness's +2 Spot applies; the conditional +3 is excluded.
+    assert skill_bonuses("Hawk", bonuses) == {"Listen": 2, "Spot": 2}
+    assert skill_bonuses("Owl", bonuses) == {"Listen": 2, "Spot": 2}
+
+
+def test_skill_bonuses_double_with_natural_link() -> None:
+    """Natural Link doubles every combined skill bonus."""
+    bonuses = STANDARD_FAMILIAR_BONUSES
+    assert skill_bonuses("Bat", bonuses, natural_link=True) == {
+        "Listen": 10,
+        "Spot": 4,
+    }
+
+
+def test_familiar_natural_link_reads_companion_notes() -> None:
+    """The Natural Link flag is parsed from the familiar's JSON notes blob."""
+    import json
+
+    on = [
+        {
+            "companion_type": "familiar",
+            "creature": "Rat",
+            "notes": json.dumps({"natural_link": True}),
+        }
+    ]
+    off = [
+        {
+            "companion_type": "familiar",
+            "creature": "Rat",
+            "notes": json.dumps({"natural_link": False}),
+        }
+    ]
+    assert familiar_natural_link(on) is True
+    assert familiar_natural_link(off) is False
+    # Missing flag, malformed notes, or no familiar all default to False.
+    assert familiar_natural_link([{"companion_type": "familiar"}]) is False
+    assert (
+        familiar_natural_link([{"companion_type": "familiar", "notes": "not-json"}])
+        is False
+    )
+    assert familiar_natural_link([]) is False
 
 
 def test_selected_familiar_kind() -> None:
@@ -177,3 +252,32 @@ def test_model_derived_stats_apply_selected_familiar(
     ]
     after = model.derived_stats().fortitude
     assert after == before + 2
+
+
+def test_model_derived_stats_double_with_natural_link(
+    qapp: object, tmp_path: Path
+) -> None:
+    """A Rat familiar with Natural Link active doubles the Fortitude bonus."""
+    import json
+
+    from heroforge.ui.main_window import CharacterModel
+
+    db_path = tmp_path / "game.db"
+    conn = initialize_database(db_path)
+    try:
+        seed_familiar_bonuses(conn)
+    finally:
+        conn.close()
+
+    model = CharacterModel(game_data=GameDataRepository(str(db_path)))
+    before = model.derived_stats().fortitude
+    model.character.companions = [
+        {
+            "companion_type": "familiar",
+            "name": "Scratch",
+            "creature": "Rat",
+            "notes": json.dumps({"natural_link": True}),
+        }
+    ]
+    after = model.derived_stats().fortitude
+    assert after == before + 4

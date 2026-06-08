@@ -25,8 +25,8 @@ from heroforge.db.character_repo import (
 )
 from heroforge.db.data_access import GameDataRepository
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
+from heroforge.logic.familiar import familiar_natural_link, selected_familiar_kind
 from heroforge.logic.familiar import save_bonuses as familiar_save_bonuses
-from heroforge.logic.familiar import selected_familiar_kind
 from heroforge.logic.legacy_import import import_hfg
 from heroforge.models.character import Character
 from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
@@ -229,14 +229,19 @@ class CharacterModel(QObject):
         A standard familiar's non-situational saving-throw benefit (e.g. a
         Rat's +2 Fortitude or a Weasel's +2 Reflex) is applied mechanically
         here, sourced from the same structured ``familiar_bonuses`` data that
-        produces the Familiar tab's helper text.
+        produces the Familiar tab's helper text.  When the familiar's Natural
+        Link flag is set those bonuses double (PHB p52).
         """
         progressions = (
             self._game_data.class_progressions() if self._game_data.available else {}
         )
         kind = selected_familiar_kind(self._character.companions)
         familiar_saves = (
-            familiar_save_bonuses(kind, self._game_data.get_familiar_bonus_records())
+            familiar_save_bonuses(
+                kind,
+                self._game_data.get_familiar_bonus_records(),
+                natural_link=familiar_natural_link(self._character.companions),
+            )
             if kind and self._game_data.available
             else {}
         )
