@@ -39,7 +39,7 @@ This document describes the strategy and step-by-step plan for converting the He
 
 | Layer | Choice | Rationale |
 |---|---|---|
-| Language | Python 3.11+ | Modern language features; rich ecosystem |
+| Language | Python 3.12+ | Modern language features; rich ecosystem |
 | GUI framework | PyQt6 | Mature, cross-platform; direct Qt API access |
 | Database | SQLite via `sqlite3` stdlib | Zero-dependency, file-based, sufficient for this use case |
 | ORM (optional) | SQLAlchemy Core | Cleaner SQL generation; can be added incrementally |
@@ -232,7 +232,21 @@ The following tables map directly from workbook sheets or existing data files. C
 
 #### Character Save Data
 
-These tables store per-character data (written on save, read on load):
+These tables store per-character data (written on save, read on load).  They
+are **not** part of the source-of-truth `heroforge.db`; that database is
+treated as read-only ROM that only changes when the Excel workbook is
+re-imported.  Each character is instead persisted to its own standalone
+`.hfc` save file (a SQLite database carrying only these `character_*` tables),
+keeping the user's volatile, runtime data cleanly separated from the
+application's source data.
+
+To enforce this separation of concerns at the source level, the two schemas
+live in dedicated modules: `db/game_schema.py` defines `GAME_SCHEMA_SQL` (the
+ROM game data) and `db/character_schema.py` defines `CHARACTER_SCHEMA_SQL` (the
+RAM save tables).  `db/schema.py` only provides the shared connection and
+initialisation plumbing (`initialize_database` /
+`initialize_character_database`).  Every per-character selectable feature and
+choice exposed by the Excel workbook has an equivalent save table:
 
 | SQLite Table | Contents |
 |---|---|
@@ -243,13 +257,32 @@ These tables store per-character data (written on save, read on load):
 | `character_skills` | Ranks assigned per skill |
 | `character_spells_prepared` | Spells prepared (for prepared casters) |
 | `character_spells_known` | Spells known (for spontaneous casters) |
+| `character_psionic_powers` | Psionic powers known (for manifesters) |
 | `character_soulmelds` | Soulmelds selected, chakra binds |
+| `character_maneuvers` | Maneuvers and stances known |
+| `character_vestiges` | Binder vestiges bound, with effective level |
+| `character_domains` | Cleric (etc.) domains chosen, in slot order |
+| `character_marshal_auras` | Marshal minor/major auras selected |
+| `character_variants` | Class/racial variants selected |
+| `character_skill_tricks` | Skill tricks selected |
 | `character_equipment` | Inventory and equipped items |
 | `character_buffs` | Active buffs and their parameters |
 | `character_languages` | Languages known |
 | `character_traits` | Traits and flaws selected |
-| `character_maneuvers` | Maneuvers and stances known |
-| `character_notes` | Free-text notes (replaces Game Log) |
+| `character_grafts` | Grafts attached, with body slot |
+| `character_companions` | Animal companions / familiars |
+| `character_options` | Build / house-rule option toggles (Options sheet) |
+| `character_wealth` | Coins and valuables by kind (Stats sheet) |
+| `character_attacks` | Configured weapon attacks (Attacks sheet) |
+| `character_enhancements` | Manual stat bonus/penalty adjustments (Enhancements sheet) |
+| `character_custom_content` | Homebrew race/template/class/familiar definitions (Custom * sheets) |
+| `character_lg_records` | Living Greyhawk campaign records (LG Game Log / Item Access / MIL) |
+| `character_notes` | Free-text game-log entries (replaces Game Log) |
+
+The game (ROM) schema likewise carries a reference table for every catalogue
+of selectable data in the workbook, including a `buffs` table seeded from the
+two-column **Buffs** sheet (buff spells grouped by spell level plus class
+buffs), which `character_buffs` references by name.
 
 ### 6.3 Seed Script (`src/heroforge/db/seed.py`)
 
@@ -489,16 +522,58 @@ CharacterModel (QObject)
     ability_score_changed(ability: str, value: int)
     class_levels_changed()
     feat_added(feat_name: str)
-    skill_ranks_changed(skill_name: str, ranks: int)
+    skill_ranks_changed(skill_name: str, ranks: float)
     buff_toggled(buff_name: str, active: bool)
-    character_loaded(character: Character)
+    character_loaded(character_id: int)
     character_reset()
+    derived_stats_changed()
 
 Each tab widget connects to relevant signals and recalculates its
 displayed values when those signals fire.
 ```
 
-### 8.5 Style
+The `derived_stats_changed` signal is the single fan-out for real-time
+recomputation. `CharacterModel` keeps its `Character.ability_scores` in sync
+with `ability_score_changed`, then emits `derived_stats_changed` (it also
+re-emits on `class_levels_changed`, `character_reset`, and `character_loaded`).
+Tabs that show computed values call `CharacterModel.derived_stats()`, which
+delegates to `heroforge.logic.derived_stats.compute_derived_stats`. That helper
+is the **single source of truth** that composes the `combat`, `saving_throws`,
+and `ability_scores` logic modules into an immutable `DerivedStats` snapshot, so
+the UI never re-implements rules math.
+
+### 8.5 Derived-stat wiring & remaining integration points
+
+The derived-stat path described above is consumed by:
+
+| Tab | Logic module(s) used | Values surfaced |
+|---|---|---|
+| Stats & Details | `derived_stats` → `combat`, `saving_throws` | BAB, melee/ranged/grapple, AC/touch/flat-footed, initiative, Fort/Ref/Will, carrying capacity |
+| Attacks | `derived_stats` → `combat` | BAB, melee, ranged, grapple |
+| Skills | `ability_scores`, `skills` | per-skill ability modifier + total |
+| Feats | `feats.check_prerequisites` + `derived_stats` | enables/disables feats by live prerequisite checks |
+| Character Sheet | `export.character_sheet_data` + `derived_stats` | full computed combat/save block |
+
+The remaining logic modules plug into the **same** `derived_stats_changed` /
+`GameDataRepository` pattern; their integration points are:
+
+- **`equipment`** – Armor/Magic Equipment tabs feed armor/shield/deflection
+  bonuses and carried weight into `compute_derived_stats` (extend the signature
+  with an equipment summary) so AC and encumbrance become live.
+- **`prestige`** – Prestige Classes tab validates entry requirements via
+  `prestige` against the same `DerivedStats` + `GameDataRepository`
+  (`class_progressions`) used by Feats, and contributes BAB/save progressions.
+- **`buffs`** – Buffs tab maps `buff_toggled` onto the `misc` parameters already
+  exposed by `combat`/`saving_throws`, recomputing through `derived_stats`.
+- **`spells` / `psionics`** – Spells/Psionics tabs already read
+  `GameDataRepository`; bind/save DCs and points use the relevant ability
+  modifier from `DerivedStats.ability_modifiers`.
+- **`incarnum`** – Soulmelds tab drives essentia/chakra limits from
+  `total_level` exposed on `DerivedStats`.
+- **`wild_shape`** – when active, supplies an alternate `size` and physical
+  ability scores to `compute_derived_stats` (already size-aware).
+
+### 8.5.1 Style
 
 - Application-wide stylesheet in `src/heroforge/ui/styles/default.qss`.
 - Tab icons (optional) stored in `src/heroforge/ui/resources/`.
@@ -520,8 +595,8 @@ displayed values when those signals fire.
 
 - [ ] Build a set of reference characters using the Excel workbook and export their stats to a machine-readable format (JSON).
 - [ ] Write integration tests that create the same characters in the Python app and assert that all calculated values match.
-- [ ] Test the save/load cycle: create a character, save it, reload it, assert identity.
-- [ ] Test loading of legacy `.hfg` save files.
+- [x] Test the save/load cycle: create a character, save it, reload it, assert identity.
+- [x] Test loading of legacy `.hfg` save files.
 - [ ] Manual QA walkthrough against the Excel workbook checklist.
 - [ ] Performance profiling: DB queries, logic recalculation, and UI paint times.
 
