@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from heroforge.logic import combat, saving_throws
@@ -57,7 +58,7 @@ class DerivedStats:
     Reference: PHB Chapter 8 (combat) and PHB p141 (saves).
     """
 
-    ability_modifiers: dict[str, int]
+    ability_modifiers: Mapping[str, int]
     total_level: int
     base_attack_bonus: int
     melee_attack: int
@@ -103,7 +104,9 @@ def compute_derived_stats(
     """
     progressions = progressions or {}
     scores = character.ability_scores
-    mods = {a: ability_modifier(int(scores.get(a, 10))) for a in _ABILITIES}
+    mods: Mapping[str, int] = MappingProxyType(
+        {a: ability_modifier(int(scores.get(a, 10))) for a in _ABILITIES}
+    )
     str_mod, dex_mod = mods["STR"], mods["DEX"]
     con_mod, wis_mod = mods["CON"], mods["WIS"]
 
