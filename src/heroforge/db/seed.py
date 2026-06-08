@@ -581,7 +581,7 @@ def _extract_spell_progression(wb: object, sheet: str) -> list[tuple[object, ...
         def _warn(reason: str) -> None:
             if warn_on_loss:
                 logger.warning(
-                    "Dropping non-integral value while extracting %s: %r (%s)",
+                    "Dropping non-integral value while extracting sheet %s: %r (%s)",
                     sheet,
                     value,
                     reason,
@@ -594,7 +594,7 @@ def _extract_spell_progression(wb: object, sheet: str) -> list[tuple[object, ...
         if isinstance(value, float):
             if math.isfinite(value) and value.is_integer():
                 return int(value)
-            _warn("float is not a finite integer")
+            _warn("float is not an integral finite value")
             return None
         text = str(value).strip()
         if text == "":
@@ -602,11 +602,11 @@ def _extract_spell_progression(wb: object, sheet: str) -> list[tuple[object, ...
         try:
             numeric = float(text)
             if not math.isfinite(numeric) or not numeric.is_integer():
-                _warn("text is not a finite integer")
+                _warn("parsed value is not a finite integer")
                 return None
             return int(numeric)
         except (TypeError, ValueError):
-            _warn("failed to parse numeric text")
+            _warn("failed to parse as numeric value")
             return None
 
     # Locate class-name header cells: non-numeric, non-empty labels that are not

@@ -285,11 +285,11 @@ class TestHelpers:
 
         assert rows == [("Wizard", 1, 0, 4)]
         assert (
-            "Dropping non-integral value while extracting Spells per Day: 'x'"
+            "Dropping non-integral value while extracting sheet Spells per Day: 'x'"
             in caplog.text
         )
         assert (
-            "Dropping non-integral value while extracting Spells per Day: 1.5"
+            "Dropping non-integral value while extracting sheet Spells per Day: 1.5"
             in caplog.text
         )
         assert "non-integral count 'x'" in caplog.text
