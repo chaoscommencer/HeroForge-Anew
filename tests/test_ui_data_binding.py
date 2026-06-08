@@ -441,7 +441,7 @@ class TestCrossTabSignalPropagation:
         assert "Power Attack" not in model.character.feats
 
     def test_buff_toggled_emitted_on_add_and_remove(self, empty_model: object) -> None:
-        import uuid as _uuid
+        import uuid
 
         from PyQt6.QtTest import QSignalSpy
 
@@ -453,7 +453,7 @@ class TestCrossTabSignalPropagation:
         tab.add_buff("Bless")
         first_id: str = spy[-1][0]
         # ID must be a valid UUID string.
-        _uuid.UUID(first_id)
+        uuid.UUID(first_id)
         assert list(spy[-1])[1:] == ["Bless", True]
         assert any(b["name"] == "Bless" for b in empty_model.character.buffs)
 
@@ -461,7 +461,7 @@ class TestCrossTabSignalPropagation:
         # multiple sources (backward-compatible with the original Excel).
         tab.add_buff("Bless")
         second_id: str = spy[-1][0]
-        _uuid.UUID(second_id)
+        uuid.UUID(second_id)
         assert second_id != first_id
         assert list(spy[-1])[1:] == ["Bless", True]
         assert sum(1 for b in empty_model.character.buffs if b["name"] == "Bless") == 2

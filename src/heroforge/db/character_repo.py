@@ -586,6 +586,9 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
     character.buffs = [
         {"id": str(uuid.uuid4()), "name": br["buff_name"]}
         for br in conn.execute(
+            # ORDER BY the stored row id to preserve the original insertion
+            # order; the column is not selected because session-local UUIDs
+            # are assigned above instead of persisting the DB row ids.
             "SELECT buff_name FROM character_buffs "
             "WHERE character_id = ? ORDER BY id",
             (character_id,),
