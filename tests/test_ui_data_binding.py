@@ -279,7 +279,7 @@ class TestCharacterSheetTabRealData:
         assert "AC: 13" in text
         assert "Ref: 3" in text
 
-    def test_loaded_signal_refreshes_from_new_character(
+    def test_loaded_signal_refreshes_from_loaded_character(
         self, empty_model: object
     ) -> None:
         from heroforge.models.character import Character

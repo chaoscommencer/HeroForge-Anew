@@ -115,7 +115,10 @@ class TestExportCharacterSheetText:
         assert f"BAB: {derived.base_attack_bonus}" in text
         assert f"Initiative: {derived.initiative}" in text
         # The BAB/saves line renders real computed numbers, not "?" placeholders.
-        bab_line = next(ln for ln in text.splitlines() if ln.strip().startswith("BAB:"))
+        bab_line = next(
+            (ln for ln in text.splitlines() if ln.strip().startswith("BAB:")), None
+        )
+        assert bab_line is not None
         assert "?" not in bab_line
 
     def test_empty_character_renders_defaults_without_crashing(self) -> None:
