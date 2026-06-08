@@ -1275,6 +1275,49 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Static game-data helpers
+# ---------------------------------------------------------------------------
+
+# Standard familiar bonuses granted to the wizard's master (PHB p52–53).
+# Keyed by lower-case familiar kind so ``GameDataRepository.get_familiar_bonuses``
+# can do a case-insensitive lookup against the ``tables`` table.
+_FAMILIAR_BONUSES: dict[str, str] = {
+    "bat": "Master gains +3 bonus on Listen checks.",
+    "cat": "Master gains +3 bonus on Move Silently checks.",
+    "hawk": "Master gains +3 bonus on Spot checks in daylight.",
+    "lizard": "Master gains +3 bonus on Climb checks.",
+    "owl": "Master gains +3 bonus on Spot checks in shadows/darkness.",
+    "rat": "Master gains +2 bonus on Fortitude saves.",
+    "raven": "Master gains +3 bonus on Appraise checks.",
+    "snake": "Master gains +3 bonus on Bluff checks.",
+    "toad": "Master gains +3 hit points.",
+    "weasel": "Master gains +2 bonus on Reflex saves.",
+}
+
+
+def seed_familiar_bonuses(conn: sqlite3.Connection) -> None:
+    """Insert PHB p52–53 familiar-bonus rows into the *tables* table.
+
+    Each row uses ``table_name = 'familiar_bonuses'``, ``key`` = familiar kind
+    (lower-case), and ``value`` = bonus text.  Rows are upserted so repeated
+    calls are idempotent.
+    """
+    inserted = 0
+    for kind, bonus in _FAMILIAR_BONUSES.items():
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO tables (table_name, key, value) "
+                "VALUES (?, ?, ?)",
+                ("familiar_bonuses", kind, bonus),
+            )
+            inserted += 1
+        except sqlite3.Error as exc:
+            logger.debug("Skipping familiar bonus row %r: %s", kind, exc)
+    conn.commit()
+    logger.info("Familiar bonuses: inserted/replaced %d rows", inserted)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -1302,6 +1345,7 @@ def seed_all(
         seed_weapons(conn, data_dir)
         seed_creatures(conn, data_dir)
         seed_tables(conn, data_dir)
+        seed_familiar_bonuses(conn)
         seed_classes(conn, data_dir)
         seed_workbook(conn, workbook_path)
     finally:
