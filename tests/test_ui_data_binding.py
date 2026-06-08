@@ -410,6 +410,19 @@ class TestCrossTabSignalPropagation:
         )
         assert cleave.flags() & Qt.ItemFlag.ItemIsEnabled
 
+        # Removing a feat must trigger derived_stats_changed so other tabs refresh.
+        derived_spy = QSignalSpy(model.derived_stats_changed)
+        power_attack_taken = next(
+            i
+            for i in range(tab._taken_list.count())
+            if tab._taken_list.item(i).text() == "Power Attack"
+        )
+        tab._taken_list.setCurrentRow(power_attack_taken)
+        tab._remove_feat()
+
+        assert len(derived_spy) == 1
+        assert "Power Attack" not in model.character.feats
+
     def test_buff_toggled_emitted_on_add_and_remove(self, empty_model: object) -> None:
         from PyQt6.QtTest import QSignalSpy
 
