@@ -31,6 +31,8 @@ class PrestigeClassesTab(QWidget):
         super().__init__(parent)
         self._model = model
         self._build_ui()
+        if model:
+            model.character_reset.connect(self._reset)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -81,13 +83,38 @@ class PrestigeClassesTab(QWidget):
         self._taken_table.setItem(row, 0, QTableWidgetItem(name))
         spin = QSpinBox()
         spin.setRange(1, 10)
+        spin.valueChanged.connect(lambda _: self._sync_classes())
         self._taken_table.setCellWidget(row, 1, spin)
         rm_btn = QPushButton("Remove")
         rm_btn.clicked.connect(lambda _, b=rm_btn: self._remove_prestige_row(b))
         self._taken_table.setCellWidget(row, 2, rm_btn)
+        self._sync_classes()
 
     def _remove_prestige_row(self, button: QPushButton) -> None:
         for row in range(self._taken_table.rowCount()):
             if self._taken_table.cellWidget(row, 2) is button:
                 self._taken_table.removeRow(row)
+                self._sync_classes()
                 return
+
+    def _sync_classes(self) -> None:
+        """Write taken class levels into the character and announce the change.
+
+        Broadcasts :attr:`CharacterModel.class_levels_changed` (§8.4) so derived
+        displays (BAB, saves, attacks, character sheet) recalculate in real time.
+        """
+        if self._model is None:
+            return
+        classes: list[tuple[str, int]] = []
+        for row in range(self._taken_table.rowCount()):
+            name_item = self._taken_table.item(row, 0)
+            level_widget = self._taken_table.cellWidget(row, 1)
+            if name_item is None or not isinstance(level_widget, QSpinBox):
+                continue
+            classes.append((name_item.text(), int(level_widget.value())))
+        self._model.character.classes = classes
+        self._model.class_levels_changed.emit()
+
+    def _reset(self) -> None:
+        self._taken_table.setRowCount(0)
+        self._sync_classes()

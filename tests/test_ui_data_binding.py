@@ -357,3 +357,93 @@ class TestGameDataProgressions:
         stats = model.derived_stats()
         assert stats.base_attack_bonus == 5
         assert stats.fortitude == 6
+
+
+class TestCrossTabSignalPropagation:
+    """§8.4/§8.6: the four domain signals are emitted and propagate cross-tab."""
+
+    def test_skill_ranks_changed_emitted_and_recorded(
+        self, empty_model: object
+    ) -> None:
+        from PyQt6.QtTest import QSignalSpy
+
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        tab = SkillsTab(model=empty_model)
+        climb_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Climb")
+        spy = QSignalSpy(empty_model.skill_ranks_changed)
+
+        tab._rank_spinboxes[climb_row].setValue(4.0)
+
+        assert len(spy) == 1
+        assert list(spy[0]) == ["Climb", 4.0]
+        # The model records the rank authoritatively for dependent tabs.
+        assert empty_model.character.skills["Climb"] == 4.0
+
+    def test_feat_added_emitted_and_enables_dependent_feat(self, model: object) -> None:
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QSignalSpy
+
+        from heroforge.ui.tabs.feats import FeatsTab
+
+        tab = FeatsTab(model=model)
+        # Meet Power Attack's STR 13 prereq so it can be added.
+        model.ability_score_changed.emit("STR", 13)
+        spy = QSignalSpy(model.feat_added)
+
+        power_attack = next(
+            i
+            for i in range(tab._avail_list.count())
+            if tab._avail_list.item(i).text() == "Power Attack"
+        )
+        tab._avail_list.setCurrentRow(power_attack)
+        tab._add_feat()
+
+        assert len(spy) == 1
+        assert list(spy[0]) == ["Power Attack"]
+        assert "Power Attack" in model.character.feats
+        # Cleave requires Power Attack; it becomes enabled in real time.
+        cleave = next(
+            tab._avail_list.item(i)
+            for i in range(tab._avail_list.count())
+            if tab._avail_list.item(i).text() == "Cleave"
+        )
+        assert cleave.flags() & Qt.ItemFlag.ItemIsEnabled
+
+    def test_buff_toggled_emitted_on_add_and_remove(self, empty_model: object) -> None:
+        from PyQt6.QtTest import QSignalSpy
+
+        from heroforge.ui.tabs.buffs import BuffsTab
+
+        tab = BuffsTab(model=empty_model)
+        spy = QSignalSpy(empty_model.buff_toggled)
+
+        tab.add_buff("Bless")
+        assert list(spy[-1]) == ["Bless", True]
+        assert "Bless" in empty_model.character.buffs
+
+        tab._buff_list.setCurrentRow(0)
+        tab._remove_buff()
+        assert list(spy[-1]) == ["Bless", False]
+        assert "Bless" not in empty_model.character.buffs
+
+    def test_class_levels_changed_updates_attacks_bab(self, model: object) -> None:
+        from PyQt6.QtTest import QSignalSpy
+
+        from heroforge.ui.tabs.attacks import AttacksTab
+        from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+
+        prestige = PrestigeClassesTab(model=model)
+        attacks = AttacksTab(model=model)
+
+        spy = QSignalSpy(model.class_levels_changed)
+        prestige._avail_list.addItem("Fighter")
+        prestige._avail_list.setCurrentRow(0)
+        prestige._add_prestige_class()
+        # Fighter has fast BAB progression; 1 level -> +1.
+        prestige._taken_table.cellWidget(0, 1).setValue(5)
+
+        assert len(spy) >= 1
+        assert model.character.classes == [("Fighter", 5)]
+        # Fighter 5 (fast BAB) -> +5, surfaced on the Attacks tab via the model.
+        assert attacks._bab_lbl.text() == "+5"

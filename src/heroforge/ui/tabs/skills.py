@@ -140,11 +140,25 @@ class SkillsTab(QWidget):
             total_item.setFlags(total_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._table.setItem(row, 6, total_item)
 
-            rank_spin.valueChanged.connect(lambda _: self._recalculate())
+            rank_spin.valueChanged.connect(
+                lambda value, r=row: self._on_rank_changed(r, value)
+            )
             misc_spin.valueChanged.connect(lambda _: self._recalculate())
 
         box_layout.addWidget(self._table)
         layout.addWidget(box)
+
+    def _on_rank_changed(self, row: int, value: float) -> None:
+        """Announce a skill-rank change so the model and dependent tabs update.
+
+        The rank is broadcast via :attr:`CharacterModel.skill_ranks_changed`
+        (``docs/conversion-plan.md`` §8.4); the model records it in the active
+        character and re-emits ``derived_stats_changed`` for tabs (e.g. Feats)
+        whose displays depend on skill ranks.
+        """
+        self._recalculate()
+        if self._model is not None and 0 <= row < len(_SKILLS):
+            self._model.skill_ranks_changed.emit(_SKILLS[row][0], float(value))
 
     def _on_ability_score_changed(self, ability: str, value: int) -> None:
         """Update each skill's ability modifier when a score changes (§8.6)."""

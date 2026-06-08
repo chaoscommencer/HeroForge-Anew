@@ -157,9 +157,14 @@ class FeatsTab(QWidget):
         self._apply_prereq_status()
 
     def _add_feat(self) -> None:
+        added: list[str] = []
         for item in self._avail_list.selectedItems():
             self._taken_list.addItem(item.text())
+            added.append(item.text())
         self._sync_feats_to_character()
+        if self._model is not None:
+            for name in added:
+                self._model.feat_added.emit(name)
 
     def _remove_feat(self) -> None:
         for item in self._taken_list.selectedItems():

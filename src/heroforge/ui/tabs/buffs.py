@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QListWidget,
     QPushButton,
@@ -49,6 +50,7 @@ class BuffsTab(QWidget):
         btn_row = QHBoxLayout()
         self._add_btn = QPushButton("Add Buff…")
         self._rm_btn = QPushButton("Remove Selected")
+        self._add_btn.clicked.connect(self._add_buff)
         self._rm_btn.clicked.connect(self._remove_buff)
         btn_row.addWidget(self._add_btn)
         btn_row.addWidget(self._rm_btn)
@@ -57,11 +59,30 @@ class BuffsTab(QWidget):
         layout.addWidget(box)
         layout.addStretch()
 
+    def add_buff(self, name: str) -> None:
+        """Add an active buff named *name* and announce it (§8.4).
+
+        Broadcasts :attr:`CharacterModel.buff_toggled` with ``active=True`` so
+        the model records the buff and dependent tabs recalculate.
+        """
+        name = name.strip()
+        if not name:
+            return
+        self._buff_list.addItem(name)
+        if self._model:
+            self._model.buff_toggled.emit(name, True)
+
+    def _add_buff(self) -> None:
+        name, ok = QInputDialog.getText(self, "Add Buff", "Buff name:")
+        if ok:
+            self.add_buff(name)
+
     def _remove_buff(self) -> None:
         for item in self._buff_list.selectedItems():
+            name = item.text()
             self._buff_list.takeItem(self._buff_list.row(item))
-        if self._model:
-            pass  # emit signal in full implementation
+            if self._model:
+                self._model.buff_toggled.emit(name, False)
 
     def _reset(self) -> None:
         self._buff_list.clear()

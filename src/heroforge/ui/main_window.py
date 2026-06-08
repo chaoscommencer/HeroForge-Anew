@@ -112,11 +112,17 @@ class CharacterModel(QObject):
         self._game_data: GameDataRepository = game_data or GameDataRepository(None)
         self._character = Character()
 
-        # Keep the active character's ability scores in sync with the UI and
-        # re-broadcast a derived-stats refresh so every dependent tab updates in
-        # real time. Connected here (before any tab) so the model's own state is
-        # current by the time tab handlers for derived_stats_changed run.
+        # Keep the active character's state in sync with the UI and re-broadcast
+        # a derived-stats refresh so every dependent tab updates in real time.
+        # Connected here (before any tab) so the model's own state is current by
+        # the time tab handlers for derived_stats_changed run.  Each domain
+        # signal funnels through a slot that persists the change into the
+        # authoritative character state, then announces derived-stat updates so
+        # dependent tabs recalculate (``docs/conversion-plan.md`` §8.4/§8.6).
         self.ability_score_changed.connect(self._on_ability_score_changed)
+        self.skill_ranks_changed.connect(self._on_skill_ranks_changed)
+        self.feat_added.connect(self._on_feat_added)
+        self.buff_toggled.connect(self._on_buff_toggled)
         self.class_levels_changed.connect(self.derived_stats_changed)
         self.character_reset.connect(self.derived_stats_changed)
         self.character_loaded.connect(lambda _id: self.derived_stats_changed.emit())
@@ -124,6 +130,35 @@ class CharacterModel(QObject):
     def _on_ability_score_changed(self, ability: str, value: int) -> None:
         """Persist an ability-score change and announce derived-stat updates."""
         self._character.ability_scores[ability] = value
+        self.derived_stats_changed.emit()
+
+    def _on_skill_ranks_changed(self, skill: str, ranks: float) -> None:
+        """Persist a skill-rank change and announce derived-stat updates.
+
+        Skill ranks feed feat prerequisites and other derived displays, so the
+        active character is updated authoritatively here before dependent tabs
+        (e.g. Feats) recalculate.
+        """
+        self._character.skills[skill] = ranks
+        self.derived_stats_changed.emit()
+
+    def _on_feat_added(self, feat: str) -> None:
+        """Record a newly-selected feat and announce derived-stat updates.
+
+        Kept idempotent so the authoritative feat list stays consistent even if
+        the emitting tab also maintains its own copy.
+        """
+        if feat not in self._character.feats:
+            self._character.feats.append(feat)
+        self.derived_stats_changed.emit()
+
+    def _on_buff_toggled(self, buff: str, active: bool) -> None:
+        """Activate/deactivate a buff and announce derived-stat updates."""
+        if active:
+            if buff not in self._character.buffs:
+                self._character.buffs.append(buff)
+        elif buff in self._character.buffs:
+            self._character.buffs.remove(buff)
         self.derived_stats_changed.emit()
 
     def derived_stats(self) -> DerivedStats:
