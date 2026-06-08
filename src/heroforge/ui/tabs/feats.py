@@ -94,6 +94,7 @@ class FeatsTab(QWidget):
         for feat in self._model.game_data().list_feats():
             self._avail_list.addItem(feat.name)
             self._descriptions[feat.name] = feat.description or feat.benefit
+
     def _show_description(self, name: str) -> None:
         self._desc_text.setPlainText(self._descriptions.get(name, ""))
 
