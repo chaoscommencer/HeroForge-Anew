@@ -29,6 +29,10 @@ class BuffsTab(QWidget):
     ) -> None:
         super().__init__(parent)
         self._model = model
+        # Fallback counter used when no model is attached (e.g. standalone
+        # widget tests).  When a model IS present, IDs are allocated via
+        # :meth:`CharacterModel.alloc_buff_id` so the counter stays in sync
+        # with any buffs already loaded into the character.
         self._next_id: int = 0
         self._build_ui()
         if model:
@@ -65,17 +69,21 @@ class BuffsTab(QWidget):
     def add_buff(self, name: str) -> None:
         """Add an active buff named *name* and announce it (§8.4).
 
-        Each buff instance is assigned a unique integer ID that is stored in
-        the :class:`~PyQt6.QtWidgets.QListWidgetItem` via
-        ``Qt.ItemDataRole.UserRole``.  The ID is forwarded through
+        The model (or a fallback counter when no model is attached) allocates a
+        unique integer ID for this instance.  The ID is stored in the
+        :class:`~PyQt6.QtWidgets.QListWidgetItem` via
+        ``Qt.ItemDataRole.UserRole`` and forwarded through
         :attr:`CharacterModel.buff_toggled` so the model can later remove
         exactly this instance regardless of duplicate names.
         """
         name = name.strip()
         if not name:
             return
-        buff_id = self._next_id
-        self._next_id += 1
+        if self._model:
+            buff_id = self._model.alloc_buff_id()
+        else:
+            buff_id = self._next_id
+            self._next_id += 1
         item = QListWidgetItem(name)
         item.setData(Qt.ItemDataRole.UserRole, buff_id)
         self._buff_list.addItem(item)
