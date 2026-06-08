@@ -238,7 +238,7 @@ class SkillsTab(QWidget):
             if total_item:
                 total_item.setText(str(total))
                 total_item.setToolTip(
-                    f"Includes +{familiar} granted by your familiar."
+                    f"Includes +{familiar} granted by your familiar (Alertness via Natural Link)."
                     if familiar
                     else ""
                 )
