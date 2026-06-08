@@ -200,15 +200,21 @@ class CharacterModel(QObject):
         ``{"id": buff_id, "name": buff}`` entry; ``active=False`` removes
         exactly the entry whose ``id`` matches *buff_id*, leaving any other
         instances with the same name intact.
+
+        Only emits :attr:`derived_stats_changed` when the collection actually
+        changes, preventing redundant recalculations from stale or repeated
+        signals (mirrors the emit-on-change guard in
+        :meth:`_on_skill_ranks_changed`).
         """
         if active:
             self._character.buffs.append({"id": buff_id, "name": buff})
+            self.derived_stats_changed.emit()
         else:
             for i, entry in enumerate(self._character.buffs):
                 if entry.get("id") == buff_id:
                     del self._character.buffs[i]
+                    self.derived_stats_changed.emit()
                     break
-        self.derived_stats_changed.emit()
 
     def derived_stats(self) -> DerivedStats:
         """Compute the active character's derived combat/save values.
