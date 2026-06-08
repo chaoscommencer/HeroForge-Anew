@@ -1275,46 +1275,56 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Static game-data helpers
+# CSV-backed seeding helpers
 # ---------------------------------------------------------------------------
 
-# Standard familiar bonuses granted to the wizard's master (PHB p52–53).
-# Keyed by lower-case familiar kind so ``GameDataRepository.get_familiar_bonuses``
-# can do a case-insensitive lookup against the ``tables`` table.
-_FAMILIAR_BONUSES: dict[str, str] = {
-    "bat": "Master gains +3 bonus on Listen checks.",
-    "cat": "Master gains +3 bonus on Move Silently checks.",
-    "hawk": "Master gains +3 bonus on Spot checks in daylight.",
-    "lizard": "Master gains +3 bonus on Climb checks.",
-    "owl": "Master gains +3 bonus on Spot checks in shadows/darkness.",
-    "rat": "Master gains +2 bonus on Fortitude saves.",
-    "raven": "Master gains +3 bonus on Appraise checks.",
-    "snake": "Master gains +3 bonus on Bluff checks.",
-    "toad": "Master gains +3 hit points.",
-    "weasel": "Master gains +2 bonus on Reflex saves.",
-}
 
+def seed_familiar_bonuses(conn: sqlite3.Connection, data_dir: Path) -> None:
+    """Insert familiar master-bonus rows from ``FamiliarBonuses.csv``.
 
-def seed_familiar_bonuses(conn: sqlite3.Connection) -> None:
-    """Insert PHB p52–53 familiar-bonus rows into the *tables* table.
-
-    Each row uses ``table_name = 'familiar_bonuses'``, ``key`` = familiar kind
-    (lower-case), and ``value`` = bonus text.  Rows are upserted so repeated
-    calls are idempotent.
+    Each row maps a creature name to the bonus text the familiar grants to its
+    master.  Creature names are stored as-is; case-insensitive lookup is
+    handled by the repository layer (``GameDataRepository.get_familiar_bonuses``
+    normalises keys to lower-case before returning).  Rows are upserted so
+    repeated calls are idempotent.  Missing or unreadable files are logged and
+    silently skipped so the application remains usable on an unseeded checkout.
     """
+    csv_path = data_dir / "FamiliarBonuses.csv"
+    if not csv_path.exists():
+        logger.warning(
+            "FamiliarBonuses.csv not found at %s – skipping familiar bonuses",
+            csv_path,
+        )
+        return
+
     inserted = 0
-    for kind, bonus in _FAMILIAR_BONUSES.items():
-        try:
-            conn.execute(
-                "INSERT OR REPLACE INTO tables (table_name, key, value) "
-                "VALUES (?, ?, ?)",
-                ("familiar_bonuses", kind, bonus),
-            )
-            inserted += 1
-        except sqlite3.Error as exc:
-            logger.debug("Skipping familiar bonus row %r: %s", kind, exc)
+    skipped = 0
+    with csv_path.open(encoding="utf-8-sig", errors="replace", newline="") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            creature_name = (row.get("creature_name") or "").strip()
+            master_bonus = (row.get("master_bonus") or "").strip()
+            if not creature_name or not master_bonus:
+                skipped += 1
+                continue
+            try:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO familiar_bonuses
+                        (creature_name, master_bonus)
+                    VALUES (?, ?)
+                    """,
+                    (creature_name, master_bonus),
+                )
+                inserted += 1
+            except sqlite3.Error as exc:
+                logger.debug("Skipping familiar bonus row %r: %s", creature_name, exc)
+                skipped += 1
+
     conn.commit()
-    logger.info("Familiar bonuses: inserted/replaced %d rows", inserted)
+    logger.info(
+        "Familiar bonuses: inserted/replaced %d rows, skipped %d", inserted, skipped
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1345,7 +1355,7 @@ def seed_all(
         seed_weapons(conn, data_dir)
         seed_creatures(conn, data_dir)
         seed_tables(conn, data_dir)
-        seed_familiar_bonuses(conn)
+        seed_familiar_bonuses(conn, data_dir)
         seed_classes(conn, data_dir)
         seed_workbook(conn, workbook_path)
     finally:

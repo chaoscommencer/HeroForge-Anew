@@ -1,0 +1,11 @@
+creature_name,master_bonus
+Bat,Master gains +3 bonus on Listen checks.
+Cat,Master gains +3 bonus on Move Silently checks.
+Hawk,Master gains +3 bonus on Spot checks in daylight.
+Lizard,Master gains +3 bonus on Climb checks.
+Owl,Master gains +3 bonus on Spot checks in shadows/darkness.
+Rat,Master gains +2 bonus on Fortitude saves.
+Raven,Master gains +3 bonus on Appraise checks.
+Snake,Master gains +3 bonus on Bluff checks.
+Toad,Master gains +3 hit points.
+Weasel,Master gains +2 bonus on Reflex saves.

@@ -651,14 +651,17 @@ class GameDataRepository:
         ]
 
     def get_familiar_bonuses(self) -> dict[str, str]:
-        """Return a mapping of familiar kind (lower-case) → master bonus text.
+        """Return a mapping of familiar name (lower-case) → master bonus text.
 
-        Data is read from the generic ``tables`` table using
-        ``table_name = 'familiar_bonuses'`` so it can be populated via
-        ``Tables.csv`` without a schema change.  Returns an empty dict when the
-        database is unavailable or the table has not been seeded yet.
+        Data is read from the ``familiar_bonuses`` table, seeded from
+        ``FamiliarBonuses.csv``.  Returns an empty dict when the database is
+        unavailable or the table has not been seeded yet.
         """
         rows = self._query(
-            "SELECT key, value FROM tables WHERE table_name = 'familiar_bonuses'"
+            "SELECT creature_name, master_bonus FROM familiar_bonuses"
         )
-        return {r["key"].lower(): r["value"] for r in rows if r["key"]}
+        return {
+            r["creature_name"].lower(): r["master_bonus"]
+            for r in rows
+            if r["creature_name"]
+        }
