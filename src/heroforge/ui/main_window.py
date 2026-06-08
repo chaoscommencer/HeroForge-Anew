@@ -207,9 +207,7 @@ class CharacterModel(QObject):
         :meth:`_on_skill_ranks_changed`).
         """
         if active:
-            if not any(
-                entry.get("id") == buff_id for entry in self._character.buffs
-            ):
+            if not any(entry.get("id") == buff_id for entry in self._character.buffs):
                 self._character.buffs.append({"id": buff_id, "name": buff})
                 self.derived_stats_changed.emit()
         else:
