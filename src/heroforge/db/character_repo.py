@@ -24,7 +24,6 @@ import json
 import os
 import sqlite3
 import tempfile
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -214,8 +213,8 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
             ],
         )
         cur.executemany(
-            "INSERT INTO character_buffs (character_id, buff_name) VALUES (?, ?)",
-            [(cid, buff["name"]) for buff in character.buffs],
+            "INSERT INTO character_buffs (id, character_id, buff_name) VALUES (?, ?, ?)",
+            [(buff["id"], cid, buff["name"]) for buff in character.buffs],
         )
         cur.executemany(
             "INSERT INTO character_languages " "(character_id, language) VALUES (?, ?)",
@@ -584,13 +583,10 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
     ]
 
     character.buffs = [
-        {"id": str(uuid.uuid4()), "name": br["buff_name"]}
+        {"id": br["id"], "name": br["buff_name"]}
         for br in conn.execute(
-            # ORDER BY the stored row id to preserve the original insertion
-            # order; the column is not selected because session-local UUIDs
-            # are assigned above instead of persisting the DB row ids.
-            "SELECT buff_name FROM character_buffs "
-            "WHERE character_id = ? ORDER BY id",
+            "SELECT id, buff_name FROM character_buffs "
+            "WHERE character_id = ? ORDER BY rowid",
             (character_id,),
         ).fetchall()
     ]
