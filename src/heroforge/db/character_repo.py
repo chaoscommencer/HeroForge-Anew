@@ -585,6 +585,9 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
     character.buffs = [
         {"id": br["id"], "name": br["buff_name"]}
         for br in conn.execute(
+            # id is a UUID (TEXT), not sequential, so ORDER BY rowid preserves
+            # the original insertion order.  rowid is always available on
+            # standard SQLite tables (this table is not WITHOUT ROWID).
             "SELECT id, buff_name FROM character_buffs "
             "WHERE character_id = ? ORDER BY rowid",
             (character_id,),
