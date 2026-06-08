@@ -7,6 +7,8 @@ central data bus between tabs via Qt signals.
 
 from __future__ import annotations
 
+import uuid
+
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -89,8 +91,19 @@ class CharacterModel(QObject):
     skill_ranks_changed = pyqtSignal(str, float)
     """Emitted when skill ranks change. Args: (skill_name, new_ranks)."""
 
-    buff_toggled = pyqtSignal(str, bool)
-    """Emitted when a buff is enabled/disabled. Args: (buff_name, active)."""
+    skill_stats_changed = pyqtSignal(list)
+    """Emitted after skill ranks are persisted, carrying the affected skill names.
+
+    Args: (changed_skills,) – ``list[str]`` of the skill names whose stored
+    ranks actually changed.  Listeners that only watch specific skills can
+    connect here and inspect the list before doing any work, avoiding
+    unnecessary recalculations.  This signal is also bridged to
+    :attr:`derived_stats_changed` so tabs connected to the broader signal
+    still refresh automatically.
+    """
+
+    buff_toggled = pyqtSignal(str, str, bool)
+    """Emitted when a buff is enabled/disabled. Args: (buff_id, buff_name, active)."""
 
     character_loaded = pyqtSignal(int)
     """Emitted after a character file is loaded from disk.
@@ -112,19 +125,97 @@ class CharacterModel(QObject):
         self._game_data: GameDataRepository = game_data or GameDataRepository(None)
         self._character = Character()
 
-        # Keep the active character's ability scores in sync with the UI and
-        # re-broadcast a derived-stats refresh so every dependent tab updates in
-        # real time. Connected here (before any tab) so the model's own state is
-        # current by the time tab handlers for derived_stats_changed run.
+        # Keep the active character's state in sync with the UI and re-broadcast
+        # a derived-stats refresh so every dependent tab updates in real time.
+        # Connected here (before any tab) so the model's own state is current by
+        # the time tab handlers for derived_stats_changed run.  Each domain
+        # signal funnels through a slot that persists the change into the
+        # authoritative character state, then announces derived-stat updates so
+        # dependent tabs recalculate (``docs/conversion-plan.md`` §8.4/§8.6).
         self.ability_score_changed.connect(self._on_ability_score_changed)
+        self.skill_ranks_changed.connect(self._on_skill_ranks_changed)
+        self.feat_added.connect(self._on_feat_added)
+        self.buff_toggled.connect(self._on_buff_toggled)
         self.class_levels_changed.connect(self.derived_stats_changed)
         self.character_reset.connect(self.derived_stats_changed)
         self.character_loaded.connect(lambda _id: self.derived_stats_changed.emit())
+        # Bridge: skill_stats_changed → derived_stats_changed so tabs that only
+        # connect to the broader signal still refresh when skill ranks change.
+        self.skill_stats_changed.connect(
+            lambda _skills: self.derived_stats_changed.emit()
+        )
+
+    def alloc_buff_id(self) -> str:
+        """Allocate and return a unique buff instance ID (UUID).
+
+        The UI calls this before emitting :attr:`buff_toggled` so that the
+        returned ID is both stored in the :class:`~PyQt6.QtWidgets.QListWidgetItem`
+        and forwarded through the signal to the model, keeping UI and model in
+        sync for the lifetime of the current session.  UUIDs are globally
+        unique so no counter synchronisation is needed after save/load.
+        """
+        return str(uuid.uuid4())
 
     def _on_ability_score_changed(self, ability: str, value: int) -> None:
         """Persist an ability-score change and announce derived-stat updates."""
         self._character.ability_scores[ability] = value
         self.derived_stats_changed.emit()
+
+    def _on_skill_ranks_changed(self, skill: str, ranks: float) -> None:
+        """Persist a skill-rank change and announce which skills were affected.
+
+        Treats zero ranks as "unset": the key is removed from
+        ``character.skills`` rather than stored as ``0.0``, keeping saved
+        characters lean.  Only emits :attr:`skill_stats_changed` (which is
+        bridged to :attr:`derived_stats_changed`) when the stored value
+        actually changes, preventing redundant recalculations triggered by
+        tab initialisation or programmatic spinbox resets.
+        """
+        if ranks == 0.0:
+            if skill not in self._character.skills:
+                return  # already absent – nothing to update
+            del self._character.skills[skill]
+        else:
+            if self._character.skills.get(skill) == ranks:
+                return  # unchanged – skip redundant emission
+            self._character.skills[skill] = ranks
+        self.skill_stats_changed.emit([skill])
+
+    def _on_feat_added(self, feat: str) -> None:
+        """Record a newly-selected feat and announce derived-stat updates.
+
+        Kept idempotent so the authoritative feat list stays consistent even if
+        the emitting tab also maintains its own copy.
+        """
+        if feat not in self._character.feats:
+            self._character.feats.append(feat)
+        self.derived_stats_changed.emit()
+
+    def _on_buff_toggled(self, buff_id: str, buff: str, active: bool) -> None:
+        """Activate/deactivate a buff and announce derived-stat updates.
+
+        Each buff instance is tracked by a unique *buff_id* so that duplicate
+        buff names (e.g. two castings of "Bless" from different sources) can
+        be managed individually.  ``active=True`` appends a new
+        ``{"id": buff_id, "name": buff}`` entry; ``active=False`` removes
+        exactly the entry whose ``id`` matches *buff_id*, leaving any other
+        instances with the same name intact.
+
+        Only emits :attr:`derived_stats_changed` when the collection actually
+        changes, preventing redundant recalculations from stale or repeated
+        signals (mirrors the emit-on-change guard in
+        :meth:`_on_skill_ranks_changed`).
+        """
+        if active:
+            if not any(entry.get("id") == buff_id for entry in self._character.buffs):
+                self._character.buffs.append({"id": buff_id, "name": buff})
+                self.derived_stats_changed.emit()
+        else:
+            for i, entry in enumerate(self._character.buffs):
+                if entry.get("id") == buff_id:
+                    del self._character.buffs[i]
+                    self.derived_stats_changed.emit()
+                    break
 
     def derived_stats(self) -> DerivedStats:
         """Compute the active character's derived combat/save values.

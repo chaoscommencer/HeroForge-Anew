@@ -213,8 +213,9 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
             ],
         )
         cur.executemany(
-            "INSERT INTO character_buffs (character_id, buff_name) VALUES (?, ?)",
-            [(cid, buff_name) for buff_name in character.buffs],
+            "INSERT INTO character_buffs "
+            "(id, character_id, buff_name) VALUES (?, ?, ?)",
+            [(buff["id"], cid, buff["name"]) for buff in character.buffs],
         )
         cur.executemany(
             "INSERT INTO character_languages " "(character_id, language) VALUES (?, ?)",
@@ -583,10 +584,13 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
     ]
 
     character.buffs = [
-        br["buff_name"]
+        {"id": br["id"], "name": br["buff_name"]}
         for br in conn.execute(
-            "SELECT buff_name FROM character_buffs "
-            "WHERE character_id = ? ORDER BY id",
+            # id is a UUID (TEXT), not sequential, so ORDER BY rowid preserves
+            # the original insertion order.  rowid is always available on
+            # standard SQLite tables (this table is not WITHOUT ROWID).
+            "SELECT id, buff_name FROM character_buffs "
+            "WHERE character_id = ? ORDER BY rowid",
             (character_id,),
         ).fetchall()
     ]

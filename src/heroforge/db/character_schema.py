@@ -127,11 +127,17 @@ CREATE TABLE IF NOT EXISTS character_equipment (
 );
 
 CREATE TABLE IF NOT EXISTS character_buffs (
-    id              INTEGER PRIMARY KEY,
+    id              TEXT PRIMARY KEY,
     character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
     buff_name       TEXT NOT NULL,
     active          INTEGER DEFAULT 1,
     parameters      TEXT
+    -- No UNIQUE constraint on (character_id, buff_name): the same buff can be
+    -- active from multiple sources simultaneously (e.g. two castings of Bless
+    -- from different allies).  Duplicate rows are intentional and preserve the
+    -- original Excel workbook's behaviour.
+    -- id is a UUID string (TEXT) so buff identity is preserved across
+    -- save/load cycles without integer counter synchronisation.
 );
 
 CREATE TABLE IF NOT EXISTS character_languages (

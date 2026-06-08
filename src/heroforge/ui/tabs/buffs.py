@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QListWidget,
+    QListWidgetItem,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -29,6 +33,7 @@ class BuffsTab(QWidget):
         self._build_ui()
         if model:
             model.character_reset.connect(self._reset)
+            model.character_loaded.connect(lambda _id: self._sync_from_model())
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -49,6 +54,7 @@ class BuffsTab(QWidget):
         btn_row = QHBoxLayout()
         self._add_btn = QPushButton("Add Buff…")
         self._rm_btn = QPushButton("Remove Selected")
+        self._add_btn.clicked.connect(self._add_buff)
         self._rm_btn.clicked.connect(self._remove_buff)
         btn_row.addWidget(self._add_btn)
         btn_row.addWidget(self._rm_btn)
@@ -57,11 +63,62 @@ class BuffsTab(QWidget):
         layout.addWidget(box)
         layout.addStretch()
 
+    def add_buff(self, name: str) -> None:
+        """Add an active buff named *name* and announce it (§8.4).
+
+        The model (or a UUID fallback when no model is attached) allocates a
+        unique ID for this instance.  The ID is stored in the
+        :class:`~PyQt6.QtWidgets.QListWidgetItem` via
+        ``Qt.ItemDataRole.UserRole`` and forwarded through
+        :attr:`CharacterModel.buff_toggled` so the model can later remove
+        exactly this instance regardless of duplicate names.
+        """
+        name = name.strip()
+        if not name:
+            return
+        if self._model:
+            buff_id = self._model.alloc_buff_id()
+        else:
+            buff_id = str(uuid.uuid4())
+        item = QListWidgetItem(name)
+        item.setData(Qt.ItemDataRole.UserRole, buff_id)
+        self._buff_list.addItem(item)
+        if self._model:
+            self._model.buff_toggled.emit(buff_id, name, True)
+
+    def _add_buff(self) -> None:
+        name, ok = QInputDialog.getText(self, "Add Buff", "Buff name:")
+        if ok:
+            self.add_buff(name)
+
     def _remove_buff(self) -> None:
         for item in self._buff_list.selectedItems():
+            buff_id: str = item.data(Qt.ItemDataRole.UserRole)
+            name = item.text()
             self._buff_list.takeItem(self._buff_list.row(item))
-        if self._model:
-            pass  # emit signal in full implementation
+            if self._model:
+                self._model.buff_toggled.emit(buff_id, name, False)
 
     def _reset(self) -> None:
+        self._sync_from_model()
+
+    def _sync_from_model(self) -> None:
+        """Rebuild the buff list from the model's active character.
+
+        Called on :attr:`CharacterModel.character_loaded` and
+        :attr:`CharacterModel.character_reset` to ensure the UI stays in sync
+        with the authoritative character state after a load or reset.  Each
+        buff entry's UUID is stored in the
+        :class:`~PyQt6.QtWidgets.QListWidgetItem` via
+        ``Qt.ItemDataRole.UserRole`` so that removal targets the exact instance
+        regardless of duplicate names.
+        """
         self._buff_list.clear()
+        if self._model is None:
+            return
+        for entry in self._model.character.buffs:
+            buff_id: str = entry.get("id", "")
+            name: str = entry.get("name", "")
+            item = QListWidgetItem(name)
+            item.setData(Qt.ItemDataRole.UserRole, buff_id)
+            self._buff_list.addItem(item)

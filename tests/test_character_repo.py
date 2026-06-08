@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import uuid
 from pathlib import Path
 
 import pytest
@@ -48,7 +49,10 @@ def _sample_character() -> Character:
         classes=[("Fighter", 5), ("Wizard", 2)],
         feats=["Power Attack", "Cleave", "Combat Casting"],
         skills={"Climb": 5.0, "Jump": 3.5, "Spellcraft": 4.0},
-        buffs=["Bless", "Mage Armor"],
+        buffs=[
+            {"id": str(uuid.uuid4()), "name": "Bless"},
+            {"id": str(uuid.uuid4()), "name": "Mage Armor"},
+        ],
         equipment=[
             {
                 "item_name": "Longsword",

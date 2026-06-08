@@ -47,7 +47,7 @@ class TestParseHfg:
         assert char.classes == [("Fighter", 5), ("Wizard", 2)]
         assert char.feats == ["Power Attack", "Cleave", "Combat Casting"]
         assert char.languages == ["Common", "Elven", "Celestial"]
-        assert char.buffs == ["Bless", "Mage Armor"]
+        assert [b["name"] for b in char.buffs] == ["Bless", "Mage Armor"]
         assert char.total_level == 7
 
     def test_skills_and_equipment(self) -> None:

@@ -357,3 +357,179 @@ class TestGameDataProgressions:
         stats = model.derived_stats()
         assert stats.base_attack_bonus == 5
         assert stats.fortitude == 6
+
+
+class TestCrossTabSignalPropagation:
+    """§8.4/§8.6: the four domain signals are emitted and propagate cross-tab."""
+
+    def test_skill_ranks_changed_emitted_and_recorded(
+        self, empty_model: object
+    ) -> None:
+        from PyQt6.QtTest import QSignalSpy
+
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        tab = SkillsTab(model=empty_model)
+        climb_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Climb")
+        spy = QSignalSpy(empty_model.skill_ranks_changed)
+        skill_spy = QSignalSpy(empty_model.skill_stats_changed)
+
+        tab._rank_spinboxes[climb_row].setValue(4.0)
+
+        assert len(spy) == 1
+        assert list(spy[0]) == ["Climb", 4.0]
+        # skill_stats_changed carries the list of affected skill names.
+        assert len(skill_spy) == 1
+        assert skill_spy[0][0] == ["Climb"]
+        # The model records the rank authoritatively for dependent tabs.
+        assert empty_model.character.skills["Climb"] == 4.0
+
+        # Setting the same value again must not emit a second time.
+        tab._rank_spinboxes[climb_row].setValue(4.0)
+        assert len(skill_spy) == 1
+
+        # Setting to 0 treats the skill as "unset" and removes the key.
+        tab._rank_spinboxes[climb_row].setValue(0.0)
+        assert len(skill_spy) == 2
+        assert "Climb" not in empty_model.character.skills
+
+        # Setting to 0 when already absent must not emit again.
+        tab._rank_spinboxes[climb_row].setValue(0.0)
+        assert len(skill_spy) == 2
+
+    def test_feat_added_emitted_and_enables_dependent_feat(self, model: object) -> None:
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QSignalSpy
+
+        from heroforge.ui.tabs.feats import FeatsTab
+
+        tab = FeatsTab(model=model)
+        # Meet Power Attack's STR 13 prereq so it can be added.
+        model.ability_score_changed.emit("STR", 13)
+        spy = QSignalSpy(model.feat_added)
+
+        power_attack = next(
+            i
+            for i in range(tab._avail_list.count())
+            if tab._avail_list.item(i).text() == "Power Attack"
+        )
+        tab._avail_list.setCurrentRow(power_attack)
+        tab._add_feat()
+
+        assert len(spy) == 1
+        assert list(spy[0]) == ["Power Attack"]
+        assert "Power Attack" in model.character.feats
+        # Cleave requires Power Attack; it becomes enabled in real time.
+        cleave = next(
+            tab._avail_list.item(i)
+            for i in range(tab._avail_list.count())
+            if tab._avail_list.item(i).text() == "Cleave"
+        )
+        assert cleave.flags() & Qt.ItemFlag.ItemIsEnabled
+
+        # Removing a feat must trigger derived_stats_changed so other tabs refresh.
+        derived_spy = QSignalSpy(model.derived_stats_changed)
+        power_attack_taken = next(
+            i
+            for i in range(tab._taken_list.count())
+            if tab._taken_list.item(i).text() == "Power Attack"
+        )
+        tab._taken_list.setCurrentRow(power_attack_taken)
+        tab._remove_feat()
+
+        assert len(derived_spy) == 1
+        assert "Power Attack" not in model.character.feats
+
+    def test_buff_toggled_emitted_on_add_and_remove(self, empty_model: object) -> None:
+        import uuid
+
+        from PyQt6.QtTest import QSignalSpy
+
+        from heroforge.ui.tabs.buffs import BuffsTab
+
+        tab = BuffsTab(model=empty_model)
+        spy = QSignalSpy(empty_model.buff_toggled)
+
+        tab.add_buff("Bless")
+        first_id: str = spy[-1][0]
+        # ID must be a valid UUID string.
+        uuid.UUID(first_id)
+        assert list(spy[-1])[1:] == ["Bless", True]
+        assert any(b["name"] == "Bless" for b in empty_model.character.buffs)
+
+        # Adding the same buff name again is allowed: a buff can come from
+        # multiple sources (backward-compatible with the original Excel).
+        tab.add_buff("Bless")
+        second_id: str = spy[-1][0]
+        uuid.UUID(second_id)
+        assert second_id != first_id
+        assert list(spy[-1])[1:] == ["Bless", True]
+        assert sum(1 for b in empty_model.character.buffs if b["name"] == "Bless") == 2
+
+        # Removing the first UI item removes the instance with the first UUID,
+        # leaving the second instance (second_id) untouched — the ID-based
+        # lookup ensures the correct duplicate is removed even when names match.
+        tab._buff_list.setCurrentRow(0)
+        tab._remove_buff()
+        assert list(spy[-1]) == [first_id, "Bless", False]
+        remaining = [b for b in empty_model.character.buffs if b["name"] == "Bless"]
+        assert len(remaining) == 1
+        assert remaining[0]["id"] == second_id
+
+        # Removing the last instance clears it entirely.
+        tab._buff_list.setCurrentRow(0)
+        tab._remove_buff()
+        assert list(spy[-1]) == [second_id, "Bless", False]
+        assert not any(b["name"] == "Bless" for b in empty_model.character.buffs)
+
+    def test_class_levels_changed_updates_attacks_bab(self, model: object) -> None:
+        from PyQt6.QtTest import QSignalSpy
+
+        from heroforge.ui.tabs.attacks import AttacksTab
+        from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+
+        prestige = PrestigeClassesTab(model=model)
+        attacks = AttacksTab(model=model)
+
+        spy = QSignalSpy(model.class_levels_changed)
+        prestige._avail_list.addItem("Fighter")
+        prestige._avail_list.setCurrentRow(0)
+        prestige._add_prestige_class()
+        # Fighter has fast BAB progression; 1 level -> +1.
+        prestige._taken_table.cellWidget(0, 1).setValue(5)
+
+        assert len(spy) >= 1
+        assert model.character.classes == [("Fighter", 5)]
+        # Fighter 5 (fast BAB) -> +5, surfaced on the Attacks tab via the model.
+        assert attacks._bab_lbl.text() == "+5"
+
+    def test_buffs_tab_syncs_from_model_on_character_loaded(
+        self, empty_model: object
+    ) -> None:
+        import uuid
+
+        from PyQt6.QtCore import Qt
+
+        from heroforge.ui.tabs.buffs import BuffsTab
+
+        tab = BuffsTab(model=empty_model)
+
+        # Pre-populate the character with two buffs (as if loaded from disk).
+        id1 = str(uuid.uuid4())
+        id2 = str(uuid.uuid4())
+        empty_model.character.buffs = [
+            {"id": id1, "name": "Bless"},
+            {"id": id2, "name": "Haste"},
+        ]
+        empty_model.character_loaded.emit(0)
+
+        # The tab must reflect both buffs with correct names and stored IDs.
+        assert tab._buff_list.count() == 2
+        assert tab._buff_list.item(0).text() == "Bless"
+        assert tab._buff_list.item(0).data(Qt.ItemDataRole.UserRole) == id1
+        assert tab._buff_list.item(1).text() == "Haste"
+        assert tab._buff_list.item(1).data(Qt.ItemDataRole.UserRole) == id2
+
+        # A subsequent character_reset must clear the list.
+        empty_model.new_character()
+        assert tab._buff_list.count() == 0
