@@ -59,6 +59,8 @@ def _expand_hit_dice(
     """Expand ordered class levels into a flat, per-character-level Hit Die list."""
     flat: list[int] = []
     for name, levels in classes:
+        # Double fallback: ``get`` covers a missing class; ``or`` covers a
+        # stored ``None``/``0`` Hit Die (both fall back to the default).
         die = int(hit_dice.get(name, default_hit_die) or default_hit_die)
         flat.extend([die] * max(0, int(levels)))
     return flat
