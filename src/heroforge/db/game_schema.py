@@ -394,7 +394,7 @@ CREATE TABLE IF NOT EXISTS creatures (
     cha_score   INTEGER,
     bab         TEXT,
     grapple_mod INTEGER,
-    armor_class INTEGER,
+    natural_armor INTEGER,
     speed       TEXT,
     source      TEXT
 );

@@ -192,8 +192,7 @@ class Creature:
     type: str
     hit_dice: str
     ability_scores: dict[str, int]
-    armor_class: int
-
+    natural_armor: int
 
 class GameDataRepository:
     """Read-only accessor for the seeded ``heroforge.db`` game database.
@@ -632,7 +631,7 @@ class GameDataRepository:
         where = f"WHERE {fragment}" if fragment else ""
         rows = self._query(
             "SELECT name, size, type, hit_dice, str_score, dex_score, con_score, "
-            "int_score, wis_score, cha_score, armor_class "
+            "int_score, wis_score, cha_score, natural_armor "
             f"FROM creatures {where} ORDER BY name",
             params,
         )
@@ -650,7 +649,7 @@ class GameDataRepository:
                     "WIS": int(r["wis_score"] or 10),
                     "CHA": int(r["cha_score"] or 10),
                 },
-                armor_class=int(r["armor_class"] or 10),
+                natural_armor=int(r["natural_armor"] or 0),
             )
             for r in rows
         ]

@@ -1255,7 +1255,7 @@ def seed_creatures(conn: sqlite3.Connection, data_dir: Path) -> None:
                         (name, size, type, subtype, hit_dice,
                          str_score, dex_score, con_score,
                          int_score, wis_score, cha_score,
-                         bab, grapple_mod, armor_class, speed, source)
+                         bab, grapple_mod, natural_armor, speed, source)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
