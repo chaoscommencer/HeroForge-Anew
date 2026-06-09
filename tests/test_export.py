@@ -148,7 +148,7 @@ class TestExportTableTentText:
         }
         return compute_derived_stats(character, progressions)
 
-    def test_payload_is_subset_of_character_sheet_data(self) -> None:
+    def test_payload_reuses_character_sheet_data(self) -> None:
         character = _populated_character()
 
         assert table_tent_data(character) == character_sheet_data(character)

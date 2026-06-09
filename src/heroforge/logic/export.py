@@ -227,9 +227,8 @@ def table_tent_data(
 ) -> dict:  # type: ignore[type-arg]
     """Build the :func:`export_table_tent_text` payload for *character*.
 
-    The Table Tent only needs the at-a-glance identity and combat fields, but
-    the payload is a strict subset of :func:`character_sheet_data` so both
-    exporters share a single model→dict bridge.
+    The Table Tent currently reuses the full :func:`character_sheet_data`
+    payload so both exporters share a single model→dict bridge.
     """
     return character_sheet_data(character, derived)
 
