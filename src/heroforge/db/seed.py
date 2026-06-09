@@ -1266,8 +1266,8 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
     medium_damage = _load_medium_weapon_damage(conn)
     if not medium_damage:
         logger.warning(
-            "weapon_damage has no %s rows; skipping weapons seed to avoid "
-            "persisting raw damage step codes",
+            "weapon_damage table has no %s rows; skipping weapon seeding "
+            "to prevent persisting raw damage step codes",
             _MEDIUM_SIZE,
         )
         return
