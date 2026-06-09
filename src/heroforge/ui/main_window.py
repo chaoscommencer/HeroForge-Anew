@@ -11,6 +11,7 @@ import uuid
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QMainWindow,
     QMessageBox,
@@ -33,6 +34,13 @@ from heroforge.logic.familiar import (
 from heroforge.logic.familiar import save_bonuses as familiar_save_bonuses
 from heroforge.logic.legacy_import import import_hfg
 from heroforge.models.character import Character
+from heroforge.ui.dialogs.custom_class import CustomClassDialog
+from heroforge.ui.dialogs.custom_familiar import CustomFamiliarDialog
+from heroforge.ui.dialogs.custom_race import CustomRaceDialog
+from heroforge.ui.dialogs.custom_template import CustomTemplateDialog
+from heroforge.ui.dialogs.options import OptionsDialog
+from heroforge.ui.dialogs.source_select import SourceSelectDialog
+from heroforge.ui.dialogs.template_info import TemplateInfoDialog
 from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
 from heroforge.ui.tabs.armor import ArmorTab
 from heroforge.ui.tabs.attacks import AttacksTab
@@ -342,6 +350,15 @@ class MainWindow(QMainWindow):
     #: kept for backwards compatibility but flagged in the UI via a tooltip.
     _DEPRECATED_TABS: frozenset[str] = frozenset({"LG Game Log"})
 
+    # Custom-content dialogs sharing a ``(parent)``-only constructor.  Declared
+    # as data so new homebrew dialogs can be exposed by adding a single row.
+    _CUSTOM_DIALOG_REGISTRY: list[tuple[str, type[QDialog]]] = [
+        ("Custom &Race…", CustomRaceDialog),
+        ("Custom &Template…", CustomTemplateDialog),
+        ("Custom &Class…", CustomClassDialog),
+        ("Custom &Familiar…", CustomFamiliarDialog),
+    ]
+
     def __init__(self, game_db_path: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle("HeroForge Anew – D&D 3.5 Character Builder")
@@ -396,6 +413,36 @@ class MainWindow(QMainWindow):
         assert act_exit is not None
         act_exit.setShortcut("Ctrl+Q")
         act_exit.triggered.connect(self.close)
+
+        # Tools menu – configuration and custom-content dialogs (§8.3)
+        tools_menu = menubar.addMenu("&Tools")
+        assert tools_menu is not None
+
+        act_options = tools_menu.addAction("&Options…")
+        assert act_options is not None
+        act_options.triggered.connect(self._on_options)
+
+        act_sources = tools_menu.addAction("Select &Sources…")
+        assert act_sources is not None
+        act_sources.triggered.connect(self._on_select_sources)
+
+        act_template_info = tools_menu.addAction("Template &Info…")
+        assert act_template_info is not None
+        act_template_info.triggered.connect(self._on_template_info)
+
+        tools_menu.addSeparator()
+
+        custom_menu = tools_menu.addMenu("Create &Custom")
+        assert custom_menu is not None
+        for label, dialog_cls in self._CUSTOM_DIALOG_REGISTRY:
+            action = custom_menu.addAction(label)
+            assert action is not None
+            # Bind the class per-iteration so each action opens its own dialog.
+            action.triggered.connect(
+                lambda _checked=False, cls=dialog_cls: self._open_dialog(
+                    cls(parent=self)
+                )
+            )
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -513,3 +560,28 @@ class MainWindow(QMainWindow):
             "<p>D&amp;D 3.5 character builder – Python/PyQt6 edition.</p>"
             "<p>Version 8.0.0</p>",
         )
+
+    # ------------------------------------------------------------------
+    # Dialog actions (§8.3)
+    # ------------------------------------------------------------------
+
+    def _open_dialog(self, dialog: QDialog) -> QDialog:
+        """Parent *dialog* to this window and show it modally.
+
+        Centralises dialog parenting so every dialog is correctly owned by the
+        main window (correct stacking, modality and lifetime) and kept in the
+        UI layer.
+        """
+        if dialog.parent() is None:
+            dialog.setParent(self)
+        dialog.exec()
+        return dialog
+
+    def _on_options(self) -> None:
+        self._open_dialog(OptionsDialog(parent=self))
+
+    def _on_select_sources(self) -> None:
+        self._open_dialog(SourceSelectDialog(repo=self.model.game_data(), parent=self))
+
+    def _on_template_info(self) -> None:
+        self._open_dialog(TemplateInfoDialog(parent=self))
