@@ -13,6 +13,7 @@ from __future__ import annotations
 from heroforge.logic.derived_stats import ClassProgression, compute_derived_stats
 from heroforge.logic.export import (
     character_sheet_data,
+    export_character_sheet_pdf,
     export_character_sheet_text,
     export_table_tent_text,
     table_tent_data,
@@ -137,6 +138,47 @@ class TestExportCharacterSheetText:
         assert text.count("(none)") >= 4
         # Default ability scores render at 10 with a +0 modifier.
         assert "STR: 10  (mod +0)" in text
+
+
+class TestExportCharacterSheetPdf:
+    """Rendering the payload to a PDF document."""
+
+    def test_writes_valid_pdf_to_path(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        character = _populated_character()
+        progressions = {
+            "Fighter": ClassProgression("Fighter", "fast", "good", "poor", "poor")
+        }
+        derived = compute_derived_stats(character, progressions)
+        out = tmp_path / "sheet.pdf"
+
+        result = export_character_sheet_pdf(
+            character_sheet_data(character, derived), out
+        )
+
+        assert result == out
+        assert out.exists()
+        contents = out.read_bytes()
+        # A well-formed PDF starts with the %PDF signature and ends with %%EOF.
+        assert contents.startswith(b"%PDF-")
+        assert b"%%EOF" in contents
+
+    def test_writes_valid_pdf_to_file_object(self) -> None:
+        import io
+
+        buffer = io.BytesIO()
+
+        export_character_sheet_pdf(character_sheet_data(Character()), buffer)
+
+        contents = buffer.getvalue()
+        assert contents.startswith(b"%PDF-")
+        assert b"%%EOF" in contents
+
+    def test_empty_character_pdf_does_not_crash(self, tmp_path) -> None:  # type: ignore[no-untyped-def]
+        out = tmp_path / "empty.pdf"
+
+        export_character_sheet_pdf(character_sheet_data(Character()), out)
+
+        assert out.read_bytes().startswith(b"%PDF-")
 
 
 class TestExportTableTentText:
