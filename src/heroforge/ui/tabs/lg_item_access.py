@@ -13,7 +13,7 @@ Game Log, …) sharing that list are preserved untouched.  This mirrors the
 ``game_log`` record type on the same list.
 
 Living Greyhawk content is legacy: this tab is **deprecated** and retained only
-for backwards compatibility (see ``docs/conversion-plan.md`` §16).
+for backwards compatibility (see ``docs/conversion-plan.md`` §§11.1, 14).
 """
 
 from __future__ import annotations
