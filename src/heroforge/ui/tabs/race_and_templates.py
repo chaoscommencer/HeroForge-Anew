@@ -75,6 +75,7 @@ class RaceAndTemplatesTab(QWidget):
         traits_box = QGroupBox("Racial Traits")
         traits_layout = QVBoxLayout(traits_box)
         self._traits_list = QListWidget()
+        self._traits_list.setToolTip("Special abilities granted by the selected race")
         traits_layout.addWidget(self._traits_list)
         inner_layout.addWidget(traits_box)
 
@@ -84,6 +85,7 @@ class RaceAndTemplatesTab(QWidget):
 
         self._remove_template_btn.clicked.connect(self._remove_template)
         self._add_template_btn.clicked.connect(self._add_template)
+        self._race_combo.currentTextChanged.connect(self._on_race_changed)
         self._load_data()
 
     def _load_data(self) -> None:
@@ -95,6 +97,15 @@ class RaceAndTemplatesTab(QWidget):
         self._race_combo.addItems(repo.list_races())
         self._race_combo.setCurrentIndex(-1)
         self._available_templates = repo.list_templates()
+
+    def _on_race_changed(self, race_name: str) -> None:
+        """Refresh the racial traits list when a new race is chosen."""
+        self._traits_list.clear()
+        if not race_name or self._model is None:
+            return
+        repo = self._model.game_data()
+        for ability in repo.list_racial_abilities(race_name):
+            self._traits_list.addItem(ability.ability_name)
 
     def _add_template(self) -> None:
         """Add a database-backed template that is not already applied."""

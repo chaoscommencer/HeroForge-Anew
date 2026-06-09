@@ -447,8 +447,104 @@ def _extract_graft_abilities(wb: object) -> list[tuple[object, ...]]:
         description = _col(row, "B")
         if not (graft_name and description):
             continue
-        ability = re.sub(r"^[\u00d7\s]+", "", description).split(":", 1)[0].strip()
+        ability = _ability_name_from_description(description)
         rows.append((graft_name, ability or graft_name, description))
+    return rows
+
+
+#: Whole-cell numeric guards used to skip spacer/header cells in the data sheets.
+_SIGNED_INT_RE = re.compile(r"-?\d+")
+_UNSIGNED_INT_RE = re.compile(r"\d+")
+
+
+def _ability_name_from_description(description: str) -> str:
+    """Derive an ability name from a ``"× Name: text"`` description bullet.
+
+    Strips a leading ``×`` bullet/whitespace and keeps the text up to the first
+    colon.  Descriptions with no colon yield the full (de-bulleted) text so the
+    name is never empty.
+    """
+    return re.sub(r"^[\u00d7\s]+", "", description).split(":", 1)[0].strip()
+
+
+def _extract_racial_abilities(wb: object) -> list[tuple[object, ...]]:
+    """Extract per-race special abilities from the ``Racial Abilities`` sheet.
+
+    Each populated data row carries the race name in column ``A`` and a single
+    ability bullet (``× Name: description``) in column ``C``.  The legend/template
+    block at the top of the sheet has no race name in column ``A`` and is skipped
+    naturally.  The ability name is parsed from the bullet for convenience while
+    the full bullet text is preserved as the description.
+    """
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Racial Abilities"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 0):
+        race_name = _col(row, "A")
+        description = _col(row, "C")
+        if not (race_name and description):
+            continue
+        ability = _ability_name_from_description(description)
+        rows.append((race_name, ability or race_name, description))
+    return rows
+
+
+def _extract_incarnum_abilities(wb: object) -> list[tuple[object, ...]]:
+    """Extract the receptacle (blue) incarnum abilities from ``Incarnum Abilities``.
+
+    The catalogue lives in a three-column block: an index in column ``V``, the
+    ability name in column ``W`` and a description template in column ``X``.
+    Header/spacer rows (whose ``W`` cell is blank or purely numeric) are skipped.
+    """
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Incarnum Abilities"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 0):
+        name = _col(row, "W")
+        description = _col(row, "X")
+        if not name or not description or _SIGNED_INT_RE.fullmatch(name):
+            continue
+        rows.append((name, None, None, description))
+    return rows
+
+
+def _extract_vestiges(wb: object) -> list[tuple[object, ...]]:
+    """Extract the bindable vestige list from the ``Binder Vestiges`` sheet.
+
+    The vestige index/name/DC table occupies columns ``P``/``Q``/``R``; rows are
+    keyed by an integer index in column ``P`` with the name in column ``Q``.
+    Iteration stops at the unrelated ``Pact Augmentations`` block that reuses the
+    same columns lower down the sheet.
+    """
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Binder Vestiges"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 0):
+        name = _col(row, "Q")
+        if name == "Pact Augmentations":
+            break
+        index = _col(row, "P")
+        if not _UNSIGNED_INT_RE.fullmatch(index) or not name:
+            continue
+        dc_str = _col(row, "R")
+        dc: int | None = int(dc_str) if _UNSIGNED_INT_RE.fullmatch(dc_str) else None
+        rows.append((name, dc, "", "", "", ""))
+    return rows
+
+
+def _extract_marshal_auras(wb: object) -> list[tuple[object, ...]]:
+    """Extract minor and major marshal auras from the ``Marshal Auras`` sheet.
+
+    Minor auras are listed in column ``B`` and major auras in column ``E``, each
+    under a ``Minor Auras``/``Major Auras`` header.  The header labels live in
+    columns ``A``/``D`` so the name columns contain only aura names.
+    """
+    rows: list[tuple[object, ...]] = []
+    ws = wb["Marshal Auras"]  # type: ignore[index]
+    for row in _sheet_rows(ws, 0):
+        minor = _col(row, "B")
+        if minor:
+            rows.append((minor, "Minor", "", ""))
+        major = _col(row, "E")
+        if major:
+            rows.append((major, "Major", "", ""))
     return rows
 
 
@@ -928,6 +1024,31 @@ _WORKBOOK_TABLES: tuple[_WorkbookTable, ...] = (
         "Graft Abilities",
         ("graft_name", "ability_name", "description"),
         _extract_graft_abilities,
+    ),
+    _WorkbookTable(
+        "racial_abilities",
+        "Racial Abilities",
+        ("race_name", "ability_name", "description"),
+        _extract_racial_abilities,
+    ),
+    _WorkbookTable(
+        "incarnum_abilities",
+        "Incarnum Abilities",
+        ("name", "class_name", "feat_name", "description"),
+        _extract_incarnum_abilities,
+    ),
+    _WorkbookTable(
+        "vestiges",
+        "Binder Vestiges",
+        ("name", "level", "sign", "influence", "granted_abilities", "source"),
+        _extract_vestiges,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "marshal_auras",
+        "Marshal Auras",
+        ("name", "type", "bonus_type", "description"),
+        _extract_marshal_auras,
     ),
     _WorkbookTable(
         "familiar_master_abilities",

@@ -93,6 +93,18 @@ class TestWorkbookSeeding:
             assert conn.execute("SELECT COUNT(*) FROM skills").fetchone()[0] == 57
             assert conn.execute("SELECT COUNT(*) FROM armor").fetchone()[0] == 104
             assert conn.execute("SELECT COUNT(*) FROM maneuvers").fetchone()[0] == 208
+            assert (
+                conn.execute("SELECT COUNT(*) FROM incarnum_abilities").fetchone()[0]
+                == 51
+            )
+            assert conn.execute("SELECT COUNT(*) FROM vestiges").fetchone()[0] == 44
+            assert (
+                conn.execute("SELECT COUNT(*) FROM marshal_auras").fetchone()[0] == 32
+            )
+            assert (
+                conn.execute("SELECT COUNT(*) FROM racial_abilities").fetchone()[0]
+                == 1033
+            )
 
             skill = conn.execute(
                 "SELECT name, key_ability, armor_check_penalty "
@@ -162,6 +174,40 @@ class TestWorkbookSeeding:
         assert names == ["Alertness", "Scry on Familiar (Sp)", "Natural Link (Su)"]
         alertness = rows[0]["description"]
         assert "+2 to Spot & Listen checks" in alertness
+
+    def test_workbook_reference_tables_have_expected_content(
+        self, seeded_db: Path
+    ) -> None:
+        """Spot-check representative rows of the newly seeded reference tables."""
+        conn = get_connection(seeded_db)
+        try:
+            marshal = {
+                r["name"]: r["type"]
+                for r in conn.execute("SELECT name, type FROM marshal_auras")
+            }
+            vestige = conn.execute(
+                "SELECT level FROM vestiges WHERE name = ?", ("Amon",)
+            ).fetchone()
+            incarnum = conn.execute(
+                "SELECT name, description FROM incarnum_abilities WHERE name = ?",
+                ("Duskling Speed",),
+            ).fetchone()
+            racial = conn.execute(
+                "SELECT ability_name, description FROM racial_abilities "
+                "WHERE race_name = ? AND ability_name = ?",
+                ("Aarakocra", "Claustrophobic"),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        assert marshal.get("Accurate Strike") == "Minor"
+        assert marshal.get("Hardy Soldiers") == "Major"
+        assert vestige is not None
+        assert vestige["level"] == 20  # Amon's binding DC per the workbook
+        assert incarnum is not None
+        assert incarnum["description"].startswith("Your speed is increased")
+        assert racial is not None
+        assert racial["description"].startswith("\u00d7 Claustrophobic:")
 
     def test_skill_footnotes_preserve_marked_names(self, seeded_db: Path) -> None:
         conn = get_connection(seeded_db)
