@@ -49,6 +49,35 @@ src/
 
 ---
 
+## Codebase Navigation with Graphify (do this first)
+
+This repository is mapped into a queryable **knowledge graph** by
+[graphify](https://github.com/safishamsi/graphify) (PyPI package `graphifyy`,
+CLI `graphify`). The tool is pre-installed and the graph is pre-built at
+`graphify-out/graph.json` by `.github/workflows/copilot-setup-steps.yml`. Code is
+extracted locally with tree-sitter — no API key or network access is needed to
+build or query the graph.
+
+**Query the graph before grepping or opening files.** A single `graphify query`
+returns the relevant functions, classes, files, and their relationships in a
+compact form, so you spend far fewer tokens than reading source files one by one.
+
+- Understand structure or find where logic lives:
+  `graphify query "how are saving throws calculated"`
+- Trace a relationship between two concepts:
+  `graphify path "AttacksTab" "GameDataRepository"`
+- Summarise one symbol and its neighbours:
+  `graphify explain "compute_derived_stats()"`
+- Rebuild after significant edits (or if `graphify-out/graph.json` is missing):
+  `graphify update .`
+- Skim `graphify-out/GRAPH_REPORT.md` for a high-level architecture overview.
+
+Only fall back to `grep`/file reads for the specific locations the graph points
+you at. See `.github/skills/graphify/SKILL.md` for full usage. The generated
+`graphify-out/` directory is git-ignored.
+
+---
+
 ## Goals and Conventions
 
 ### 1. Excel-to-SQLite Migration
@@ -130,6 +159,7 @@ Copilot should use these terms consistently in variable names, comments, and doc
 ## Do's and Don'ts
 
 **Do:**
+- Query the graphify knowledge graph (`graphify query`, `path`, `explain`) before grepping or opening many files to understand the codebase.
 - Follow the structure and naming conventions described above.
 - Reference the original workbook and data files in comments when porting logic.
 - Add or update tests whenever logic is added or modified.
