@@ -256,7 +256,11 @@ class ArmorTab(QWidget):
         self._refresh_summary()
 
     def _add_to_custom_armor(self, item: ArmorItem) -> None:
-        """Persist *item* to :attr:`Character.custom_armor` (in-memory; saved on sync)."""
+        """Persist *item* to :attr:`Character.custom_armor`.
+
+        This only updates the in-memory character; the entry is written to the
+        character DB on next save.
+        """
         if self._model is None:
             return
         existing = self._model.character.custom_armor
