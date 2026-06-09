@@ -175,7 +175,9 @@ class MagicEquipmentTab(QWidget):
 
     def _merged_item_catalog(self, slot: str | None = None) -> list[str]:
         """Return merged game + character-custom magic item names for *slot*."""
-        game_items = self._model.game_data().list_magic_equipment() if self._model else []
+        game_items = (
+            self._model.game_data().list_magic_equipment() if self._model else []
+        )
         all_names = [m.name for m in game_items]
         if slot:
             slot_names = [m.name for m in game_items if not m.slot or m.slot == slot]
@@ -185,7 +187,9 @@ class MagicEquipmentTab(QWidget):
             filtered = all_names
         names: list[str] = list(filtered)
         if self._model:
-            custom_names = {e.get("name", "") for e in self._model.character.custom_items}
+            custom_names = {
+                e.get("name", "") for e in self._model.character.custom_items
+            }
             names += [n for n in sorted(custom_names) if n and n not in names]
         return names
 
@@ -197,8 +201,12 @@ class MagicEquipmentTab(QWidget):
         options = self._merged_item_catalog(slot)
         name = pick_from_catalog(self, "Assign Item", f"Item for {slot}:", options)
         if name:
-            if self._model and name not in {m.name for m in self._model.game_data().list_magic_equipment()}:
-                self._register_custom_item(name, slot)
+            if self._model is not None:
+                game_names = {
+                    m.name for m in self._model.game_data().list_magic_equipment()
+                }
+                if name not in game_names:
+                    self._register_custom_item(name, slot)
             self._slots_table.setItem(row, 1, QTableWidgetItem(name))
 
     def add_extra(self, name: str) -> bool:
@@ -214,8 +222,12 @@ class MagicEquipmentTab(QWidget):
         options = self._merged_item_catalog()
         name = pick_from_catalog(self, "Add Item", "Item:", options)
         if name:
-            if self._model and name not in {m.name for m in self._model.game_data().list_magic_equipment()}:
-                self._register_custom_item(name, "")
+            if self._model is not None:
+                game_names = {
+                    m.name for m in self._model.game_data().list_magic_equipment()
+                }
+                if name not in game_names:
+                    self._register_custom_item(name, "")
             self.add_extra(name)
 
     def _register_custom_item(self, name: str, slot: str) -> None:
