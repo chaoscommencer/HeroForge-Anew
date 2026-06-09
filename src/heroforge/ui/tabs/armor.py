@@ -355,12 +355,17 @@ class ArmorTab(QWidget):
                     # Legacy save with inline stats — migrate to custom_armor.
                     item = ArmorItem(
                         name=item_name,
-                        type=entry.get("item_type") or ("Shield" if is_shield else "Armor"),
-                        ac_bonus=entry.get("ac_bonus") or 0,
-                        max_dex_bonus=entry.get("max_dex_bonus"),
-                        check_penalty=entry.get("check_penalty") or 0,
-                        arcane_spell_failure=entry.get("arcane_spell_failure") or 0,
-                        weight=entry.get("weight") or 0.0,
+                        type=entry.get("item_type")
+                        or ("Shield" if is_shield else "Armor"),
+                        ac_bonus=int(entry.get("ac_bonus") or 0),
+                        max_dex_bonus=(
+                            None
+                            if entry.get("max_dex_bonus") in (None, "", "—")
+                            else int(entry.get("max_dex_bonus"))
+                        ),
+                        check_penalty=int(entry.get("check_penalty") or 0),
+                        arcane_spell_failure=int(entry.get("arcane_spell_failure") or 0),
+                        weight=float(entry.get("weight") or 0.0),
                         source="",
                     )
                     self._add_to_custom_armor(item)
