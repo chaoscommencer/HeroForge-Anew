@@ -128,6 +128,7 @@ HeroForge-Anew/
 │               ├── familiar.py
 │               ├── character_sheet.py  ← read-only summary (replaces CS I–V)
 │               ├── game_log.py
+│               ├── lg_game_log.py    ← Living Greyhawk variant (deprecated)
 │               └── initiative_card.py
 ├── tests/
 │   ├── conftest.py
@@ -498,6 +499,7 @@ Each tab in the Excel workbook maps to a `QWidget` subclass in `src/heroforge/ui
 | Familiar | `FamiliarTab` | `tabs/familiar.py` |
 | Character Sheet I–V | `CharacterSheetTab` | `tabs/character_sheet.py` |
 | Game Log | `GameLogTab` | `tabs/game_log.py` |
+| LG Game Log | `LGGameLogTab` (deprecated) | `tabs/lg_game_log.py` |
 | Initiative Card | `InitiativeCardTab` | `tabs/initiative_card.py` |
 
 > **Note:** The ExportSheet, CS Calc., and internal data sheets (Race Info, Class Info, etc.) have no direct UI tab equivalent; they are replaced by the database layer and logic modules.
@@ -662,7 +664,7 @@ The following is the complete list of sheets in `HeroForge Anew 3.5 v7.4.0.1.xls
 | Character Sheet IV | PyQt tab (merged) |
 | Character Sheet V | PyQt tab (merged) |
 | Game Log | PyQt tab |
-| LG Game Log | PyQt tab (Living Greyhawk; low priority) |
+| LG Game Log | `LGGameLogTab` (Living Greyhawk; implemented, deprecated in the UI) |
 | Initiative Card | PyQt tab |
 | Table Tent | Low priority; printable summary |
 | ExportSheet | Replaced by `logic/export.py` |
@@ -778,7 +780,7 @@ The VBA code in the workbook is compiled into `xl/vbaProject.bin`. The functiona
 | Data quality issues in source CSVs | Medium | Medium | Add validation step to seed script; log all rows that fail validation |
 | Performance of DB queries during real-time recalculation | Low | Medium | Cache static data (races, classes, feats) in memory at startup; only hit DB for character-specific queries |
 | Save format compatibility with `.hfg` files | Medium | Low | Implement a one-way importer; document that the old format is read-only |
-| Living Greyhawk content is legacy and low priority | Low | Low | Implement stub tabs; mark as deprecated in the UI |
+| Living Greyhawk content is legacy and low priority | Low | Low | Implement stub tabs; mark as deprecated in the UI. *Status:* the LG Game Log is implemented (`LGGameLogTab`) and flagged deprecated in the UI (in-tab banner + tab tooltip); LG MIL / Item Access remain tracked separately. |
 
 ---
 
