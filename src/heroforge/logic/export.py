@@ -236,7 +236,7 @@ def table_tent_data(
 
 def _signed(value: object) -> str:
     """Render a numeric modifier with an explicit sign, passing text through."""
-    if isinstance(value, bool):  # ``bool`` is an ``int`` subclass; treat as text.
+    if isinstance(value, bool):  # bool is an int subclass; treat it as text.
         return str(value)
     if isinstance(value, int):
         return f"+{value}" if value >= 0 else str(value)
@@ -300,6 +300,7 @@ def export_table_tent_text(character_data: dict) -> str:  # type: ignore[type-ar
     Returns:
         Multi-line plain-text Table Tent string.
     """
+    # A dashed fold guide ("- - - …") spanning the panel width.
     fold = "- " * (TABLE_TENT_WIDTH // 2)
     fold_line = fold[:TABLE_TENT_WIDTH].rstrip()
 
