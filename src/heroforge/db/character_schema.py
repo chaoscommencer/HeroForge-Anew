@@ -276,6 +276,43 @@ CREATE TABLE IF NOT EXISTS character_custom_content (
     definition      TEXT
 );
 
+CREATE TABLE IF NOT EXISTS character_custom_armor (
+    id                      INTEGER PRIMARY KEY,
+    character_id            INTEGER NOT NULL REFERENCES characters(id)
+                                ON DELETE CASCADE,
+    name                    TEXT NOT NULL,
+    type                    TEXT NOT NULL DEFAULT 'Armor',
+    ac_bonus                INTEGER NOT NULL DEFAULT 0,
+    max_dex_bonus           INTEGER,
+    check_penalty           INTEGER NOT NULL DEFAULT 0,
+    arcane_spell_failure    INTEGER NOT NULL DEFAULT 0,
+    weight                  REAL NOT NULL DEFAULT 0,
+    UNIQUE(character_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS character_custom_weapons (
+    id              INTEGER PRIMARY KEY,
+    character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    name            TEXT NOT NULL,
+    category        TEXT NOT NULL DEFAULT '',
+    damage          TEXT NOT NULL DEFAULT '',
+    critical        TEXT NOT NULL DEFAULT '',
+    range_increment INTEGER NOT NULL DEFAULT 0,
+    damage_type     TEXT NOT NULL DEFAULT '',
+    weight          REAL NOT NULL DEFAULT 0,
+    UNIQUE(character_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS character_custom_items (
+    id              INTEGER PRIMARY KEY,
+    character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    name            TEXT NOT NULL,
+    slot            TEXT NOT NULL DEFAULT '',
+    description     TEXT NOT NULL DEFAULT '',
+    weight          REAL NOT NULL DEFAULT 0,
+    UNIQUE(character_id, name)
+);
+
 CREATE TABLE IF NOT EXISTS character_lg_records (
     id              INTEGER PRIMARY KEY,
     character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,

@@ -18,6 +18,12 @@ from PyQt6.QtWidgets import (
 )
 
 from heroforge.logic.ability_scores import ability_modifier
+from heroforge.logic.familiar import (
+    STANDARD_FAMILIAR_BONUSES,
+    familiar_natural_link,
+    selected_familiar_kind,
+    skill_bonuses,
+)
 from heroforge.logic.skills import skill_modifier
 
 if TYPE_CHECKING:
@@ -81,11 +87,15 @@ class SkillsTab(QWidget):
     ) -> None:
         super().__init__(parent)
         self._model = model
+        self._familiar_skill_bonuses: dict[str, int] = {}
         self._build_ui()
         if model:
             model.character_reset.connect(self._reset)
             model.ability_score_changed.connect(self._on_ability_score_changed)
+            model.character_loaded.connect(lambda _id: self._refresh_familiar_bonuses())
+            model.derived_stats_changed.connect(self._refresh_familiar_bonuses)
             self._update_ability_mods()
+            self._refresh_familiar_bonuses()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -180,6 +190,30 @@ class SkillsTab(QWidget):
                 item.setText(str(mod))
         self._recalculate()
 
+    def _refresh_familiar_bonuses(self) -> None:
+        """Recompute the automatic skill bonuses granted by a familiar.
+
+        Combines a standard familiar's creature-specific skill bonus (e.g. a
+        Bat's +3 Listen) with the universal Alertness +2 to Spot & Listen, and
+        doubles them when Natural Link is active.  The seeded ``familiar_bonuses``
+        data is used when available, falling back to the canonical constant so
+        the bonuses still apply offline.
+        """
+        self._familiar_skill_bonuses = {}
+        if self._model is not None:
+            companions = self._model.character.companions
+            kind = selected_familiar_kind(companions)
+            if kind:
+                records = self._model.game_data().get_familiar_bonus_records() or list(
+                    STANDARD_FAMILIAR_BONUSES
+                )
+                self._familiar_skill_bonuses = skill_bonuses(
+                    kind,
+                    records,
+                    natural_link=familiar_natural_link(companions),
+                )
+        self._recalculate()
+
     def _recalculate(self) -> None:
         for row in range(self._table.rowCount()):
             class_item = self._table.item(row, 2)
@@ -193,12 +227,25 @@ class SkillsTab(QWidget):
             ability_mod = int(ability_item.text()) if ability_item else 0
             misc_widget = self._table.cellWidget(row, 5)
             misc = misc_widget.value() if misc_widget else 0
-            total = skill_modifier(ranks, ability_mod, is_class, misc)
+            name_item = self._table.item(row, 0)
+            familiar = (
+                self._familiar_skill_bonuses.get(name_item.text(), 0)
+                if name_item
+                else 0
+            )
+            total = skill_modifier(ranks, ability_mod, is_class, misc + familiar)
             total_item = self._table.item(row, 6)
             if total_item:
                 total_item.setText(str(total))
+                total_item.setToolTip(
+                    f"Includes +{familiar} granted by your familiar "
+                    "(Alertness-equivalent via Natural Link)."
+                    if familiar
+                    else ""
+                )
 
     def _reset(self) -> None:
         for spin in self._rank_spinboxes:
             spin.setValue(0.0)
         self._update_ability_mods()
+        self._refresh_familiar_bonuses()

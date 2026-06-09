@@ -157,6 +157,36 @@ def _sample_character() -> Character:
                 "definition": '{"size": "Medium"}',
             },
         ],
+        custom_armor=[
+            {
+                "name": "Masterwork Breastplate",
+                "type": "Armor",
+                "ac_bonus": 5,
+                "max_dex_bonus": 3,
+                "check_penalty": -3,
+                "arcane_spell_failure": 25,
+                "weight": 30.0,
+            },
+        ],
+        custom_weapons=[
+            {
+                "name": "Ancestral Sword",
+                "category": "Martial",
+                "damage": "1d8",
+                "critical": "19-20/x2",
+                "range_increment": 0,
+                "damage_type": "Slashing",
+                "weight": 4.0,
+            },
+        ],
+        custom_items=[
+            {
+                "name": "Ring of the Archmagi",
+                "slot": "Ring",
+                "description": "Homebrew ring granting +4 to all saves",
+                "weight": 0.0,
+            },
+        ],
         lg_records=[
             {
                 "record_type": "game_log",
@@ -236,6 +266,9 @@ class TestSaveLoadRoundTrip:
         assert loaded.attacks == char.attacks
         assert loaded.enhancements == char.enhancements
         assert loaded.custom_content == char.custom_content
+        assert loaded.custom_armor == char.custom_armor
+        assert loaded.custom_weapons == char.custom_weapons
+        assert loaded.custom_items == char.custom_items
         assert loaded.lg_records == char.lg_records
         assert loaded.game_log == char.game_log
 
@@ -269,6 +302,9 @@ class TestSaveLoadRoundTrip:
             "character_attacks": 1,
             "character_enhancements": 1,
             "character_custom_content": 1,
+            "character_custom_armor": 1,
+            "character_custom_weapons": 1,
+            "character_custom_items": 1,
             "character_lg_records": 1,
             "character_notes": 1,
         }

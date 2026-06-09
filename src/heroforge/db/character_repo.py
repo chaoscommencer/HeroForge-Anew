@@ -24,11 +24,35 @@ import json
 import os
 import sqlite3
 import tempfile
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
 from heroforge.db.schema import get_connection, initialize_character_database
 from heroforge.models.character import Character
+
+
+def _load_table_gracefully[T](
+    conn: sqlite3.Connection,
+    sql: str,
+    character_id: int,
+    row_to_dict: Callable[[sqlite3.Row], T],
+) -> list[T]:
+    """Execute *sql* against *conn* and map rows via *row_to_dict*.
+
+    Returns an empty list when the table does not yet exist (e.g. an older
+    save file created before the table was added to the schema), so that
+    loading older characters gracefully degrades rather than crashing.
+    """
+    try:
+        return [row_to_dict(r) for r in conn.execute(sql, (character_id,)).fetchall()]
+    except sqlite3.OperationalError as exc:
+        # Only swallow "no such table" — re-raise anything else (syntax errors,
+        # corruption, permission problems, …) so real bugs are not hidden.
+        if "no such table" in str(exc).lower():
+            return []
+        raise
+
 
 # Related tables that are fully replaced whenever a character is saved.
 _RELATED_TABLES: tuple[str, ...] = (
@@ -57,6 +81,9 @@ _RELATED_TABLES: tuple[str, ...] = (
     "character_attacks",
     "character_enhancements",
     "character_custom_content",
+    "character_custom_armor",
+    "character_custom_weapons",
+    "character_custom_items",
     "character_lg_records",
     "character_notes",
 )
@@ -451,6 +478,59 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
             ],
         )
         cur.executemany(
+            "INSERT OR REPLACE INTO character_custom_armor "
+            "(character_id, name, type, ac_bonus, max_dex_bonus, check_penalty, "
+            "arcane_spell_failure, weight) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(a.get("name", "")),
+                    str(a.get("type", "Armor")),
+                    int(a.get("ac_bonus", 0)),
+                    a.get("max_dex_bonus"),
+                    int(a.get("check_penalty", 0)),
+                    int(a.get("arcane_spell_failure", 0)),
+                    float(a.get("weight", 0)),
+                )
+                for a in character.custom_armor
+                if a.get("name")
+            ],
+        )
+        cur.executemany(
+            "INSERT OR REPLACE INTO character_custom_weapons "
+            "(character_id, name, category, damage, critical, range_increment, "
+            "damage_type, weight) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(w.get("name", "")),
+                    str(w.get("category", "")),
+                    str(w.get("damage", "")),
+                    str(w.get("critical", "")),
+                    int(w.get("range_increment", 0)),
+                    str(w.get("damage_type", "")),
+                    float(w.get("weight", 0)),
+                )
+                for w in character.custom_weapons
+                if w.get("name")
+            ],
+        )
+        cur.executemany(
+            "INSERT OR REPLACE INTO character_custom_items "
+            "(character_id, name, slot, description, weight) VALUES (?, ?, ?, ?, ?)",
+            [
+                (
+                    cid,
+                    str(i.get("name", "")),
+                    str(i.get("slot", "")),
+                    str(i.get("description", "")),
+                    float(i.get("weight", 0)),
+                )
+                for i in character.custom_items
+                if i.get("name")
+            ],
+        )
+        cur.executemany(
             "INSERT INTO character_lg_records "
             "(character_id, record_type, event_date, description, gp_change, "
             "xp_change, notes, order_taken) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -825,6 +905,52 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
             (character_id,),
         ).fetchall()
     ]
+
+    character.custom_armor = _load_table_gracefully(
+        conn,
+        "SELECT name, type, ac_bonus, max_dex_bonus, check_penalty, "
+        "arcane_spell_failure, weight FROM character_custom_armor "
+        "WHERE character_id = ? ORDER BY name",
+        character_id,
+        lambda r: {
+            "name": r["name"],
+            "type": r["type"],
+            "ac_bonus": r["ac_bonus"],
+            "max_dex_bonus": r["max_dex_bonus"],
+            "check_penalty": r["check_penalty"],
+            "arcane_spell_failure": r["arcane_spell_failure"],
+            "weight": r["weight"],
+        },
+    )
+
+    character.custom_weapons = _load_table_gracefully(
+        conn,
+        "SELECT name, category, damage, critical, range_increment, damage_type, weight "
+        "FROM character_custom_weapons WHERE character_id = ? ORDER BY name",
+        character_id,
+        lambda r: {
+            "name": r["name"],
+            "category": r["category"],
+            "damage": r["damage"],
+            "critical": r["critical"],
+            "range_increment": r["range_increment"],
+            "damage_type": r["damage_type"],
+            "weight": r["weight"],
+        },
+    )
+
+    character.custom_items = _load_table_gracefully(
+        conn,
+        "SELECT name, slot, description, weight FROM character_custom_items "
+        "WHERE character_id = ? ORDER BY name",
+        character_id,
+        lambda r: {
+            "name": r["name"],
+            "slot": r["slot"],
+            "description": r["description"],
+            "weight": r["weight"],
+        },
+    )
 
     character.lg_records = [
         {

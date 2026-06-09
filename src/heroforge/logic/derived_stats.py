@@ -87,6 +87,7 @@ def compute_derived_stats(
     progressions: Mapping[str, ClassProgression] | None = None,
     *,
     size: str = "Medium",
+    save_bonuses: Mapping[str, int] | None = None,
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
@@ -98,11 +99,16 @@ def compute_derived_stats(
                        defaults (``medium`` BAB, ``poor`` saves).
         size:          Size category used for AC, attack, and grapple size
                        modifiers (PHB p149, p156).
+        save_bonuses:  Optional miscellaneous saving-throw bonuses keyed by the
+                       short save keys ``"fort"``, ``"ref"``, ``"will"`` (e.g. a
+                       standard familiar's master benefit).  Missing keys are
+                       treated as ``0``.
 
     Returns:
         An immutable :class:`DerivedStats` snapshot.
     """
     progressions = progressions or {}
+    save_bonuses = save_bonuses or {}
     scores = character.ability_scores
     mods_dict = {a: ability_modifier(int(scores.get(a, 10))) for a in _ABILITIES}
     mods: Mapping[str, int] = MappingProxyType(mods_dict)
@@ -139,8 +145,10 @@ def compute_derived_stats(
         armor_class=combat.armor_class(dex_mod, size=size),
         touch_ac=combat.touch_ac(dex_mod, size=size),
         flat_footed_ac=combat.flat_footed_ac(size=size),
-        fortitude=saving_throws.fortitude(base_fort, con_mod),
-        reflex=saving_throws.reflex(base_ref, dex_mod),
-        will=saving_throws.will(base_will, wis_mod),
+        fortitude=saving_throws.fortitude(
+            base_fort, con_mod, save_bonuses.get("fort", 0)
+        ),
+        reflex=saving_throws.reflex(base_ref, dex_mod, save_bonuses.get("ref", 0)),
+        will=saving_throws.will(base_will, wis_mod, save_bonuses.get("will", 0)),
         carrying_capacity=combat.carrying_capacity(int(scores.get("STR", 10))),
     )

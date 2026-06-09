@@ -99,6 +99,16 @@ class Character:
     custom_content: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
     """Homebrew definitions, each ``{content_type, name, definition}``;
     ``definition`` is a JSON string."""
+    custom_armor: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """User-defined armor/shield entries not present in the game catalogue,
+    each ``{name, type, ac_bonus, max_dex_bonus, check_penalty,
+    arcane_spell_failure, weight}``."""
+    custom_weapons: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """User-defined weapon entries, each ``{name, category, damage, critical,
+    range_increment, damage_type, weight}``."""
+    custom_items: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
+    """User-defined magic-item entries, each ``{name, slot, description,
+    weight}``."""
     lg_records: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
     """Living Greyhawk records, each ``{record_type, event_date, description,
     gp_change, xp_change, notes}``."""

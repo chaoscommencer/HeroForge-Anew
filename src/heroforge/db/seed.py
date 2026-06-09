@@ -24,6 +24,7 @@ from pathlib import Path
 import openpyxl
 
 from heroforge.db.schema import initialize_database
+from heroforge.logic.familiar import STANDARD_FAMILIAR_BONUSES
 
 logger = logging.getLogger(__name__)
 
@@ -451,6 +452,61 @@ def _extract_graft_abilities(wb: object) -> list[tuple[object, ...]]:
     return rows
 
 
+# Matches the wizard "× Familiar:" class-feature header that introduces the
+# universal master benefits in the Character Sheet's Special Abilities section.
+_FAMILIAR_PARENT_RE = re.compile(r"^\s*[\u00d7]\s*Familiar\s*:", re.IGNORECASE)
+
+
+def _parse_master_ability(text: str) -> tuple[str, str]:
+    """Split a ``"× Name: description"`` bullet into ``(name, description)``."""
+    body = re.sub(r"^[\u00d7\s]+", "", text)
+    name, _sep, description = body.partition(":")
+    return name.strip(), description.strip()
+
+
+def _extract_familiar_master_abilities(wb: object) -> list[tuple[object, ...]]:
+    """Extract the universal familiar master benefits from ``Class Abilities``.
+
+    These are the indented lines that appear immediately beneath the
+    ``× Familiar: You have called a <creature> …`` wizard class-feature entry in
+    the Character Sheet's *Special Abilities* section
+    (``Class Abilities!A162:A164`` in the reference workbook): Alertness, Scry on
+    Familiar and Natural Link.  They are detected structurally – the parent
+    ``× Familiar:`` line followed by its indented ``×`` children – so the
+    extractor tolerates row shifts in future workbook revisions.
+    """
+    ws = wb["Class Abilities"]  # type: ignore[index]
+    rows: list[tuple[object, ...]] = []
+    in_block = False
+    order = 0
+    for (value,) in ws.iter_rows(  # type: ignore[attr-defined]
+        min_col=1, max_col=1, values_only=True
+    ):
+        if value is None:
+            if in_block:
+                break
+            continue
+        text = str(value)
+        stripped = text.strip()
+        if not in_block:
+            if (
+                _FAMILIAR_PARENT_RE.match(text)
+                and "magical companion" in stripped.lower()
+            ):
+                in_block = True
+            continue
+        # In-block: collect the indented "×" child bullets, stopping at the next
+        # non-indented ability (or any non-bullet line).
+        if text[:1].isspace() and stripped.startswith("\u00d7"):
+            name, description = _parse_master_ability(stripped)
+            if name and description:
+                rows.append((name, description, order))
+                order += 1
+            continue
+        break
+    return rows
+
+
 def _extract_soulmelds(wb: object) -> list[tuple[object, ...]]:
     rows: list[tuple[object, ...]] = []
     ws = wb["SoulmeldsInfo"]  # type: ignore[index]
@@ -874,6 +930,13 @@ _WORKBOOK_TABLES: tuple[_WorkbookTable, ...] = (
         _extract_graft_abilities,
     ),
     _WorkbookTable(
+        "familiar_master_abilities",
+        "Class Abilities",
+        ("name", "description", "sort_order"),
+        _extract_familiar_master_abilities,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
         "soulmelds",
         "SoulmeldsInfo",
         (
@@ -1275,6 +1338,47 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Code-defined reference seeding helpers
+# ---------------------------------------------------------------------------
+
+
+def seed_familiar_bonuses(conn: sqlite3.Connection) -> None:
+    """Insert the standard-familiar master-bonus rows into ``familiar_bonuses``.
+
+    The data is the structured PHB p52–53 table defined once in
+    :data:`heroforge.logic.familiar.STANDARD_FAMILIAR_BONUSES` (the same source
+    the original workbook used to both apply and describe each bonus).  Rows are
+    upserted so repeated calls are idempotent.
+
+    No external file is read: unlike the other seeders this is reference data
+    that the application owns, so it is kept in code rather than a CSV.
+    """
+    inserted = 0
+    for bonus in STANDARD_FAMILIAR_BONUSES:
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO familiar_bonuses
+                    (creature_name, value, bonus_kind, target, condition)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    bonus.creature_name,
+                    bonus.value,
+                    bonus.kind,
+                    bonus.target,
+                    bonus.condition,
+                ),
+            )
+            inserted += 1
+        except sqlite3.Error as exc:
+            logger.debug("Skipping familiar bonus row %r: %s", bonus.creature_name, exc)
+
+    conn.commit()
+    logger.info("Familiar bonuses: inserted/replaced %d rows", inserted)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -1302,6 +1406,7 @@ def seed_all(
         seed_weapons(conn, data_dir)
         seed_creatures(conn, data_dir)
         seed_tables(conn, data_dir)
+        seed_familiar_bonuses(conn)
         seed_classes(conn, data_dir)
         seed_workbook(conn, workbook_path)
     finally:
