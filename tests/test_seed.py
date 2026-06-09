@@ -363,10 +363,8 @@ class TestWeaponDamageMatrix:
             conn.close()
 
         assert count == 0
-        assert (
-            "weapon_damage table has no Medium rows; skipping weapon seeding "
-            "to prevent persisting raw damage step codes" in caplog.text
-        )
+        assert "weapon_damage table has no Medium rows" in caplog.text
+        assert "skipping weapon seeding" in caplog.text
 
 
 class TestHelpers:
