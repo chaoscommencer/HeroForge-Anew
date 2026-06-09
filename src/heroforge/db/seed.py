@@ -1199,6 +1199,10 @@ def seed_weapon_damage(
             skipped += 1
     conn.commit()
     logger.info("weapon_damage: inserted %d rows, skipped %d", inserted, skipped)
+    if skipped:
+        logger.warning(
+            "weapon_damage: %d row(s) skipped – matrix may be incomplete", skipped
+        )
 
 
 def _load_medium_weapon_damage(conn: sqlite3.Connection) -> dict[int, str]:
