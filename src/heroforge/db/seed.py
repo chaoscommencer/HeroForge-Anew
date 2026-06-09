@@ -1453,113 +1453,115 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
     inserted_skills = 0
     skipped = 0
 
-    for sheet in wb.worksheets:
-        rows = list(sheet.iter_rows(values_only=True))
-        if not rows:
-            continue
-
-        # Locate the header row (the one carrying both "Abr" and "Skill Pts").
-        headers: list[str] = []
-        for candidate in rows[:_CLASS_HEADER_SEARCH_ROWS]:
-            labels = [str(h).strip() if h is not None else "" for h in candidate]
-            if "Abr" in labels and "Skill Pts" in labels:
-                headers = labels
-                break
-        if not headers:
-            continue
-
-        def hidx(label: str) -> int:
-            return headers.index(label) if label in headers else -1
-
-        abr_idx = hidx("Abr")
-        name_idx = abr_idx - 1 if abr_idx > 0 else -1
-        sp_idx = hidx("Skill Pts")
-        hd_idx = hidx("HD Type")
-        bab_idx = hidx("fBAB")
-        fort_idx = hidx("fFort")
-        ref_idx = hidx("fRef")
-        will_idx = hidx("fWill")
-        source_idx = hidx("Reference")
-
-        # The per-skill block runs from "Appraise" up to (but excluding)
-        # "Reference"; ignore "… "-suffixed category separators.
-        skill_cols: list[tuple[int, str]] = []
-        start = hidx("Appraise")
-        end = source_idx if source_idx != -1 else len(headers)
-        if start != -1:
-            for i in range(start, end):
-                label = headers[i] if i < len(headers) else ""
-                if label and "…" not in label:
-                    skill_cols.append((i, label))
-
-        def cell(row_data: tuple, idx: int) -> str:
-            if idx < 0 or idx >= len(row_data):
-                return ""
-            val = row_data[idx]
-            return str(val).strip() if val is not None else ""
-
-        is_prestige = 0
-        for row_data in rows:
-            if all(v is None for v in row_data):
+    try:
+        for sheet in wb.worksheets:
+            rows = list(sheet.iter_rows(values_only=True))
+            if not rows:
                 continue
-            name = cell(row_data, name_idx)
-            if not name:
-                continue
-            # Section dividers (e.g. "– Prestige Classes DMG –") set context
-            # for the classes that follow but are not classes themselves.
-            if name.startswith("–"):
-                is_prestige = 1 if "prestige" in name.lower() else 0
-                continue
-            # Skip placeholders / non-class rows (these have no abbreviation or
-            # are explicit placeholders in the source sheet).
-            if not cell(row_data, abr_idx) or name in _CLASS_PLACEHOLDER_NAMES:
-                skipped += 1
-                continue
-            try:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO classes
-                        (name, is_prestige, hit_die, bab_progression,
-                         fort_progression, ref_progression, will_progression,
-                         skill_points_per_level, source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        name,
-                        is_prestige,
-                        _safe_int(cell(row_data, hd_idx)),
-                        _bab_progression(cell(row_data, bab_idx)),
-                        _save_progression(cell(row_data, fort_idx)),
-                        _save_progression(cell(row_data, ref_idx)),
-                        _save_progression(cell(row_data, will_idx)),
-                        _safe_int(cell(row_data, sp_idx)),
-                        cell(row_data, source_idx),
-                    ),
-                )
-                inserted_classes += 1
 
-                # A skill cell value of "2" marks a class skill for this class.
-                for idx, skill_name in skill_cols:
-                    if cell(row_data, idx) == "2":
-                        try:
-                            conn.execute(
-                                """
-                                INSERT OR REPLACE INTO class_skills
-                                    (class_name, skill_name)
-                                VALUES (?, ?)
-                                """,
-                                (name, skill_name),
-                            )
-                            inserted_skills += 1
-                        except sqlite3.Error:
-                            pass
+            # Locate the header row (the one carrying both "Abr" and "Skill Pts").
+            headers: list[str] = []
+            for candidate in rows[:_CLASS_HEADER_SEARCH_ROWS]:
+                labels = [str(h).strip() if h is not None else "" for h in candidate]
+                if "Abr" in labels and "Skill Pts" in labels:
+                    headers = labels
+                    break
+            if not headers:
+                continue
 
-            except sqlite3.Error as exc:
-                logger.debug("Skipping class row %r: %s", name, exc)
-                skipped += 1
+            def hidx(label: str) -> int:
+                return headers.index(label) if label in headers else -1
 
-    conn.commit()
-    wb.close()
+            abr_idx = hidx("Abr")
+            name_idx = abr_idx - 1 if abr_idx > 0 else -1
+            sp_idx = hidx("Skill Pts")
+            hd_idx = hidx("HD Type")
+            bab_idx = hidx("fBAB")
+            fort_idx = hidx("fFort")
+            ref_idx = hidx("fRef")
+            will_idx = hidx("fWill")
+            source_idx = hidx("Reference")
+
+            # The per-skill block runs from "Appraise" up to (but excluding)
+            # "Reference"; ignore "… "-suffixed category separators.
+            skill_cols: list[tuple[int, str]] = []
+            start = hidx("Appraise")
+            end = source_idx if source_idx != -1 else len(headers)
+            if start != -1:
+                for i in range(start, end):
+                    label = headers[i] if i < len(headers) else ""
+                    if label and "…" not in label:
+                        skill_cols.append((i, label))
+
+            def cell(row_data: tuple, idx: int) -> str:
+                if idx < 0 or idx >= len(row_data):
+                    return ""
+                val = row_data[idx]
+                return str(val).strip() if val is not None else ""
+
+            is_prestige = 0
+            for row_data in rows:
+                if all(v is None for v in row_data):
+                    continue
+                name = cell(row_data, name_idx)
+                if not name:
+                    continue
+                # Section dividers (e.g. "– Prestige Classes DMG –") set context
+                # for the classes that follow but are not classes themselves.
+                if name.startswith("–"):
+                    is_prestige = 1 if "prestige" in name.lower() else 0
+                    continue
+                # Skip placeholders / non-class rows (these have no abbreviation or
+                # are explicit placeholders in the source sheet).
+                if not cell(row_data, abr_idx) or name in _CLASS_PLACEHOLDER_NAMES:
+                    skipped += 1
+                    continue
+                try:
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO classes
+                            (name, is_prestige, hit_die, bab_progression,
+                             fort_progression, ref_progression, will_progression,
+                             skill_points_per_level, source)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            name,
+                            is_prestige,
+                            _safe_int(cell(row_data, hd_idx)),
+                            _bab_progression(cell(row_data, bab_idx)),
+                            _save_progression(cell(row_data, fort_idx)),
+                            _save_progression(cell(row_data, ref_idx)),
+                            _save_progression(cell(row_data, will_idx)),
+                            _safe_int(cell(row_data, sp_idx)),
+                            cell(row_data, source_idx),
+                        ),
+                    )
+                    inserted_classes += 1
+
+                    # A skill cell value of "2" marks a class skill for this class.
+                    for idx, skill_name in skill_cols:
+                        if cell(row_data, idx) == "2":
+                            try:
+                                conn.execute(
+                                    """
+                                    INSERT OR REPLACE INTO class_skills
+                                        (class_name, skill_name)
+                                    VALUES (?, ?)
+                                    """,
+                                    (name, skill_name),
+                                )
+                                inserted_skills += 1
+                            except sqlite3.Error:
+                                pass
+
+                except sqlite3.Error as exc:
+                    logger.debug("Skipping class row %r: %s", name, exc)
+                    skipped += 1
+
+        conn.commit()
+    finally:
+        wb.close()
     logger.info(
         "Classes: inserted/replaced %d class rows, %d skill rows, skipped %d",
         inserted_classes,
