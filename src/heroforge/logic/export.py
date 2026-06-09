@@ -1,8 +1,9 @@
-"""Plain-text character sheet export for HeroForge-Anew."""
+"""Character sheet export (plain text and PDF) for HeroForge-Anew."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import os
+from typing import TYPE_CHECKING, BinaryIO
 
 from heroforge.logic.ability_scores import ability_modifier
 
@@ -215,6 +216,74 @@ def export_character_sheet_text(character_data: dict) -> str:  # type: ignore[ty
 
     lines.append(sep)
     return "\n".join(lines)
+
+
+def export_character_sheet_pdf(
+    character_data: dict,  # type: ignore[type-arg]
+    path: str | os.PathLike[str] | BinaryIO,
+) -> str | os.PathLike[str] | BinaryIO:
+    """Render *character_data* to a PDF character sheet at *path*.
+
+    The PDF reuses the exact layout produced by
+    :func:`export_character_sheet_text`, drawn in a monospaced font so the
+    columns line up, with automatic page breaks for long sheets.
+
+    Args:
+        character_data: The same payload accepted by
+            :func:`export_character_sheet_text` (see
+            :func:`character_sheet_data`).
+        path: Destination for the PDF.  May be a filesystem path (``str`` or
+            :class:`os.PathLike`) or an already-open binary file object.
+
+    Returns:
+        The *path* argument, so callers can chain or assert on it.
+
+    Raises:
+        RuntimeError: If the optional ``reportlab`` dependency is not
+            installed.
+    """
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.pdfgen import canvas
+    except ImportError as exc:  # pragma: no cover - exercised only without dep
+        raise RuntimeError(
+            "PDF export requires the 'reportlab' package; "
+            "install it with 'pip install reportlab'."
+        ) from exc
+
+    text = export_character_sheet_text(character_data)
+
+    # reportlab accepts a filename or a binary file object; normalise PathLike
+    # to a string while leaving file objects untouched.
+    destination: str | BinaryIO
+    if isinstance(path, os.PathLike):
+        destination = os.fspath(path)
+    else:
+        destination = path  # str or file object
+
+    page_width, page_height = letter
+    margin = 54.0  # 0.75 inch
+    font_name = "Courier"
+    font_size = 9.0
+    line_height = font_size * 1.25
+
+    pdf = canvas.Canvas(destination, pagesize=letter)
+    name = str(character_data.get("name", "")).strip() or "Character Sheet"
+    pdf.setTitle(f"{name} – Character Sheet")
+    pdf.setFont(font_name, font_size)
+
+    y = page_height - margin
+    for raw_line in text.split("\n"):
+        if y < margin:
+            pdf.showPage()
+            pdf.setFont(font_name, font_size)
+            y = page_height - margin
+        pdf.drawString(margin, y, raw_line)
+        y -= line_height
+
+    pdf.showPage()
+    pdf.save()
+    return path
 
 
 #: Printable width (in characters) of a single Table Tent panel.

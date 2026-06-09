@@ -12,6 +12,7 @@ license = { text = "MIT" }
 dependencies = [
     "PyQt6>=6.6",
     "openpyxl>=3.1",
+    "reportlab>=4.0",
 ]
 
 [project.optional-dependencies]
