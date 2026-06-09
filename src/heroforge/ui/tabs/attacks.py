@@ -208,9 +208,9 @@ class AttacksTab(QWidget):
             for entry in self._model.character.custom_weapons:
                 name = entry.get("name", "")
                 if name and name not in catalog:
-                    from heroforge.db.data_access import WeaponItem as _WI
+                    from heroforge.db.data_access import WeaponItem
 
-                    catalog[name] = _WI(
+                    catalog[name] = WeaponItem(
                         name=name,
                         category=entry.get("category", ""),
                         damage=entry.get("damage", ""),
@@ -227,9 +227,7 @@ class AttacksTab(QWidget):
             # New custom weapon — store with empty stats and let the user fill in
             # the row directly; also register in custom_weapons for future picks.
             self._model.character.custom_weapons = [
-                e
-                for e in self._model.character.custom_weapons
-                if e.get("name") != name
+                e for e in self._model.character.custom_weapons if e.get("name") != name
             ] + [
                 {
                     "name": name,

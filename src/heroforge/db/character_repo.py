@@ -27,20 +27,17 @@ import tempfile
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypeVar
 
 from heroforge.db.schema import get_connection, initialize_character_database
 from heroforge.models.character import Character
 
-_T = TypeVar("_T")
 
-
-def _load_table_gracefully(
+def _load_table_gracefully[T](
     conn: sqlite3.Connection,
     sql: str,
     character_id: int,
-    row_to_dict: Callable[[sqlite3.Row], _T],
-) -> list[_T]:
+    row_to_dict: Callable[[sqlite3.Row], T],
+) -> list[T]:
     """Execute *sql* against *conn* and map rows via *row_to_dict*.
 
     Returns an empty list when the table does not yet exist (e.g. an older
@@ -55,6 +52,7 @@ def _load_table_gracefully(
         if "no such table" in str(exc).lower():
             return []
         raise
+
 
 # Related tables that are fully replaced whenever a character is saved.
 _RELATED_TABLES: tuple[str, ...] = (

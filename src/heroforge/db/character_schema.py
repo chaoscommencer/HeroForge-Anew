@@ -278,7 +278,8 @@ CREATE TABLE IF NOT EXISTS character_custom_content (
 
 CREATE TABLE IF NOT EXISTS character_custom_armor (
     id                      INTEGER PRIMARY KEY,
-    character_id            INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    character_id            INTEGER NOT NULL REFERENCES characters(id)
+                                ON DELETE CASCADE,
     name                    TEXT NOT NULL,
     type                    TEXT NOT NULL DEFAULT 'Armor',
     ac_bonus                INTEGER NOT NULL DEFAULT 0,

@@ -93,9 +93,7 @@ class TraitsAndFlawsTab(QWidget):
     def _names(self, section: str) -> list[str]:
         lst = self._list(section)
         return [
-            item.text()
-            for i in range(lst.count())
-            if (item := lst.item(i)) is not None
+            item.text() for i in range(lst.count()) if (item := lst.item(i)) is not None
         ]
 
     def _sync_to_model(self) -> None:
