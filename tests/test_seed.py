@@ -450,19 +450,23 @@ class TestDataFileHelpers:
             writer = csv.writer(csv_file)
             writer.writerow(header)
             writer.writerow(["AbilityScores", "STR", "10"])
+            writer.writerow(["AbilityScores", "DEX", "12"])
+            writer.writerow(["Alignment", "Lawful", "1"])
 
         conn = initialize_database(tmp_path / "tables.db")
         try:
             seed.seed_tables(conn, data_dir)
-            row = conn.execute(
-                "SELECT table_name, key, value FROM tables WHERE table_name = ?",
-                ("AbilityScores",),
-            ).fetchone()
+            rows = conn.execute(
+                "SELECT table_name, key, value FROM tables ORDER BY table_name, key"
+            ).fetchall()
         finally:
             conn.close()
 
-        assert row is not None
-        assert dict(row) == {"table_name": "AbilityScores", "key": "STR", "value": "10"}
+        assert [dict(r) for r in rows] == [
+            {"table_name": "AbilityScores", "key": "DEX", "value": "12"},
+            {"table_name": "AbilityScores", "key": "STR", "value": "10"},
+            {"table_name": "Alignment", "key": "Lawful", "value": "1"},
+        ]
 
     def test_decode_weapon_damage(self) -> None:
         assert seed._decode_weapon_damage("4") == "1d4"
