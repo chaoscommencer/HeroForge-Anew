@@ -59,6 +59,30 @@ ruff check src/
 black src/ tests/
 ```
 
+### Map the Codebase (Graphify)
+
+The codebase can be mapped into a queryable knowledge graph with
+[graphify](https://github.com/safishamsi/graphify) (PyPI package `graphifyy`).
+This lets AI coding assistants — and you — answer "how does this fit together?"
+questions by querying the graph instead of reading many files, which is faster
+and cheaper on tokens. Code is extracted locally with tree-sitter, so no API key
+is required.
+
+```bash
+pip install graphifyy
+
+# Build / refresh the graph at graphify-out/ (no LLM needed)
+graphify update .
+
+# Ask questions instead of grepping
+graphify query "how are saving throws calculated"
+graphify explain "compute_derived_stats()"
+```
+
+The generated `graphify-out/` directory is git-ignored. In Copilot's environment
+the tool is pre-installed and the graph is pre-built by
+`.github/workflows/copilot-setup-steps.yml`; see `.github/skills/graphify/SKILL.md`.
+
 ## Project Structure
 
 ```

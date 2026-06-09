@@ -230,6 +230,10 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 
+# Graphify knowledge-graph artifacts (regenerated from source via `graphify update .`;
+# the graph maps the codebase so AI assistants can query it instead of grepping files)
+graphify-out/
+
 # Distribution / build
 dist/
 *.egg-info/

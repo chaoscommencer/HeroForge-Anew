@@ -35,3 +35,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+
+      - name: Install graphify (codebase knowledge graph for AI assistants)
+        run: pip install graphifyy
+
+      - name: Pre-build the graphify knowledge graph
+        # Maps the codebase into graphify-out/graph.json (local AST extraction, no
+        # API key needed) so Copilot can query the graph instead of reading many
+        # files, reducing token cost. The graphify skill rebuilds it if missing.
+        run: graphify update .
