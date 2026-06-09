@@ -219,11 +219,16 @@ class ArmorTab(QWidget):
                 item_is_shield = entry.get("type") == "Shield"
                 if item_is_shield != is_shield:
                     continue
+                raw_maxdex = entry.get("max_dex_bonus")
+                try:
+                    maxdex = None if raw_maxdex in (None, "", "—") else int(raw_maxdex)
+                except (TypeError, ValueError):
+                    maxdex = None
                 merged[name] = ArmorItem(
                     name=name,
                     type=entry.get("type", "Shield" if is_shield else "Armor"),
                     ac_bonus=int(entry.get("ac_bonus", 0)),
-                    max_dex_bonus=entry.get("max_dex_bonus"),
+                    max_dex_bonus=maxdex,
                     check_penalty=int(entry.get("check_penalty", 0)),
                     arcane_spell_failure=int(entry.get("arcane_spell_failure", 0)),
                     weight=float(entry.get("weight", 0)),
