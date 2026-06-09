@@ -308,6 +308,38 @@ class TestWeaponDamageMatrix:
             conn.close()
         assert count == 0
 
+    @requires_workbook
+    def test_seed_weapons_decodes_medium_from_matrix(self, tmp_path: Path) -> None:
+        """End-to-end: ``seed_weapons`` reads Medium damage from the matrix.
+
+        Known step codes resolve to canonical dice; codes absent from the matrix
+        fall through to the raw source value rather than being lost.
+        """
+        from heroforge.db.schema import initialize_database
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        with (data_dir / "WeaponInfo.csv").open(
+            "w", encoding="utf-8", newline=""
+        ) as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(["Select A Weapon", "Dmg1(M)"])
+            writer.writerow(["Longsword", "6"])  # known → 1d8
+            writer.writerow(["Mystery Blade", "99"])  # unknown → passthrough
+
+        conn = initialize_database(tmp_path / "weapons.db")
+        try:
+            seed.seed_weapon_damage(conn)
+            seed.seed_weapons(conn, data_dir)
+            rows = {
+                r["name"]: r["damage_medium"]
+                for r in conn.execute("SELECT name, damage_medium FROM weapons")
+            }
+        finally:
+            conn.close()
+        assert rows["Longsword"] == "1d8"
+        assert rows["Mystery Blade"] == "99"
+
 
 class TestHelpers:
     def test_strip_footnotes(self) -> None:

@@ -1137,7 +1137,10 @@ def _extract_weapon_damage(wb: object) -> list[tuple[object, ...]]:
     extracted: list[tuple[object, ...]] = []
     for offset, row in enumerate(rows[1:], start=1):
         step_code = offset  # row 4 → step 1, row 5 → step 2, …
-        for size, cell in zip(sizes, row, strict=False):
+        # ``sizes`` and ``row`` are sliced from the same K:S column range, so
+        # they always share a width; ``strict`` turns any future layout drift
+        # into a loud error instead of silently dropping cells.
+        for size, cell in zip(sizes, row, strict=True):
             damage = _cell_value(cell)
             if not size or not damage:
                 continue
