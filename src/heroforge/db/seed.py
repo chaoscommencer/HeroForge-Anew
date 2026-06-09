@@ -1364,7 +1364,8 @@ def seed_tables(conn: sqlite3.Connection, data_dir: Path) -> None:
 
     # Tidy ``TableName,Key,Value`` form (kept for forward/backward compatibility).
     header = grid[0] if grid else []
-    if header[:3] == ["TableName", "Key", "Value"]:
+    normalized_header = [re.sub(r"[^a-z0-9]+", "", col.lower()) for col in header[:3]]
+    if normalized_header == ["tablename", "key", "value"]:
         for row in grid[1:]:
             table_name = row[0].strip() if len(row) > 0 else ""
             key = row[1].strip() if len(row) > 1 else ""

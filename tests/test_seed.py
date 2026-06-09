@@ -7,6 +7,7 @@ the source workbook, and that re-seeding is idempotent.
 
 from __future__ import annotations
 
+import csv
 import logging
 from pathlib import Path
 
@@ -427,6 +428,42 @@ class TestDataFileSeeding:
 
 
 class TestDataFileHelpers:
+    @pytest.mark.parametrize(
+        "header",
+        [
+            ["TableName", "Key", "Value"],
+            ["table_name", "key", "value"],
+            ["TABLE_NAME", "KEY", "VALUE"],
+            ["Table Name", "Key", "Value"],
+        ],
+    )
+    def test_seed_tables_accepts_tidy_header_variants(
+        self, tmp_path: Path, header: list[str]
+    ) -> None:
+        from heroforge.db.schema import initialize_database
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        with (data_dir / "Tables.csv").open(
+            "w", encoding="utf-8", newline=""
+        ) as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(header)
+            writer.writerow(["AbilityScores", "STR", "10"])
+
+        conn = initialize_database(tmp_path / "tables.db")
+        try:
+            seed.seed_tables(conn, data_dir)
+            row = conn.execute(
+                "SELECT table_name, key, value FROM tables WHERE table_name = ?",
+                ("AbilityScores",),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        assert row is not None
+        assert dict(row) == {"table_name": "AbilityScores", "key": "STR", "value": "10"}
+
     def test_decode_weapon_damage(self) -> None:
         assert seed._decode_weapon_damage("4") == "1d4"
         assert seed._decode_weapon_damage("6") == "1d8"
