@@ -447,9 +447,14 @@ def _extract_graft_abilities(wb: object) -> list[tuple[object, ...]]:
         description = _col(row, "B")
         if not (graft_name and description):
             continue
-        ability = re.sub(r"^[\u00d7\s]+", "", description).split(":", 1)[0].strip()
+        ability = _ability_name_from_description(description)
         rows.append((graft_name, ability or graft_name, description))
     return rows
+
+
+#: Whole-cell numeric guards used to skip spacer/header cells in the data sheets.
+_SIGNED_INT_RE = re.compile(r"-?\d+")
+_UNSIGNED_INT_RE = re.compile(r"\d+")
 
 
 def _ability_name_from_description(description: str) -> str:
@@ -495,7 +500,7 @@ def _extract_incarnum_abilities(wb: object) -> list[tuple[object, ...]]:
     for row in _sheet_rows(ws, 0):
         name = _col(row, "W")
         description = _col(row, "X")
-        if not name or not description or re.fullmatch(r"-?\d+", name):
+        if not name or not description or _SIGNED_INT_RE.fullmatch(name):
             continue
         rows.append((name, None, None, description))
     return rows
@@ -516,7 +521,7 @@ def _extract_vestiges(wb: object) -> list[tuple[object, ...]]:
         if name == "Pact Augmentations":
             break
         index = _col(row, "P")
-        if not re.fullmatch(r"\d+", index) or not name:
+        if not _UNSIGNED_INT_RE.fullmatch(index) or not name:
             continue
         rows.append((name, None, "", "", "", ""))
     return rows
