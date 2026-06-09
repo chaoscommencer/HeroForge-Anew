@@ -254,6 +254,39 @@ def test_model_derived_stats_apply_selected_familiar(
     assert after == before + 2
 
 
+def test_model_derived_stats_apply_selected_familiar_when_unseeded(
+    qapp: object, tmp_path: Path
+) -> None:
+    """Fallback familiar save bonuses still apply when the DB table is unseeded."""
+    from heroforge.ui.main_window import CharacterModel
+
+    db_path = tmp_path / "game.db"
+    initialize_database(db_path).close()
+
+    model = CharacterModel(game_data=GameDataRepository(str(db_path)))
+    before = model.derived_stats().fortitude
+    model.character.companions = [
+        {"companion_type": "familiar", "name": "Scratch", "creature": "Rat"}
+    ]
+    after = model.derived_stats().fortitude
+    assert after == before + 2
+
+
+def test_model_derived_stats_apply_selected_familiar_without_game_db(
+    qapp: object,
+) -> None:
+    """Fallback familiar save bonuses still apply without a game DB path."""
+    from heroforge.ui.main_window import CharacterModel
+
+    model = CharacterModel()
+    before = model.derived_stats().fortitude
+    model.character.companions = [
+        {"companion_type": "familiar", "name": "Scratch", "creature": "Rat"}
+    ]
+    after = model.derived_stats().fortitude
+    assert after == before + 2
+
+
 def test_model_derived_stats_double_with_natural_link(
     qapp: object, tmp_path: Path
 ) -> None:

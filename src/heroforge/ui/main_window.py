@@ -25,7 +25,11 @@ from heroforge.db.character_repo import (
 )
 from heroforge.db.data_access import GameDataRepository
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
-from heroforge.logic.familiar import familiar_natural_link, selected_familiar_kind
+from heroforge.logic.familiar import (
+    STANDARD_FAMILIAR_BONUSES,
+    familiar_natural_link,
+    selected_familiar_kind,
+)
 from heroforge.logic.familiar import save_bonuses as familiar_save_bonuses
 from heroforge.logic.legacy_import import import_hfg
 from heroforge.models.character import Character
@@ -236,13 +240,16 @@ class CharacterModel(QObject):
             self._game_data.class_progressions() if self._game_data.available else {}
         )
         kind = selected_familiar_kind(self._character.companions)
+        familiar_bonus_records = self._game_data.get_familiar_bonus_records() or list(
+            STANDARD_FAMILIAR_BONUSES
+        )
         familiar_saves = (
             familiar_save_bonuses(
                 kind,
-                self._game_data.get_familiar_bonus_records(),
+                familiar_bonus_records,
                 natural_link=familiar_natural_link(self._character.companions),
             )
-            if kind and self._game_data.available
+            if kind
             else {}
         )
         return compute_derived_stats(
