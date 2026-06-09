@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import textwrap
 from typing import TYPE_CHECKING, BinaryIO
 
 from heroforge.logic.ability_scores import ability_modifier
@@ -239,8 +240,7 @@ def export_character_sheet_pdf(
         The *path* argument, so callers can chain or assert on it.
 
     Raises:
-        RuntimeError: If the optional ``reportlab`` dependency is not
-            installed.
+        RuntimeError: If the ``reportlab`` PDF extra is not installed.
     """
     try:
         from reportlab.lib.pagesizes import letter
@@ -248,7 +248,8 @@ def export_character_sheet_pdf(
     except ImportError as exc:  # pragma: no cover - exercised only without dep
         raise RuntimeError(
             "PDF export requires the 'reportlab' package; "
-            "install it with 'pip install reportlab'."
+            "install it with 'pip install heroforge[pdf]' or "
+            "'pip install reportlab'."
         ) from exc
 
     text = export_character_sheet_text(character_data)
@@ -267,15 +268,25 @@ def export_character_sheet_pdf(
     name = str(character_data.get("name", "")).strip() or "Character Sheet"
     pdf.setTitle(f"{name} – Character Sheet")
     pdf.setFont(font_name, font_size)
+    usable_width = page_width - (2 * margin)
+    char_width = pdf.stringWidth("M", font_name, font_size) or font_size
+    max_chars = max(1, int(usable_width // char_width))
 
     y = page_height - margin
     for raw_line in text.split("\n"):
-        if y < margin:
-            pdf.showPage()
-            pdf.setFont(font_name, font_size)
-            y = page_height - margin
-        pdf.drawString(margin, y, raw_line)
-        y -= line_height
+        wrapped_lines = textwrap.wrap(
+            raw_line,
+            width=max_chars,
+            replace_whitespace=False,
+            drop_whitespace=False,
+        ) or [""]
+        for line in wrapped_lines:
+            if y < margin:
+                pdf.showPage()
+                pdf.setFont(font_name, font_size)
+                y = page_height - margin
+            pdf.drawString(margin, y, line)
+            y -= line_height
 
     pdf.showPage()
     pdf.save()
