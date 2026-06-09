@@ -144,19 +144,27 @@ class PsionicsTab(QWidget):
 
     def _sync_from_model(self) -> None:
         self._loading = True
-        self._powers_list.clear()
-        if self._model is not None:
-            opts = self._model.character.options
-            try:
-                self._total_pp.setValue(int(opts.get(_TOTAL_KEY, "0")))
-                self._spent_pp.setValue(int(opts.get(_SPENT_KEY, "0")))
-            except (TypeError, ValueError):
+        try:
+            self._powers_list.clear()
+            if self._model is not None:
+                opts = self._model.character.options
+                try:
+                    total = int(opts.get(_TOTAL_KEY, "0"))
+                    spent = int(opts.get(_SPENT_KEY, "0"))
+                except (TypeError, ValueError):
+                    total = 0
+                    spent = 0
+                self._total_pp.setValue(total)
+                self._spent_pp.setMaximum(total)
+                self._spent_pp.setValue(min(spent, total))
+                for entry in self._model.character.psionic_powers:
+                    name = entry.get("power_name", "")
+                    if name:
+                        self._powers_list.addItem(QListWidgetItem(name))
+            else:
                 self._total_pp.setValue(0)
+                self._spent_pp.setMaximum(0)
                 self._spent_pp.setValue(0)
-            self._spent_pp.setMaximum(self._total_pp.value())
-            for entry in self._model.character.psionic_powers:
-                name = entry.get("power_name", "")
-                if name:
-                    self._powers_list.addItem(QListWidgetItem(name))
-        self._loading = False
+        finally:
+            self._loading = False
         self._update_remaining()
