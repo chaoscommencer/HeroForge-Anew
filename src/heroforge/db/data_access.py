@@ -194,6 +194,7 @@ class Creature:
     ability_scores: dict[str, int]
     natural_armor: int
 
+
 class GameDataRepository:
     """Read-only accessor for the seeded ``heroforge.db`` game database.
 

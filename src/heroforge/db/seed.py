@@ -1367,7 +1367,7 @@ def seed_tables(conn: sqlite3.Connection, data_dir: Path) -> None:
     normalized_header = [re.sub(r"[^a-z0-9]+", "", col.lower()) for col in header[:3]]
     if normalized_header in (
         ["tablename", "key", "value"],
-        ["table_name", "key", "value"]
+        ["table_name", "key", "value"],
     ):
         for row in grid[1:]:
             table_name = row[0].strip() if len(row) > 0 else ""
