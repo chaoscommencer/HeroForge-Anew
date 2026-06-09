@@ -1087,9 +1087,67 @@ def seed_workbook(
 # Per-table seed functions
 # ---------------------------------------------------------------------------
 
+#: ``WeaponInfo.csv`` encodes weapon damage as an integer step on the D&D 3.5
+#: weapon-damage progression rather than a literal die expression.  This maps
+#: each Medium-size step code to the die it represents, matching the workbook's
+#: own decode (verified against canonical weapons such as Dagger=1d4,
+#: Longsword=1d8, Greataxe=1d12, Greatsword=2d6).
+_WEAPON_DAMAGE_DICE: dict[int, str] = {
+    0: "—",
+    1: "1",
+    2: "1d2",
+    3: "1d3",
+    4: "1d4",
+    5: "1d6",
+    6: "1d8",
+    7: "1d10",
+    8: "1d12",
+    9: "2d4",
+    10: "2d6",
+    11: "2d8",
+    12: "2d10",
+    13: "",
+}
+
+
+def _decode_weapon_damage(code: str) -> str:
+    """Translate a ``WeaponInfo.csv`` damage *code* into a die expression.
+
+    Blank codes (and the "special/no damage" code 13) yield an empty string;
+    references to other cells (e.g. ``ref:UnarmedStrikeDamage``) are passed
+    through unchanged so the source value is never silently lost.
+    """
+    code = (code or "").strip()
+    if not code:
+        return ""
+    try:
+        step = int(float(code))
+    except (TypeError, ValueError):
+        return code  # e.g. "ref:UnarmedStrikeDamage" – preserve verbatim
+    return _WEAPON_DAMAGE_DICE.get(step, code)
+
+
+def _format_weapon_critical(threat: str, multiplier: str) -> str:
+    """Build a ``19-20/×2`` style critical string from threat/multiplier codes.
+
+    ``threat`` is the lowest natural roll that threatens a critical (20 means
+    only a natural 20) and ``multiplier`` is the damage multiplier (2, 3, …).
+    Missing pieces degrade gracefully so partial source data still produces a
+    sensible string.
+    """
+    threat_i = _safe_int(threat, default=20) or 20
+    mult_i = _safe_int(multiplier, default=2) or 2
+    threat_part = "" if threat_i >= 20 else f"{threat_i}-20/"
+    return f"{threat_part}×{mult_i}"
+
 
 def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
-    """Insert rows from ``WeaponInfo.csv`` into the *weapons* table."""
+    """Insert rows from ``WeaponInfo.csv`` into the *weapons* table.
+
+    The CSV stores damage as a step code on the 3.5 damage progression and the
+    critical as separate threat/multiplier columns; both are decoded here into
+    the human-readable forms the Attacks tab displays.
+    """
     csv_path = data_dir / "WeaponInfo.csv"
     if not csv_path.exists():
         logger.warning("WeaponInfo.csv not found at %s – skipping weapons", csv_path)
@@ -1100,8 +1158,10 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
     with csv_path.open(encoding="utf-8-sig", errors="replace", newline="") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
-            name = (row.get("Name") or row.get("name") or "").strip()
-            if not name:
+            name = (
+                row.get("Select A Weapon") or row.get("Name") or row.get("name") or ""
+            ).strip()
+            if not name or name == "Select A Weapon":
                 skipped += 1
                 continue
             try:
@@ -1114,19 +1174,17 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
                     """,
                     (
                         name,
-                        (row.get("Category") or row.get("category") or "").strip(),
+                        (row.get("Cat") or row.get("Category") or "").strip(),
                         (row.get("Size") or row.get("size") or "").strip(),
-                        (
-                            row.get("Damage (S)") or row.get("damage_small") or ""
-                        ).strip(),
-                        (
-                            row.get("Damage (M)") or row.get("damage_medium") or ""
-                        ).strip(),
-                        (row.get("Critical") or row.get("critical") or "").strip(),
-                        _safe_int(
-                            row.get("Range Increment") or row.get("range_increment")
+                        "",  # No Small-size damage column in the source file.
+                        _decode_weapon_damage(
+                            row.get("Dmg1(M)") or row.get("Damage (M)") or ""
                         ),
-                        _safe_float(row.get("Weight") or row.get("weight")),
+                        _format_weapon_critical(
+                            row.get("Threat") or "", row.get("Crit1") or ""
+                        ),
+                        _safe_int(row.get("Range") or row.get("Range Increment")),
+                        _safe_float(row.get("Wgt") or row.get("Weight")),
                         (row.get("Type") or row.get("damage_type") or "").strip(),
                         (row.get("Source") or row.get("source") or "").strip(),
                     ),
@@ -1141,7 +1199,14 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
 
 
 def seed_creatures(conn: sqlite3.Connection, data_dir: Path) -> None:
-    """Insert rows from ``CreatureInfo.csv`` into the *creatures* table."""
+    """Insert rows from ``CreatureInfo.csv`` into the *creatures* table.
+
+    Each row is a full creature/race stat block (the source of wild-shape
+    forms, animal companions and familiars).  The creature name lives in the
+    ``Race`` column and the listed AC contribution is the ``Natural Armor``
+    value.  Header/placeholder rows ("Select a Race/Creature", "Custom Race")
+    are skipped.
+    """
     csv_path = data_dir / "CreatureInfo.csv"
     if not csv_path.exists():
         logger.warning(
@@ -1154,8 +1219,11 @@ def seed_creatures(conn: sqlite3.Connection, data_dir: Path) -> None:
     with csv_path.open(encoding="utf-8-sig", errors="replace", newline="") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
-            name = (row.get("Name") or row.get("name") or "").strip()
-            if not name:
+            name = (row.get("Race") or row.get("Name") or row.get("name") or "").strip()
+            if not name or name in (
+                "Select a Race/Creature",
+                "Custom Race",
+            ):
                 skipped += 1
                 continue
             try:
@@ -1174,17 +1242,27 @@ def seed_creatures(conn: sqlite3.Connection, data_dir: Path) -> None:
                         (row.get("Type") or row.get("type") or "").strip(),
                         (row.get("Subtype") or row.get("subtype") or "").strip(),
                         (row.get("HD") or row.get("hit_dice") or "").strip(),
-                        _safe_int(row.get("STR") or row.get("str_score")),
-                        _safe_int(row.get("DEX") or row.get("dex_score")),
-                        _safe_int(row.get("CON") or row.get("con_score")),
-                        _safe_int(row.get("INT") or row.get("int_score")),
-                        _safe_int(row.get("WIS") or row.get("wis_score")),
-                        _safe_int(row.get("CHA") or row.get("cha_score")),
+                        _safe_int(row.get("Str") or row.get("str_score")),
+                        _safe_int(row.get("Dex") or row.get("dex_score")),
+                        _safe_int(row.get("Con") or row.get("con_score")),
+                        _safe_int(row.get("Int") or row.get("int_score")),
+                        _safe_int(row.get("Wis") or row.get("wis_score")),
+                        _safe_int(row.get("Cha") or row.get("cha_score")),
                         (row.get("BAB") or row.get("bab") or "").strip(),
                         _safe_int(row.get("Grapple") or row.get("grapple_mod")),
-                        _safe_int(row.get("AC") or row.get("armor_class")),
-                        (row.get("Speed") or row.get("speed") or "").strip(),
-                        (row.get("Source") or row.get("source") or "").strip(),
+                        _safe_int(row.get("Natural Armor") or row.get("armor_class")),
+                        (
+                            row.get("Land")
+                            or row.get("Speed")
+                            or row.get("speed")
+                            or ""
+                        ).strip(),
+                        (
+                            row.get("Src")
+                            or row.get("Source")
+                            or row.get("source")
+                            or ""
+                        ).strip(),
                     ),
                 )
                 inserted += 1
@@ -1196,44 +1274,128 @@ def seed_creatures(conn: sqlite3.Connection, data_dir: Path) -> None:
     logger.info("Creatures: inserted/replaced %d rows, skipped %d", inserted, skipped)
 
 
+def _is_numeric_str(value: str) -> bool:
+    """Return ``True`` if *value* parses as an int or float."""
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def seed_tables(conn: sqlite3.Connection, data_dir: Path) -> None:
-    """Insert rows from ``Tables.csv`` into the *tables* table."""
+    """Insert rows from ``Tables.csv`` into the *tables* table.
+
+    ``Tables.csv`` is not a tidy ``(table, key, value)`` export: it is a wide
+    spreadsheet grid in which many independent lookup tables (experience,
+    carrying capacity, point-buy costs, alignment components, …) sit side by
+    side, and some columns even stack several tables vertically.  Each
+    contiguous run of cells in a column is treated as one logical table: a
+    textual leading cell names the table and the remaining cells are its
+    values, while a number-led run is captured under a ``Column N`` name.  The
+    source row/column coordinates form the key so every cell migrates exactly
+    once with no loss.
+
+    A normalised ``TableName,Key,Value`` file is still honoured if supplied.
+    """
     csv_path = data_dir / "Tables.csv"
     if not csv_path.exists():
         logger.warning("Tables.csv not found at %s – skipping tables", csv_path)
         return
 
+    with csv_path.open(encoding="utf-8-sig", errors="replace", newline="") as fh:
+        grid = [[(cell or "").strip() for cell in row] for row in csv.reader(fh)]
+
     inserted = 0
     skipped = 0
-    with csv_path.open(encoding="utf-8-sig", errors="replace", newline="") as fh:
-        reader = csv.DictReader(fh)
-        for row in reader:
-            table_name = (row.get("TableName") or row.get("table_name") or "").strip()
-            key = (row.get("Key") or row.get("key") or "").strip()
-            value = (row.get("Value") or row.get("value") or "").strip()
+
+    def _store(table_name: str, key: str, value: str) -> None:
+        nonlocal inserted, skipped
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO tables (table_name, key, value)
+                VALUES (?, ?, ?)
+                """,
+                (table_name, key, value),
+            )
+            inserted += 1
+        except sqlite3.Error as exc:
+            logger.debug("Skipping table row %r/%r: %s", table_name, key, exc)
+            skipped += 1
+
+    # Tidy ``TableName,Key,Value`` form (kept for forward/backward compatibility).
+    header = grid[0] if grid else []
+    if header[:3] == ["TableName", "Key", "Value"]:
+        for row in grid[1:]:
+            table_name = row[0].strip() if len(row) > 0 else ""
+            key = row[1].strip() if len(row) > 1 else ""
+            value = row[2].strip() if len(row) > 2 else ""
             if not table_name or not key:
                 skipped += 1
                 continue
-            try:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO tables
-                        (table_name, key, value)
-                    VALUES (?, ?, ?)
-                    """,
-                    (table_name, key, value),
-                )
-                inserted += 1
-            except sqlite3.Error as exc:
-                logger.debug("Skipping table row %r/%r: %s", table_name, key, exc)
-                skipped += 1
+            _store(table_name, key, value)
+    else:
+        # Wide multi-table grid: walk each column run by run.
+        n_rows = len(grid)
+        n_cols = max((len(r) for r in grid), default=0)
+        for c in range(n_cols):
+            column = [grid[r][c] if c < len(grid[r]) else "" for r in range(n_rows)]
+            r = 0
+            while r < n_rows:
+                if not column[r]:
+                    r += 1
+                    continue
+                start = r
+                while r < n_rows and column[r]:
+                    r += 1
+                run = column[start:r]
+                if _is_numeric_str(run[0]):
+                    table_name = f"Column {c}"
+                    value_rows = range(start, r)
+                    values = run
+                else:
+                    table_name = run[0]
+                    value_rows = range(start + 1, r)
+                    values = run[1:]
+                for row_idx, value in zip(value_rows, values):
+                    _store(table_name, f"{c}:{row_idx}", value)
 
     conn.commit()
     logger.info("Tables: inserted/replaced %d rows, skipped %d", inserted, skipped)
 
 
+def _bab_progression(factor: object) -> str:
+    """Map a ``ClassInfo`` BAB factor (1 / 0.75 / 0.5) to a progression name."""
+    f = _safe_float(factor, default=-1.0)
+    if f < 0:
+        return ""
+    if f >= 0.95:
+        return "fast"
+    if f >= 0.7:
+        return "medium"
+    return "slow"
+
+
+def _save_progression(factor: object) -> str:
+    """Map a ``ClassInfo`` save factor (0.5 good / 0.34 poor) to its name."""
+    f = _safe_float(factor, default=-1.0)
+    if f < 0:
+        return ""
+    return "good" if f >= 0.45 else "poor"
+
+
 def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
-    """Insert rows from ``ClassInfo.xlsx`` into *classes* (and *class_skills*)."""
+    """Insert rows from ``ClassInfo.xlsx`` into *classes* (and *class_skills*).
+
+    ``ClassInfo.xlsx`` is a single wide sheet: the class name sits in the
+    unlabelled column to the left of the ``Abr`` header, the BAB/save columns
+    (``fBAB``/``fFort``/``fRef``/``fWill``) hold numeric progression factors,
+    and a wide block of per-skill columns marks class skills with a ``2``.
+    Section-divider rows (``– … –``) toggle whether following classes are
+    prestige classes, and placeholder rows (``Select Class``, ``N/A``,
+    ``<custom-defined class>``) are skipped.
+    """
     xlsx_path = data_dir / "ClassInfo.xlsx"
     if not xlsx_path.exists():
         logger.warning("ClassInfo.xlsx not found at %s – skipping classes", xlsx_path)
@@ -1250,24 +1412,65 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
         if not rows:
             continue
 
-        # First row is header
-        headers = [str(h).strip() if h is not None else "" for h in rows[0]]
+        # Locate the header row (the one carrying both "Abr" and "Skill Pts").
+        headers: list[str] = []
+        for candidate in rows[:6]:
+            labels = [str(h).strip() if h is not None else "" for h in candidate]
+            if "Abr" in labels and "Skill Pts" in labels:
+                headers = labels
+                break
+        if not headers:
+            continue
 
-        def col(row_data: tuple, *candidates: str) -> str:
-            for c in candidates:
-                try:
-                    idx = headers.index(c)
-                    val = row_data[idx]
-                    return str(val).strip() if val is not None else ""
-                except (ValueError, IndexError):
-                    pass
-            return ""
+        def hidx(label: str) -> int:
+            return headers.index(label) if label in headers else -1
 
-        for row_data in rows[1:]:
+        abr_idx = hidx("Abr")
+        name_idx = abr_idx - 1 if abr_idx > 0 else -1
+        sp_idx = hidx("Skill Pts")
+        hd_idx = hidx("HD Type")
+        bab_idx = hidx("fBAB")
+        fort_idx = hidx("fFort")
+        ref_idx = hidx("fRef")
+        will_idx = hidx("fWill")
+        source_idx = hidx("Reference")
+
+        # The per-skill block runs from "Appraise" up to (but excluding)
+        # "Reference"; ignore "… "-suffixed category separators.
+        skill_cols: list[tuple[int, str]] = []
+        start = hidx("Appraise")
+        end = source_idx if source_idx != -1 else len(headers)
+        if start != -1:
+            for i in range(start, end):
+                label = headers[i] if i < len(headers) else ""
+                if label and "…" not in label:
+                    skill_cols.append((i, label))
+
+        def cell(row_data: tuple, idx: int) -> str:
+            if idx < 0 or idx >= len(row_data):
+                return ""
+            val = row_data[idx]
+            return str(val).strip() if val is not None else ""
+
+        is_prestige = 0
+        for row_data in rows:
             if all(v is None for v in row_data):
                 continue
-            name = col(row_data, "Name", "name", "Class", "class")
+            name = cell(row_data, name_idx)
             if not name:
+                continue
+            # Section dividers (e.g. "– Prestige Classes DMG –") set context
+            # for the classes that follow but are not classes themselves.
+            if name.startswith("–"):
+                is_prestige = 1 if "prestige" in name.lower() else 0
+                continue
+            # Skip placeholders / non-class rows (these have no abbreviation or
+            # are explicit placeholders in the source sheet).
+            if not cell(row_data, abr_idx) or name in (
+                "Select Class",
+                "N/A",
+                "<custom-defined class>",
+            ):
                 skipped += 1
                 continue
             try:
@@ -1281,35 +1484,21 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
                     """,
                     (
                         name,
-                        (
-                            1
-                            if col(
-                                row_data, "IsPrestige", "is_prestige", "Prestige"
-                            ).lower()
-                            in ("1", "true", "yes")
-                            else 0
-                        ),
-                        _safe_int(col(row_data, "HitDie", "hit_die", "HD")),
-                        col(row_data, "BAB", "bab_progression", "BABProgression"),
-                        col(row_data, "Fort", "fort_progression", "FortProgression"),
-                        col(row_data, "Ref", "ref_progression", "RefProgression"),
-                        col(row_data, "Will", "will_progression", "WillProgression"),
-                        _safe_int(
-                            col(row_data, "SkillPoints", "skill_points_per_level", "SP")
-                        ),
-                        col(row_data, "Source", "source"),
+                        is_prestige,
+                        _safe_int(cell(row_data, hd_idx)),
+                        _bab_progression(cell(row_data, bab_idx)),
+                        _save_progression(cell(row_data, fort_idx)),
+                        _save_progression(cell(row_data, ref_idx)),
+                        _save_progression(cell(row_data, will_idx)),
+                        _safe_int(cell(row_data, sp_idx)),
+                        cell(row_data, source_idx),
                     ),
                 )
                 inserted_classes += 1
 
-                # Handle class skills column if present (comma-separated)
-                class_skills_raw = col(
-                    row_data, "ClassSkills", "class_skills", "Skills"
-                )
-                if class_skills_raw:
-                    for skill in (
-                        s.strip() for s in class_skills_raw.split(",") if s.strip()
-                    ):
+                # A skill cell value of "2" marks a class skill for this class.
+                for idx, skill_name in skill_cols:
+                    if cell(row_data, idx) == "2":
                         try:
                             conn.execute(
                                 """
@@ -1317,7 +1506,7 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
                                     (class_name, skill_name)
                                 VALUES (?, ?)
                                 """,
-                                (name, skill),
+                                (name, skill_name),
                             )
                             inserted_skills += 1
                         except sqlite3.Error:

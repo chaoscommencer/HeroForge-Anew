@@ -21,6 +21,11 @@ requires_workbook = pytest.mark.skipif(
     reason="reference workbook not available",
 )
 
+requires_data_files = pytest.mark.skipif(
+    not seed._DEFAULT_DATA_DIR.exists(),
+    reason="source data directory not available",
+)
+
 
 def _expected_count(spec: seed._WorkbookTable, rows: list[tuple]) -> int:
     """Replicate UNIQUE-key conflict handling from workbook table inserts."""
@@ -315,3 +320,133 @@ class TestHelpers:
         )
         assert "non-integral count 'x'" in caplog.text
         assert "non-integral caster level 1.5" in caplog.text
+
+
+@requires_data_files
+class TestDataFileSeeding:
+    """Regression tests for the four ``data/`` source files.
+
+    These previously migrated **zero** rows because the seeders looked up
+    column headers that did not exist in the real files, silently leaving the
+    ``weapons``, ``creatures``, ``classes`` and ``tables`` tables empty.
+    """
+
+    @pytest.fixture(scope="class")
+    def data_db(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        from heroforge.db.schema import initialize_database
+
+        db_path = tmp_path_factory.mktemp("datafiles") / "data.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_weapons(conn, seed._DEFAULT_DATA_DIR)
+            seed.seed_creatures(conn, seed._DEFAULT_DATA_DIR)
+            seed.seed_tables(conn, seed._DEFAULT_DATA_DIR)
+            seed.seed_classes(conn, seed._DEFAULT_DATA_DIR)
+        finally:
+            conn.close()
+        return db_path
+
+    @pytest.mark.parametrize(
+        "table", ["weapons", "creatures", "classes", "class_skills", "tables"]
+    )
+    def test_table_is_populated(self, data_db: Path, table: str) -> None:
+        conn = get_connection(data_db)
+        try:
+            count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        finally:
+            conn.close()
+        assert count > 0, f"{table} should be migrated from the data/ source files"
+
+    def test_weapon_values_are_decoded(self, data_db: Path) -> None:
+        conn = get_connection(data_db)
+        try:
+            rows = {
+                r["name"]: r
+                for r in conn.execute(
+                    "SELECT name, damage_medium, critical, range_increment "
+                    "FROM weapons WHERE name IN "
+                    "('Dagger', 'Longsword', 'Greataxe', 'Greatsword')"
+                )
+            }
+        finally:
+            conn.close()
+        # Damage step codes are decoded to canonical 3.5 dice.
+        assert rows["Dagger"]["damage_medium"] == "1d4"
+        assert rows["Longsword"]["damage_medium"] == "1d8"
+        assert rows["Greatsword"]["damage_medium"] == "2d6"
+        # Threat/multiplier columns are formatted into a critical string.
+        assert rows["Dagger"]["critical"] == "19-20/\u00d72"
+        assert rows["Greataxe"]["critical"] == "\u00d73"
+
+    def test_class_progressions_are_named(self, data_db: Path) -> None:
+        conn = get_connection(data_db)
+        try:
+            rows = {
+                r["name"]: r
+                for r in conn.execute(
+                    "SELECT name, bab_progression, fort_progression, "
+                    "ref_progression, will_progression, hit_die "
+                    "FROM classes WHERE name IN ('Fighter', 'Wizard', 'Rogue')"
+                )
+            }
+        finally:
+            conn.close()
+        assert rows["Fighter"]["bab_progression"] == "fast"
+        assert rows["Fighter"]["fort_progression"] == "good"
+        assert rows["Fighter"]["will_progression"] == "poor"
+        assert rows["Fighter"]["hit_die"] == 10
+        assert rows["Wizard"]["bab_progression"] == "slow"
+        assert rows["Wizard"]["will_progression"] == "good"
+        assert rows["Rogue"]["ref_progression"] == "good"
+
+    def test_class_skills_are_marked(self, data_db: Path) -> None:
+        conn = get_connection(data_db)
+        try:
+            fighter_skills = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT skill_name FROM class_skills WHERE class_name = 'Fighter'"
+                )
+            }
+        finally:
+            conn.close()
+        assert {"Climb", "Intimidate", "Jump", "Swim"} <= fighter_skills
+
+    def test_creature_stat_blocks_are_migrated(self, data_db: Path) -> None:
+        conn = get_connection(data_db)
+        try:
+            wolf = conn.execute(
+                "SELECT size, type, str_score, dex_score, con_score "
+                "FROM creatures WHERE name = 'Wolf'"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert wolf is not None
+        assert wolf["type"] == "Animal"
+        assert (wolf["str_score"], wolf["dex_score"], wolf["con_score"]) == (13, 15, 15)
+
+
+class TestDataFileHelpers:
+    def test_decode_weapon_damage(self) -> None:
+        assert seed._decode_weapon_damage("4") == "1d4"
+        assert seed._decode_weapon_damage("6") == "1d8"
+        assert seed._decode_weapon_damage("10") == "2d6"
+        assert seed._decode_weapon_damage("") == ""
+        # Non-numeric source values (cell references) are preserved verbatim.
+        assert seed._decode_weapon_damage("ref:Unarmed") == "ref:Unarmed"
+
+    def test_format_weapon_critical(self) -> None:
+        assert seed._format_weapon_critical("20", "2") == "\u00d72"
+        assert seed._format_weapon_critical("19", "2") == "19-20/\u00d72"
+        assert seed._format_weapon_critical("", "3") == "\u00d73"
+
+    def test_bab_progression(self) -> None:
+        assert seed._bab_progression(1) == "fast"
+        assert seed._bab_progression(0.75) == "medium"
+        assert seed._bab_progression(0.5) == "slow"
+        assert seed._bab_progression(None) == ""
+
+    def test_save_progression(self) -> None:
+        assert seed._save_progression(0.5) == "good"
+        assert seed._save_progression(0.34) == "poor"
+        assert seed._save_progression("") == ""
