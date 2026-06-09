@@ -196,6 +196,20 @@ class Creature:
 
 
 @dataclass(frozen=True)
+class RaceProfile:
+    """Combat-relevant traits of a race from the ``races`` table.
+
+    Used by the Stats tab to feed size, natural armor, and level adjustment
+    into the derived-stat (AC / ECL) calculation.
+    """
+
+    name: str
+    size: str
+    natural_armor: int
+    level_adjustment: int
+
+
+@dataclass(frozen=True)
 class IncarnumAbility:
     """An entry from the ``incarnum_abilities`` table (Magic of Incarnum)."""
 
@@ -377,6 +391,16 @@ class GameDataRepository:
             for r in rows
         }
 
+    def class_hit_dice(self) -> dict[str, int]:
+        """Return a mapping of class name → Hit Die size (e.g. ``8`` for a d8).
+
+        Used to compute a character's maximum hit points.  Classes with a
+        ``NULL`` ``hit_die`` are omitted so callers fall back to their own
+        default (a d8).
+        """
+        rows = self._query("SELECT name, hit_die FROM classes")
+        return {r["name"]: int(r["hit_die"]) for r in rows if r["hit_die"] is not None}
+
     # ------------------------------------------------------------------
     # Races & templates
     # ------------------------------------------------------------------
@@ -394,6 +418,40 @@ class GameDataRepository:
         where = f"WHERE {fragment}" if fragment else ""
         rows = self._query(f"SELECT name FROM templates {where} ORDER BY name", params)
         return [r["name"] for r in rows]
+
+    def get_race_profile(self, name: str) -> RaceProfile | None:
+        """Return the combat profile (size, natural armor, LA) for a race.
+
+        Returns ``None`` when the race is unknown or the database is
+        unavailable, letting callers fall back to sensible defaults.
+        """
+        if not name:
+            return None
+        rows = self._query(
+            "SELECT name, size, natural_armor, level_adjustment "
+            "FROM races WHERE name = ?",
+            (name,),
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return RaceProfile(
+            name=r["name"],
+            size=r["size"] or "Medium",
+            natural_armor=int(r["natural_armor"] or 0),
+            level_adjustment=int(r["level_adjustment"] or 0),
+        )
+
+    def template_level_adjustment(self, name: str) -> int:
+        """Return the level adjustment contributed by a template (0 if unknown)."""
+        if not name:
+            return 0
+        rows = self._query(
+            "SELECT level_adjustment FROM templates WHERE name = ?", (name,)
+        )
+        if not rows:
+            return 0
+        return int(rows[0]["level_adjustment"] or 0)
 
     # ------------------------------------------------------------------
     # Spells

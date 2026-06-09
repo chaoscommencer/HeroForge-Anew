@@ -350,3 +350,48 @@ class TestSpells:
     def test_spells_known(self, seeded_repo: GameDataRepository) -> None:
         known = seeded_repo.spells_known("Sorcerer")
         assert [(s.spell_level, s.count) for s in known] == [(0, 4), (1, 2)]
+
+
+class TestHitDiceAndProfiles:
+    """Coverage for the HP / AC / ECL accessors added for the Stats tab."""
+
+    def _repo(self, tmp_path: Path) -> GameDataRepository:
+        db_path = tmp_path / "profiles.db"
+        conn = initialize_database(db_path)
+        try:
+            conn.executemany(
+                "INSERT INTO classes (name, hit_die) VALUES (?, ?)",
+                [("Fighter", 10), ("Wizard", 4), ("Mystery", None)],
+            )
+            conn.execute(
+                "INSERT INTO races (name, size, natural_armor, level_adjustment) "
+                "VALUES (?, ?, ?, ?)",
+                ("Lizardfolk", "Medium", 5, 1),
+            )
+            conn.execute(
+                "INSERT INTO templates (name, level_adjustment) VALUES (?, ?)",
+                ("Half-Dragon", 3),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return GameDataRepository(db_path)
+
+    def test_class_hit_dice_skips_null(self, tmp_path: Path) -> None:
+        repo = self._repo(tmp_path)
+        assert repo.class_hit_dice() == {"Fighter": 10, "Wizard": 4}
+
+    def test_get_race_profile(self, tmp_path: Path) -> None:
+        profile = self._repo(tmp_path).get_race_profile("Lizardfolk")
+        assert profile is not None
+        assert profile.size == "Medium"
+        assert profile.natural_armor == 5
+        assert profile.level_adjustment == 1
+
+    def test_get_race_profile_unknown(self, tmp_path: Path) -> None:
+        assert self._repo(tmp_path).get_race_profile("Nobody") is None
+
+    def test_template_level_adjustment(self, tmp_path: Path) -> None:
+        repo = self._repo(tmp_path)
+        assert repo.template_level_adjustment("Half-Dragon") == 3
+        assert repo.template_level_adjustment("Unknown") == 0

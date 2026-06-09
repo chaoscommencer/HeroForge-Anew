@@ -21,13 +21,14 @@ Design notes (see ``docs/conversion-plan.md`` §8.6):
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from heroforge.logic import combat, saving_throws
 from heroforge.logic.ability_scores import ability_modifier
+from heroforge.logic.hit_points import HP_METHOD_AVERAGE, compute_hit_points
 
 if TYPE_CHECKING:
     from heroforge.models.character import Character
@@ -60,11 +61,13 @@ class DerivedStats:
 
     ability_modifiers: Mapping[str, int]
     total_level: int
+    ecl: int
     base_attack_bonus: int
     melee_attack: int
     ranged_attack: int
     grapple: int
     initiative: int
+    hit_points: int
     armor_class: int
     touch_ac: int
     flat_footed_ac: int
@@ -88,6 +91,13 @@ def compute_derived_stats(
     *,
     size: str = "Medium",
     save_bonuses: Mapping[str, int] | None = None,
+    hit_dice: Mapping[str, int] | None = None,
+    ac_bonuses: Iterable[tuple[str, int]] = (),
+    max_dex: int | None = None,
+    level_adjustment: int = 0,
+    bonus_hp: int = 0,
+    hp_method: str = HP_METHOD_AVERAGE,
+    hp_override: int | None = None,
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
@@ -103,12 +113,27 @@ def compute_derived_stats(
                        short save keys ``"fort"``, ``"ref"``, ``"will"`` (e.g. a
                        standard familiar's master benefit).  Missing keys are
                        treated as ``0``.
+        hit_dice:      Mapping of class name → Hit Die size used to compute
+                       maximum hit points.  Classes absent from the mapping use
+                       the d8 default (PHB p145).
+        ac_bonuses:    Iterable of ``(bonus_type, value)`` AC bonus sources
+                       (armor, shield, natural, deflection, dodge, …) that are
+                       aggregated by type, respecting stacking rules (PHB p146).
+        max_dex:       Maximum Dexterity bonus to AC (worn armor's cap); the Dex
+                       contribution to AC is capped at this value when set.
+        level_adjustment: Total level adjustment from race/templates, added to
+                       the character's total level to produce the ECL (DMG p172).
+        bonus_hp:      Flat HP from HP-affecting feats/templates (e.g. Toughness).
+        hp_method:     Per-level HP method, ``"average"`` (default) or ``"max"``.
+        hp_override:   When not ``None``, this manual value replaces the computed
+                       hit points (parity with the workbook's manual HP entry).
 
     Returns:
         An immutable :class:`DerivedStats` snapshot.
     """
     progressions = progressions or {}
     save_bonuses = save_bonuses or {}
+    hit_dice = hit_dice or {}
     scores = character.ability_scores
     mods_dict = {a: ability_modifier(int(scores.get(a, 10))) for a in _ABILITIES}
     mods: Mapping[str, int] = MappingProxyType(mods_dict)
@@ -134,17 +159,34 @@ def compute_derived_stats(
     base_ref = saving_throws.base_save(class_levels, "ref", save_progressions)
     base_will = saving_throws.base_save(class_levels, "will", save_progressions)
 
+    ac = combat.aggregate_armor_class(
+        dex_mod, size=size, bonuses=ac_bonuses, max_dex=max_dex
+    )
+
+    if hp_override is not None:
+        hit_points = hp_override
+    else:
+        hit_points = compute_hit_points(
+            character.classes,
+            hit_dice,
+            con_mod,
+            method=hp_method,
+            bonus_hp=bonus_hp,
+        )
+
     return DerivedStats(
         ability_modifiers=mods,
         total_level=character.total_level,
+        ecl=character.total_level + level_adjustment,
         base_attack_bonus=bab,
         melee_attack=combat.melee_attack(bab, str_mod, size=size),
         ranged_attack=combat.ranged_attack(bab, dex_mod, size=size),
         grapple=combat.grapple_modifier(bab, str_mod, size=size),
         initiative=combat.initiative(dex_mod),
-        armor_class=combat.armor_class(dex_mod, size=size),
-        touch_ac=combat.touch_ac(dex_mod, size=size),
-        flat_footed_ac=combat.flat_footed_ac(size=size),
+        hit_points=hit_points,
+        armor_class=ac.total,
+        touch_ac=ac.touch,
+        flat_footed_ac=ac.flat_footed,
         fortitude=saving_throws.fortitude(
             base_fort, con_mod, save_bonuses.get("fort", 0)
         ),

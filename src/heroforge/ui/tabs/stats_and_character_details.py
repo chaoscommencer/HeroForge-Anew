@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -62,6 +63,8 @@ class StatsAndCharacterDetailsTab(QWidget):
         self._model = model
         self._ability_spinboxes: dict[str, QSpinBox] = {}
         self._modifier_labels: dict[str, QLabel] = {}
+        # Guards programmatic spinbox updates so they don't echo back as edits.
+        self._updating_hp = False
         self._build_ui()
         if model:
             model.character_reset.connect(self._sync_from_model)
@@ -193,6 +196,25 @@ class StatsAndCharacterDetailsTab(QWidget):
 
         self._hp_spin = QSpinBox()
         self._hp_spin.setRange(0, 9999)
+        self._hp_spin.setEnabled(False)
+        self._hp_spin.setToolTip(
+            "Computed from class Hit Dice and Constitution. "
+            "Tick 'Manual' to override."
+        )
+        self._hp_override_check = QCheckBox("Manual")
+        self._hp_override_check.setToolTip(
+            "Override the computed hit points with a manually entered value."
+        )
+        hp_row = QHBoxLayout()
+        hp_row.setContentsMargins(0, 0, 0, 0)
+        hp_row.addWidget(self._hp_spin)
+        hp_row.addWidget(self._hp_override_check)
+        hp_row.addStretch()
+        hp_container = QWidget()
+        hp_container.setLayout(hp_row)
+
+        self._total_level_label = QLabel("0")
+        self._ecl_label = QLabel("0")
         self._speed_spin = QSpinBox()
         self._speed_spin.setRange(0, 999)
         self._speed_spin.setValue(30)
@@ -203,13 +225,17 @@ class StatsAndCharacterDetailsTab(QWidget):
         self._xp_spin.setSingleStep(100)
         self._next_level_label = QLabel("1000")
 
-        form.addRow("Hit Points:", self._hp_spin)
+        form.addRow("Hit Points:", hp_container)
+        form.addRow("Total Level:", self._total_level_label)
+        form.addRow("ECL:", self._ecl_label)
         form.addRow("Base Speed:", self._speed_spin)
         form.addRow("Initiative Mod:", self._init_label)
         form.addRow("Experience:", self._xp_spin)
         form.addRow("XP for Next Level:", self._next_level_label)
 
         self._xp_spin.valueChanged.connect(self._update_next_level)
+        self._hp_override_check.toggled.connect(self._on_hp_override_toggled)
+        self._hp_spin.valueChanged.connect(self._on_hp_value_changed)
         return box
 
     def _build_derived_group(self) -> QGroupBox:
@@ -251,6 +277,9 @@ class StatsAndCharacterDetailsTab(QWidget):
             return
         stats = self._model.derived_stats()
         self._init_label.setText(self._signed(stats.initiative))
+        self._total_level_label.setText(str(stats.total_level))
+        self._ecl_label.setText(str(stats.ecl))
+        self._refresh_hit_points(stats.hit_points)
         self._derived_labels["bab"].setText(self._signed(stats.base_attack_bonus))
         self._derived_labels["melee"].setText(self._signed(stats.melee_attack))
         self._derived_labels["ranged"].setText(self._signed(stats.ranged_attack))
@@ -265,6 +294,21 @@ class StatsAndCharacterDetailsTab(QWidget):
         self._derived_labels["carry"].setText(f"{light} / {medium} / {heavy} lb.")
         # Race is owned by the Race & Templates tab; mirror it read-only here.
         self._race_edit.setText(self._model.character.race)
+
+    def _refresh_hit_points(self, hit_points: int) -> None:
+        """Display *hit_points*, reflecting whether a manual override is active.
+
+        When an override is set the spinbox stays editable and shows the manual
+        value; otherwise it is disabled and mirrors the computed value.
+        """
+        if not self._model:
+            return
+        overridden = self._model.hp_override() is not None
+        self._updating_hp = True
+        self._hp_override_check.setChecked(overridden)
+        self._hp_spin.setEnabled(overridden)
+        self._hp_spin.setValue(hit_points)
+        self._updating_hp = False
 
     # ------------------------------------------------------------------
     # Signal handlers
@@ -285,6 +329,23 @@ class StatsAndCharacterDetailsTab(QWidget):
             mod = ability_modifier(value)
             sign = "+" if mod >= 0 else ""
             self._modifier_labels[ability].setText(f"{sign}{mod}")
+
+    def _on_hp_override_toggled(self, checked: bool) -> None:
+        """Enable/disable manual HP entry and persist the override choice."""
+        if self._updating_hp or not self._model:
+            return
+        if checked:
+            # Seed the override with the currently displayed (computed) value.
+            self._model.set_hp_override(self._hp_spin.value())
+        else:
+            self._model.set_hp_override(None)
+
+    def _on_hp_value_changed(self, value: int) -> None:
+        """Persist a manually edited HP value while the override is active."""
+        if self._updating_hp or not self._model:
+            return
+        if self._hp_override_check.isChecked():
+            self._model.set_hp_override(value)
 
     def _update_next_level(self, xp: int) -> None:
         from heroforge.logic.experience import level_for_xp

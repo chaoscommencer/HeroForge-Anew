@@ -74,6 +74,14 @@ from heroforge.ui.tabs.traits_and_flaws import TraitsAndFlawsTab
 # CharacterModel – central data bus
 # ---------------------------------------------------------------------------
 
+# Character.options key holding a manual hit-point override (parity with the
+# workbook's editable HP entry).  Empty/absent means "use the computed value".
+HP_OVERRIDE_OPTION = "hp_override"
+
+# Equipment slots that contribute an armor/shield AC bonus.
+_BODY_ARMOR_SLOT = "Body Armor"
+_SHIELD_SLOT = "Shield"
+
 
 class CharacterModel(QObject):
     """Holds the active character's selections and emits change signals.
@@ -263,9 +271,124 @@ class CharacterModel(QObject):
             if kind
             else {}
         )
+        ac_bonuses, max_dex, size = self._ac_inputs()
+        hit_dice = self._game_data.class_hit_dice() if self._game_data.available else {}
         return compute_derived_stats(
-            self._character, progressions, save_bonuses=familiar_saves
+            self._character,
+            progressions,
+            size=size,
+            save_bonuses=familiar_saves,
+            hit_dice=hit_dice,
+            ac_bonuses=ac_bonuses,
+            max_dex=max_dex,
+            level_adjustment=self._level_adjustment(),
+            hp_override=self.hp_override(),
         )
+
+    # ------------------------------------------------------------------
+    # Derived-stat inputs assembled from the active character + game data
+    # ------------------------------------------------------------------
+
+    def _armor_catalog(self) -> dict[str, tuple[int, int | None]]:
+        """Map armor/shield name → ``(ac_bonus, max_dex_bonus)``.
+
+        Merges the seeded armor catalogue with the character's custom armor so
+        equipped items resolve to their AC contribution and max-Dex cap.
+        """
+        catalog: dict[str, tuple[int, int | None]] = {}
+        if self._game_data.available:
+            for item in self._game_data.list_armor():
+                catalog[item.name] = (item.ac_bonus, item.max_dex_bonus)
+        for entry in self._character.custom_armor:
+            name = entry.get("name", "")
+            if not name:
+                continue
+            raw = entry.get("max_dex_bonus")
+            max_dex = None if raw in (None, "", "—") else int(raw)
+            catalog[name] = (int(entry.get("ac_bonus", 0) or 0), max_dex)
+        return catalog
+
+    def _ac_inputs(self) -> tuple[list[tuple[str, int]], int | None, str]:
+        """Collect typed AC bonus sources, the max-Dex cap, and the size.
+
+        Sources currently aggregated: natural armor and size from the race, plus
+        the AC bonus and max-Dex cap of any equipped body armor and shield.  The
+        returned bonus list is consumed by
+        :func:`heroforge.logic.combat.aggregate_armor_class`.
+        """
+        bonuses: list[tuple[str, int]] = []
+        max_dex: int | None = None
+        size = "Medium"
+
+        profile = (
+            self._game_data.get_race_profile(self._character.race)
+            if self._game_data.available
+            else None
+        )
+        if profile is not None:
+            size = profile.size or "Medium"
+            if profile.natural_armor:
+                bonuses.append(("natural", profile.natural_armor))
+
+        catalog = self._armor_catalog()
+        for entry in self._character.equipment:
+            slot = entry.get("slot")
+            if slot not in (_BODY_ARMOR_SLOT, _SHIELD_SLOT):
+                continue
+            if not entry.get("equipped", 1):
+                continue
+            name = entry.get("item_name", "")
+            if name in catalog:
+                ac_bonus, item_max_dex = catalog[name]
+            else:
+                ac_bonus = int(entry.get("ac_bonus", 0) or 0)
+                raw = entry.get("max_dex_bonus")
+                item_max_dex = None if raw in (None, "", "—") else int(raw)
+            if ac_bonus:
+                bonuses.append(
+                    ("shield" if slot == _SHIELD_SLOT else "armor", ac_bonus)
+                )
+            if item_max_dex is not None:
+                max_dex = (
+                    item_max_dex if max_dex is None else min(max_dex, item_max_dex)
+                )
+        return bonuses, max_dex, size
+
+    def _level_adjustment(self) -> int:
+        """Total level adjustment from the race and any applied templates."""
+        if not self._game_data.available:
+            return 0
+        profile = self._game_data.get_race_profile(self._character.race)
+        total = profile.level_adjustment if profile else 0
+        for template in self._character.templates:
+            total += self._game_data.template_level_adjustment(template)
+        return total
+
+    def hp_override(self) -> int | None:
+        """Return the manual HP override (``None`` when computed HP is used)."""
+        raw = self._character.options.get(HP_OVERRIDE_OPTION)
+        if raw in (None, ""):
+            return None
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def set_hp_override(self, value: int | None) -> None:
+        """Set or clear the manual HP override and announce derived-stat updates.
+
+        Passing ``None`` removes the override so hit points revert to the
+        value computed from class Hit Dice and Constitution.
+        """
+        if value is None:
+            if HP_OVERRIDE_OPTION in self._character.options:
+                del self._character.options[HP_OVERRIDE_OPTION]
+                self.derived_stats_changed.emit()
+            return
+        new_value = str(int(value))
+        if self._character.options.get(HP_OVERRIDE_OPTION) != new_value:
+            self._character.options[HP_OVERRIDE_OPTION] = new_value
+            self.derived_stats_changed.emit()
 
     @property
     def character(self) -> Character:

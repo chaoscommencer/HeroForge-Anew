@@ -6,6 +6,7 @@ Reference: PHB Chapter 8.
 from __future__ import annotations
 
 from heroforge.logic.combat import (
+    aggregate_armor_class,
     armor_class,
     base_attack_bonus,
     carrying_capacity,
@@ -17,6 +18,69 @@ from heroforge.logic.combat import (
     ranged_attack,
     touch_ac,
 )
+
+
+class TestAggregateArmorClass:
+    def test_base_with_no_bonuses(self) -> None:
+        ac = aggregate_armor_class(0)
+        assert (ac.total, ac.touch, ac.flat_footed) == (10, 10, 10)
+
+    def test_dex_applies_to_all_but_flat_footed(self) -> None:
+        ac = aggregate_armor_class(3)
+        assert ac.total == 13
+        assert ac.touch == 13
+        # Flat-footed loses the (positive) Dex bonus.
+        assert ac.flat_footed == 10
+
+    def test_dex_penalty_still_applies_when_flat_footed(self) -> None:
+        ac = aggregate_armor_class(-1)
+        assert ac.flat_footed == 9
+
+    def test_armor_shield_natural_excluded_from_touch(self) -> None:
+        ac = aggregate_armor_class(
+            2,
+            bonuses=[("armor", 8), ("shield", 2), ("natural", 3)],
+        )
+        # Total: 10 + 2 + 8 + 2 + 3 = 25.
+        assert ac.total == 25
+        # Touch ignores armor/shield/natural: 10 + 2 = 12.
+        assert ac.touch == 12
+        # Flat-footed keeps armor/shield/natural but drops Dex: 10 + 8 + 2 + 3 = 23.
+        assert ac.flat_footed == 23
+
+    def test_natural_armor_label_variants_fold_together(self) -> None:
+        ac = aggregate_armor_class(0, bonuses=[("natural armor", 2)])
+        assert ac.total == 12
+        assert ac.touch == 10
+
+    def test_deflection_applies_to_touch_and_flat_footed(self) -> None:
+        ac = aggregate_armor_class(0, bonuses=[("deflection", 1)])
+        assert ac.total == 11
+        assert ac.touch == 11
+        assert ac.flat_footed == 11
+
+    def test_dodge_lost_when_flat_footed_but_stacks_otherwise(self) -> None:
+        ac = aggregate_armor_class(0, bonuses=[("dodge", 1), ("dodge", 1)])
+        # Dodge bonuses stack: +2 to total and touch.
+        assert ac.total == 12
+        assert ac.touch == 12
+        # Dodge is lost when flat-footed.
+        assert ac.flat_footed == 10
+
+    def test_same_named_type_does_not_stack(self) -> None:
+        # Two deflection bonuses: only the largest applies.
+        ac = aggregate_armor_class(0, bonuses=[("deflection", 1), ("deflection", 3)])
+        assert ac.total == 13
+
+    def test_size_modifier_included(self) -> None:
+        ac = aggregate_armor_class(0, size="Small")
+        assert ac.total == 11
+
+    def test_max_dex_caps_the_dex_contribution(self) -> None:
+        ac = aggregate_armor_class(5, bonuses=[("armor", 4)], max_dex=2)
+        # Dex capped at 2: 10 + 2 + 4 = 16.
+        assert ac.total == 16
+        assert ac.touch == 12
 
 
 class TestBaseAttackBonus:

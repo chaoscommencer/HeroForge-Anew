@@ -350,6 +350,7 @@ Each VBA function or macro is converted to a standalone, pure Python function in
 |---|---|---|
 | `base_attack_bonus(class_levels)` | Sum BAB across all class levels | PHB p22 |
 | `armor_class(dex_mod, armor, shield, size, natural, deflect, dodge, misc)` | Full AC calculation | PHB p136 |
+| `aggregate_armor_class(dex_mod, size, bonuses, max_dex)` | Type-aware AC aggregation (total/touch/flat-footed) respecting stacking | PHB p146 |
 | `touch_ac(...)` | AC ignoring armor and natural armor | PHB p136 |
 | `flat_footed_ac(...)` | AC ignoring Dex and dodge | PHB p136 |
 | `grapple_modifier(bab, str_mod, size_mod)` | Grapple check modifier | PHB p155 |
@@ -358,6 +359,13 @@ Each VBA function or macro is converted to a standalone, pure Python function in
 | `ranged_attack(bab, dex_mod, size_mod, misc)` | Ranged attack roll modifier | PHB p124 |
 | `damage_bonus(str_mod, weapon_type, two_handed)` | Damage modifier for melee | PHB p113 |
 | `carrying_capacity(str_score)` | Light/medium/heavy load thresholds | PHB p162 |
+
+#### `logic/hit_points.py`
+
+| Function | Description | Source |
+|---|---|---|
+| `compute_hit_points(classes, hit_dice, con_mod, …)` | Maximum HP from class Hit Dice + CON (first level maxed, average/max thereafter, +1 minimum per HD, bonus HP) | PHB p145 |
+| `average_hit_die_value(die)` | Rounded-up average roll of a Hit Die | DMG p198 |
 
 #### `logic/saving_throws.py`
 

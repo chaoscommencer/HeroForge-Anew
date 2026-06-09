@@ -249,6 +249,58 @@ class TestDerivedStatsRealtime:
         stats._ability_spinboxes["WIS"].setValue(12)
         assert stats._derived_labels["will"].text() == "+1"
 
+    def test_total_level_and_ecl_displayed(self, model: object) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        stats = StatsAndCharacterDetailsTab(model=model)
+        model.character.classes = [("Fighter", 4)]
+        model.class_levels_changed.emit()
+        assert stats._total_level_label.text() == "4"
+        # No race/level adjustment configured, so ECL matches total level.
+        assert stats._ecl_label.text() == "4"
+
+    def test_hit_points_computed_and_disabled_by_default(
+        self, empty_model: object
+    ) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        stats = StatsAndCharacterDetailsTab(model=empty_model)
+        empty_model.character.classes = [("Fighter", 1)]
+        empty_model.ability_score_changed.emit("CON", 14)
+        # Default d8 Hit Die (no DB): max 8 + 2 Con = 10.
+        assert stats._hp_spin.value() == 10
+        # Computed HP is read-only until the user opts into a manual override.
+        assert not stats._hp_spin.isEnabled()
+        assert not stats._hp_override_check.isChecked()
+
+    def test_manual_hp_override_round_trips_through_model(
+        self, empty_model: object
+    ) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        stats = StatsAndCharacterDetailsTab(model=empty_model)
+        empty_model.character.classes = [("Fighter", 1)]
+        empty_model.class_levels_changed.emit()
+
+        stats._hp_override_check.setChecked(True)
+        assert stats._hp_spin.isEnabled()
+        stats._hp_spin.setValue(42)
+        assert empty_model.hp_override() == 42
+        assert empty_model.derived_stats().hit_points == 42
+
+        # Clearing the override reverts to the computed value.
+        stats._hp_override_check.setChecked(False)
+        assert empty_model.hp_override() is None
+        assert not stats._hp_spin.isEnabled()
+        # Fighter 1 (d8 default), no Con bonus = 8.
+        assert stats._hp_spin.value() == 8
+
     def test_skill_ability_modifier_updates_in_real_time(
         self, empty_model: object
     ) -> None:
