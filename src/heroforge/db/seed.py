@@ -523,7 +523,9 @@ def _extract_vestiges(wb: object) -> list[tuple[object, ...]]:
         index = _col(row, "P")
         if not _UNSIGNED_INT_RE.fullmatch(index) or not name:
             continue
-        rows.append((name, None, "", "", "", ""))
+        dc_str = _col(row, "R")
+        dc: int | None = int(dc_str) if _UNSIGNED_INT_RE.fullmatch(dc_str) else None
+        rows.append((name, dc, "", "", "", ""))
     return rows
 
 
