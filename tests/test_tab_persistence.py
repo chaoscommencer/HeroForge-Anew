@@ -547,6 +547,111 @@ class TestLGGameLogTab:
         assert records[0]["gp_change"] == 500.0
 
 
+class TestLGItemAccessTab:
+    def test_add_record_persists_as_item_access(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
+
+        tab = LGItemAccessTab(model=model)
+        tab.add_record("2024-02-02", "Boots of Speed", 12000, "AR 1234")
+
+        records = [
+            r for r in model.character.lg_records if r["record_type"] == "item_access"
+        ]
+        assert len(records) == 1
+        rec = records[0]
+        assert rec["event_date"] == "2024-02-02"
+        assert rec["description"] == "Boots of Speed"
+        assert rec["gp_change"] == 12000.0
+        assert rec["xp_change"] == 0.0
+        assert rec["notes"] == "AR 1234"
+
+    def test_other_lg_record_types_preserved(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
+
+        model.character.lg_records = [
+            {"record_type": "game_log", "description": "An old session"}
+        ]
+        tab = LGItemAccessTab(model=model)
+        tab.add_record(item="Ring of Protection")
+
+        types = [r["record_type"] for r in model.character.lg_records]
+        assert "game_log" in types
+        assert "item_access" in types
+
+    def test_sync_preserves_interleaved_ordering(self, model: object) -> None:
+        """item_access records replaced in-place; sibling positions unchanged."""
+        from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
+
+        # Start with interleaved records: game_log / item_access / mil
+        model.character.lg_records = [
+            {"record_type": "game_log", "description": "Session"},
+            {
+                "record_type": "item_access",
+                "event_date": "2024-01-01",
+                "description": "Old wand",
+                "gp_change": 0.0,
+                "xp_change": 0.0,
+                "notes": None,
+            },
+            {"record_type": "mil", "description": "Promotion"},
+        ]
+        tab = LGItemAccessTab(model=model)
+        # Edit the existing item_access row via the table
+        tab._table.item(0, 1).setText("Updated wand")
+
+        records = model.character.lg_records
+        # Ordering must still be: game_log, item_access, mil
+        assert [r["record_type"] for r in records] == [
+            "game_log",
+            "item_access",
+            "mil",
+        ]
+        assert records[1]["description"] == "Updated wand"
+
+    def test_cell_edit_syncs_to_model(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
+
+        tab = LGItemAccessTab(model=model)
+        tab.add_record(item="Original")
+        tab._table.item(0, 1).setText("Edited")
+
+        record = next(
+            r for r in model.character.lg_records if r["record_type"] == "item_access"
+        )
+        assert record["description"] == "Edited"
+
+    def test_sync_from_model_shows_only_item_access_rows(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
+
+        model.character.lg_records = [
+            {"record_type": "game_log", "description": "Session 1"},
+            {
+                "record_type": "item_access",
+                "event_date": "2024-01-01",
+                "description": "Cloak of Resistance",
+                "gp_change": 1000.0,
+                "xp_change": 0.0,
+                "notes": "",
+            },
+        ]
+        tab = LGItemAccessTab(model=model)
+        assert tab._table.rowCount() == 1
+        assert tab._table.item(0, 1).text() == "Cloak of Resistance"
+
+    def test_records_round_trip(self, model: object, tmp_path: Path) -> None:
+        from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
+
+        tab = LGItemAccessTab(model=model)
+        tab.add_record("2024-03-03", "Staff of Power", 200000, "AR 5678")
+
+        loaded = _round_trip(model.character, tmp_path)
+        records = [r for r in loaded.lg_records if r["record_type"] == "item_access"]
+        assert len(records) == 1
+        assert records[0]["description"] == "Staff of Power"
+        assert records[0]["gp_change"] == 200000.0
+        assert records[0]["notes"] == "AR 5678"
+
+
 # ---------------------------------------------------------------------------
 # Full save/load round-trip across several tabs
 # ---------------------------------------------------------------------------

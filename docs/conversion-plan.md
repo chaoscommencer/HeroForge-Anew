@@ -130,6 +130,7 @@ HeroForge-Anew/
 │               ├── table_tent.py       ← printable folded name-card summary
 │               ├── game_log.py
 │               ├── lg_game_log.py    ← Living Greyhawk variant (deprecated)
+│               ├── lg_item_access.py ← Living Greyhawk MIL / item access (deprecated)
 │               └── initiative_card.py
 ├── tests/
 │   ├── conftest.py
@@ -503,6 +504,7 @@ Each tab in the Excel workbook maps to a `QWidget` subclass in `src/heroforge/ui
 | Table Tent | `TableTentTab` | `tabs/table_tent.py` |
 | Game Log | `GameLogTab` | `tabs/game_log.py` |
 | LG Game Log | `LGGameLogTab` (deprecated) | `tabs/lg_game_log.py` |
+| LG Item Access | `LGItemAccessTab` (deprecated) | `tabs/lg_item_access.py` |
 | Initiative Card | `InitiativeCardTab` | `tabs/initiative_card.py` |
 
 > **Note:** The ExportSheet, CS Calc., and internal data sheets (Race Info, Class Info, etc.) have no direct UI tab equivalent; they are replaced by the database layer and logic modules.
@@ -668,6 +670,7 @@ The following is the complete list of sheets in `HeroForge Anew 3.5 v7.4.0.1.xls
 | Character Sheet V | PyQt tab (merged) |
 | Game Log | PyQt tab |
 | LG Game Log | `LGGameLogTab` (Living Greyhawk; implemented, deprecated in the UI) |
+| LG Item Access | `LGItemAccessTab` (Living Greyhawk MIL / item access; implemented, deprecated in the UI) |
 | Initiative Card | PyQt tab |
 | Table Tent | `TableTentTab` (implemented; printable folded name-card summary via `logic/export.py`) |
 | ExportSheet | Replaced by `logic/export.py` |
@@ -711,7 +714,7 @@ The following is the complete list of sheets in `HeroForge Anew 3.5 v7.4.0.1.xls
 | Spells Known | `spells_known` |
 | Psionic Info | `psionic_powers` |
 | Tables | `tables` (XP, carry, point buy, etc.) |
-| LG MIL / LG Item Access Tracking | Low priority; Living Greyhawk specific |
+| LG MIL / LG Item Access Tracking | `character_lg_records` (`record_type = 'item_access'`); surfaced by `LGItemAccessTab` (deprecated) |
 | Option Info | Internal |
 
 ### 11.4 Calculation Sheets (→ logic modules)
@@ -783,9 +786,9 @@ The VBA code in the workbook is compiled into `xl/vbaProject.bin`. The functiona
 | Data quality issues in source CSVs | Medium | Medium | Add validation step to seed script; log all rows that fail validation |
 | Performance of DB queries during real-time recalculation | Low | Medium | Cache static data (races, classes, feats) in memory at startup; only hit DB for character-specific queries |
 | Save format compatibility with `.hfg` files | Medium | Low | Implement a one-way importer; document that the old format is read-only |
-| Living Greyhawk content is legacy and low priority | Low | Low | Implement stub tabs; mark as deprecated in the UI. *Status:* the LG Game Log is implemented (`LGGameLogTab`) and flagged deprecated in the UI (in-tab banner + tab tooltip); LG MIL / Item Access remain tracked separately. |
+| Living Greyhawk content is legacy and low priority | Low | Low | Implement stub tabs; mark as deprecated in the UI. *Status:* the LG Game Log (`LGGameLogTab`) and LG MIL / Item Access (`LGItemAccessTab`) are both implemented and flagged deprecated in the UI (in-tab banner + tab tooltip); each is backed by `character_lg_records` and round-trips through save/load. |
 
 ---
 
-*Last updated: 2026-05-08*  
+*Last updated: 2026-06-09*  
 *Document owner: HeroForge Anew development team*

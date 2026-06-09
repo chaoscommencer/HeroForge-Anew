@@ -8,8 +8,9 @@ HeroForge Anew is a D&D 3.5 character builder. Originally implemented in Excel/V
 - Support for races, classes, prestige classes, feats, skills, spells, psionics, incarnum, and more
 - Reactive UI that automatically recalculates derived stats
 - SQLite-backed character save/load
-- Session note-taking via the Game Log tab, plus a Living Greyhawk adventure-record
-  log (LG Game Log) retained for legacy characters (deprecated)
+- Session note-taking via the Game Log tab, plus Living Greyhawk legacy logbooks —
+  an adventure-record log (LG Game Log) and a magic-item / item-access log
+  (LG Item Access / MIL) — retained for legacy characters (deprecated)
 - Printable character summaries: a full Character Sheet and a Table Tent (a folded
   name-card you print, fold, and stand on the table), both exportable to text
 
