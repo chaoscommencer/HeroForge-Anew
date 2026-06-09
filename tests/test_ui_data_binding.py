@@ -301,6 +301,26 @@ class TestDerivedStatsRealtime:
         # Fighter 1 (d8 default), no Con bonus = 8.
         assert stats._hp_spin.value() == 8
 
+    def test_malformed_armor_data_does_not_crash_derived_stats(
+        self, empty_model: object
+    ) -> None:
+        # Malformed user-entered armor/equipment values must degrade gracefully
+        # rather than raise on every derived-stat refresh.
+        empty_model.character.custom_armor = [
+            {"name": "Junk", "ac_bonus": "abc", "max_dex_bonus": "oops"}
+        ]
+        empty_model.character.equipment = [
+            {
+                "item_name": "Junk",
+                "slot": "Body Armor",
+                "equipped": 1,
+                "ac_bonus": "xyz",
+                "max_dex_bonus": "nope",
+            }
+        ]
+        stats = empty_model.derived_stats()
+        assert stats.armor_class == 10
+
     def test_skill_ability_modifier_updates_in_real_time(
         self, empty_model: object
     ) -> None:

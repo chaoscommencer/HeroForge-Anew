@@ -83,6 +83,30 @@ _BODY_ARMOR_SLOT = "Body Armor"
 _SHIELD_SLOT = "Shield"
 
 
+def _safe_int(raw: object, default: int = 0) -> int:
+    """Coerce *raw* to ``int``, returning *default* for missing/malformed data.
+
+    Guards the derived-stat calculation against malformed user-entered armor or
+    equipment values (which would otherwise raise on every UI refresh).
+    """
+    if raw in (None, ""):
+        return default
+    try:
+        return int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_optional_int(raw: object) -> int | None:
+    """Coerce *raw* to ``int`` or ``None`` (for an absent/uncapped max-Dex)."""
+    if raw in (None, "", "—"):
+        return None
+    try:
+        return int(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
 class CharacterModel(QObject):
     """Holds the active character's selections and emits change signals.
 
@@ -304,8 +328,8 @@ class CharacterModel(QObject):
             if not name:
                 continue
             raw = entry.get("max_dex_bonus")
-            max_dex = None if raw in (None, "", "—") else int(raw)
-            catalog[name] = (int(entry.get("ac_bonus", 0) or 0), max_dex)
+            max_dex = _safe_optional_int(raw)
+            catalog[name] = (_safe_int(entry.get("ac_bonus")), max_dex)
         return catalog
 
     def _ac_inputs(self) -> tuple[list[tuple[str, int]], int | None, str]:
@@ -341,9 +365,8 @@ class CharacterModel(QObject):
             if name in catalog:
                 ac_bonus, item_max_dex = catalog[name]
             else:
-                ac_bonus = int(entry.get("ac_bonus", 0) or 0)
-                raw = entry.get("max_dex_bonus")
-                item_max_dex = None if raw in (None, "", "—") else int(raw)
+                ac_bonus = _safe_int(entry.get("ac_bonus"))
+                item_max_dex = _safe_optional_int(entry.get("max_dex_bonus"))
             if ac_bonus:
                 bonuses.append(
                     ("shield" if slot == _SHIELD_SLOT else "armor", ac_bonus)

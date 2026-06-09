@@ -37,7 +37,9 @@ def average_hit_die_value(die: int) -> int:
     """
     if die <= 0:
         return 0
-    return (die + 2) // 2
+    # Ceiling of (die + 1) / 2 — i.e. round the true average up.  For the even
+    # Hit Dice used in 3.5 (d4..d12) this equals (die + 2) // 2.
+    return (die + 1 + 1) // 2
 
 
 def _per_level_value(die: int, *, maximised: bool, method: str) -> int:
