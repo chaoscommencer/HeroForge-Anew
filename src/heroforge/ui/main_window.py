@@ -240,8 +240,8 @@ class CharacterModel(QObject):
             self._game_data.class_progressions() if self._game_data.available else {}
         )
         kind = selected_familiar_kind(self._character.companions)
-        familiar_bonus_records = self._game_data.get_familiar_bonus_records() or list(
-            STANDARD_FAMILIAR_BONUSES
+        familiar_bonus_records = (
+            self._game_data.get_familiar_bonus_records() or STANDARD_FAMILIAR_BONUSES
         )
         familiar_saves = (
             familiar_save_bonuses(
