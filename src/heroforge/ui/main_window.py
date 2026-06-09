@@ -54,6 +54,7 @@ from heroforge.ui.tabs.grafts import GraftsTab
 from heroforge.ui.tabs.initiative_card import InitiativeCardTab
 from heroforge.ui.tabs.languages import LanguagesTab
 from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
 from heroforge.ui.tabs.magic_equipment import MagicEquipmentTab
 from heroforge.ui.tabs.maneuvers_and_stances import ManeuversAndStancesTab
 from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
@@ -345,12 +346,13 @@ class MainWindow(QMainWindow):
         ("Table Tent", TableTentTab),
         ("Game Log", GameLogTab),
         ("LG Game Log", LGGameLogTab),
+        ("LG Item Access", LGItemAccessTab),
         ("Initiative Card", InitiativeCardTab),
     ]
 
     #: Labels of deprecated/legacy tabs (Living Greyhawk content).  These are
     #: kept for backwards compatibility but flagged in the UI via a tooltip.
-    _DEPRECATED_TABS: frozenset[str] = frozenset({"LG Game Log"})
+    _DEPRECATED_TABS: frozenset[str] = frozenset({"LG Game Log", "LG Item Access"})
 
     # Custom-content dialogs sharing a ``(parent)``-only constructor.  Declared
     # as data so new homebrew dialogs can be exposed by adding a single row.
