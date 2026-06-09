@@ -153,6 +153,7 @@ class PsionicsTab(QWidget):
             except (TypeError, ValueError):
                 self._total_pp.setValue(0)
                 self._spent_pp.setValue(0)
+            self._spent_pp.setMaximum(self._total_pp.value())
             for entry in self._model.character.psionic_powers:
                 name = entry.get("power_name", "")
                 if name:
