@@ -195,6 +195,42 @@ class Creature:
     natural_armor: int
 
 
+@dataclass(frozen=True)
+class IncarnumAbility:
+    """An entry from the ``incarnum_abilities`` table (Magic of Incarnum)."""
+
+    name: str
+    description: str
+
+
+@dataclass(frozen=True)
+class Vestige:
+    """A bindable vestige entry from the ``vestiges`` table (Tome of Magic)."""
+
+    name: str
+    level: int | None
+    """Binding DC level of the vestige, or ``None`` if not recorded in the source."""
+    source: str | None
+    """Sourcebook abbreviation, or ``None`` for unsourced/core vestiges."""
+
+
+@dataclass(frozen=True)
+class MarshalAura:
+    """A marshal aura entry from the ``marshal_auras`` table (Miniatures Handbook)."""
+
+    name: str
+    aura_type: str
+
+
+@dataclass(frozen=True)
+class RacialAbility:
+    """A racial special ability from the ``racial_abilities`` table."""
+
+    race_name: str
+    ability_name: str
+    description: str
+
+
 class GameDataRepository:
     """Read-only accessor for the seeded ``heroforge.db`` game database.
 
@@ -713,4 +749,128 @@ class GameDataRepository:
             FamiliarMasterAbility(name=r["name"], description=r["description"])
             for r in rows
             if r["name"]
+        ]
+
+    # ------------------------------------------------------------------
+    # Incarnum abilities
+    # ------------------------------------------------------------------
+
+    def list_incarnum_abilities(self) -> list[IncarnumAbility]:
+        """Return all incarnum abilities ordered by name.
+
+        Data is read from the ``incarnum_abilities`` table seeded from the
+        *Incarnum Abilities* sheet of the reference workbook.  Returns an
+        empty list when the database is unavailable or not yet seeded.
+        """
+        rows = self._query(
+            "SELECT name, description FROM incarnum_abilities ORDER BY name"
+        )
+        return [
+            IncarnumAbility(
+                name=r["name"],
+                description=r["description"] or "",
+            )
+            for r in rows
+            if r["name"]
+        ]
+
+    # ------------------------------------------------------------------
+    # Vestiges
+    # ------------------------------------------------------------------
+
+    def list_vestiges(self, sources: Iterable[str] | None = None) -> list[Vestige]:
+        """Return bindable vestige entries ordered by name.
+
+        Data is read from the ``vestiges`` table seeded from the *Binder
+        Vestiges* sheet of the reference workbook.  Returns an empty list
+        when the database is unavailable or not yet seeded.
+        """
+        fragment, params = self._source_filter("source", sources)
+        where = f"WHERE {fragment}" if fragment else ""
+        rows = self._query(
+            f"SELECT name, level, source FROM vestiges {where} ORDER BY name",
+            params,
+        )
+        return [
+            Vestige(
+                name=r["name"],
+                level=int(r["level"]) if r["level"] is not None else None,
+                source=r["source"] or None,
+            )
+            for r in rows
+            if r["name"]
+        ]
+
+    # ------------------------------------------------------------------
+    # Marshal auras
+    # ------------------------------------------------------------------
+
+    def list_marshal_auras(self, aura_type: str | None = None) -> list[MarshalAura]:
+        """Return marshal aura entries ordered by type then name.
+
+        Args:
+            aura_type: When provided, limit results to ``'Minor'`` or
+                ``'Major'`` auras only.  ``None`` returns all auras.
+
+        Data is read from the ``marshal_auras`` table seeded from the
+        *Marshal Auras* sheet of the reference workbook.  Returns an empty
+        list when the database is unavailable or not yet seeded.
+        """
+        if aura_type is not None:
+            rows = self._query(
+                "SELECT name, type FROM marshal_auras "
+                "WHERE type = ? ORDER BY type, name",
+                [aura_type],
+            )
+        else:
+            rows = self._query(
+                "SELECT name, type FROM marshal_auras ORDER BY type, name"
+            )
+        return [
+            MarshalAura(
+                name=r["name"],
+                aura_type=r["type"] or "",
+            )
+            for r in rows
+            if r["name"]
+        ]
+
+    # ------------------------------------------------------------------
+    # Racial abilities
+    # ------------------------------------------------------------------
+
+    def list_racial_abilities(
+        self, race_name: str | None = None
+    ) -> list[RacialAbility]:
+        """Return racial special-ability entries.
+
+        Args:
+            race_name: When provided, only abilities for that exact race are
+                returned (case-sensitive match).  ``None`` returns abilities
+                for all races.
+
+        Data is read from the ``racial_abilities`` table seeded from the
+        *Racial Abilities* sheet of the reference workbook.  Returns an empty
+        list when the database is unavailable or not yet seeded.
+        """
+        if race_name is not None:
+            rows = self._query(
+                "SELECT race_name, ability_name, description "
+                "FROM racial_abilities WHERE race_name = ? "
+                "ORDER BY ability_name",
+                [race_name],
+            )
+        else:
+            rows = self._query(
+                "SELECT race_name, ability_name, description "
+                "FROM racial_abilities ORDER BY race_name, ability_name"
+            )
+        return [
+            RacialAbility(
+                race_name=r["race_name"],
+                ability_name=r["ability_name"] or "",
+                description=r["description"] or "",
+            )
+            for r in rows
+            if r["race_name"]
         ]
