@@ -1679,7 +1679,9 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
     ``ClassInfo.xlsx`` is a single wide sheet: the class name sits in the
     unlabelled column to the left of the ``Abr`` header, the BAB/save columns
     (``fBAB``/``fFort``/``fRef``/``fWill``) hold numeric progression factors,
-    and a wide block of per-skill columns marks class skills with a ``2``.
+    a wide block of per-skill columns marks class skills with a ``2``, and the
+    ``Light``..``Other Weapons`` columns mirror the "Class Weapons & Armor"
+    proficiencies (used to populate *class_weapons_armor*).
     Section-divider rows (``– … –``) toggle whether following classes are
     prestige classes, and placeholder rows (``Select Class``, ``N/A``,
     ``<custom-defined class>``) are skipped.
@@ -1693,6 +1695,7 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
 
     inserted_classes = 0
     inserted_skills = 0
+    inserted_profs = 0
     skipped = 0
 
     try:
@@ -1723,6 +1726,21 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
             ref_idx = hidx("fRef")
             will_idx = hidx("fWill")
             source_idx = hidx("Reference")
+
+            # Armor/shield/weapon proficiency flags (the "Class Weapons & Armor"
+            # data mirrored into ClassInfo).  Each flag column holds ``True`` when
+            # the class is proficient; the "Other Weapons" column is a
+            # ``;``-separated list of individually granted weapon proficiencies.
+            prof_flag_cols: list[tuple[int, str]] = [
+                (hidx("Light"), "Light armor"),
+                (hidx("Med"), "Medium armor"),
+                (hidx("Heavy"), "Heavy armor"),
+                (hidx("Shield"), "Shields"),
+                (hidx("Tower"), "Tower shields"),
+                (hidx("Simple"), "Simple weapons"),
+                (hidx("Martial"), "Martial weapons"),
+            ]
+            other_weapons_idx = hidx("Other Weapons")
 
             # The per-skill block runs from "Appraise" up to (but excluding)
             # "Reference"; ignore "… "-suffixed category separators.
@@ -1781,6 +1799,37 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
                     )
                     inserted_classes += 1
 
+                    # Weapon & armor proficiencies for this class.  Cleared first
+                    # so repeated seeding stays idempotent (the table has no
+                    # UNIQUE key of its own).
+                    conn.execute(
+                        "DELETE FROM class_weapons_armor WHERE class_name = ?",
+                        (name,),
+                    )
+                    proficiencies = [
+                        label
+                        for idx, label in prof_flag_cols
+                        if cell(row_data, idx).lower() == "true"
+                    ]
+                    proficiencies.extend(
+                        weapon
+                        for weapon in (
+                            part.strip()
+                            for part in cell(row_data, other_weapons_idx).split(";")
+                        )
+                        if weapon
+                    )
+                    for proficiency in proficiencies:
+                        try:
+                            conn.execute(
+                                "INSERT INTO class_weapons_armor "
+                                "(class_name, proficiency) VALUES (?, ?)",
+                                (name, proficiency),
+                            )
+                            inserted_profs += 1
+                        except sqlite3.Error:
+                            pass
+
                     # A skill cell value of "2" marks a class skill for this class.
                     for idx, skill_name in skill_cols:
                         if cell(row_data, idx) == "2":
@@ -1805,9 +1854,11 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
     finally:
         wb.close()
     logger.info(
-        "Classes: inserted/replaced %d class rows, %d skill rows, skipped %d",
+        "Classes: inserted/replaced %d class rows, %d skill rows, "
+        "%d weapon/armor proficiency rows, skipped %d",
         inserted_classes,
         inserted_skills,
+        inserted_profs,
         skipped,
     )
 

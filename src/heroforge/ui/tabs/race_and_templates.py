@@ -30,7 +30,12 @@ class RaceAndTemplatesTab(QWidget):
         super().__init__(parent)
         self._model = model
         self._available_templates: list[str] = []
+        self._loading = False
         self._build_ui()
+        if model:
+            model.character_reset.connect(self._sync_from_model)
+            model.character_loaded.connect(lambda _id: self._sync_from_model())
+            self._sync_from_model()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -92,14 +97,28 @@ class RaceAndTemplatesTab(QWidget):
         """Populate race and template controls from the seeded database."""
         if self._model is None:
             return
-        repo = self._model.game_data()
-        self._race_combo.clear()
-        self._race_combo.addItems(repo.list_races())
-        self._race_combo.setCurrentIndex(-1)
-        self._available_templates = repo.list_templates()
+        self._loading = True
+        try:
+            repo = self._model.game_data()
+            self._race_combo.clear()
+            self._race_combo.addItems(repo.list_races())
+            self._race_combo.setCurrentIndex(-1)
+            self._available_templates = repo.list_templates()
+        finally:
+            self._loading = False
 
     def _on_race_changed(self, race_name: str) -> None:
-        """Refresh the racial traits list when a new race is chosen."""
+        """Refresh racial traits and record the chosen race on the character."""
+        self._refresh_traits(race_name)
+        if self._loading or self._model is None:
+            return
+        self._model.character.race = race_name
+        # Race affects size, speed, and ability adjustments, so trigger a
+        # full derived-stat refresh (also updates the Stats tab's mirror).
+        self._model.derived_stats_changed.emit()
+
+    def _refresh_traits(self, race_name: str) -> None:
+        """Populate the racial-traits list for ``race_name``."""
         self._traits_list.clear()
         if not race_name or self._model is None:
             return
@@ -118,7 +137,36 @@ class RaceAndTemplatesTab(QWidget):
             if name not in applied:
                 self._template_list.addItem(name)
                 break
+        self._sync_to_model()
 
     def _remove_template(self) -> None:
         for item in self._template_list.selectedItems():
             self._template_list.takeItem(self._template_list.row(item))
+        self._sync_to_model()
+
+    def _sync_to_model(self) -> None:
+        """Write the selected race and applied templates into the character."""
+        if self._loading or self._model is None:
+            return
+        char = self._model.character
+        char.race = self._race_combo.currentText()
+        char.templates = [
+            self._template_list.item(i).text()
+            for i in range(self._template_list.count())
+            if self._template_list.item(i) is not None
+        ]
+
+    def _sync_from_model(self) -> None:
+        """Restore race and templates from the active character (load/reset)."""
+        if self._model is None:
+            return
+        self._loading = True
+        try:
+            char = self._model.character
+            self._race_combo.setCurrentText(char.race)
+            self._refresh_traits(char.race)
+            self._template_list.clear()
+            for name in char.templates:
+                self._template_list.addItem(name)
+        finally:
+            self._loading = False

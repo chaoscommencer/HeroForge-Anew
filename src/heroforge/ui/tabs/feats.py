@@ -36,6 +36,7 @@ class FeatsTab(QWidget):
         self._build_ui()
         if model:
             model.character_reset.connect(self._reset)
+            model.character_loaded.connect(lambda _id: self._sync_from_model())
             model.derived_stats_changed.connect(self._apply_prereq_status)
 
     def _build_ui(self) -> None:
@@ -176,3 +177,11 @@ class FeatsTab(QWidget):
 
     def _reset(self) -> None:
         self._taken_list.clear()
+
+    def _sync_from_model(self) -> None:
+        """Repopulate the taken-feats list from the loaded character."""
+        self._taken_list.clear()
+        if self._model is not None:
+            for feat_name in self._model.character.feats:
+                self._taken_list.addItem(feat_name)
+        self._apply_prereq_status()

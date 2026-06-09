@@ -64,10 +64,30 @@ class StatsAndCharacterDetailsTab(QWidget):
         self._modifier_labels: dict[str, QLabel] = {}
         self._build_ui()
         if model:
-            model.character_reset.connect(self._reset)
+            model.character_reset.connect(self._sync_from_model)
+            model.character_loaded.connect(lambda _id: self._sync_from_model())
             model.ability_score_changed.connect(self._on_ability_score_changed)
             model.derived_stats_changed.connect(self._refresh_derived)
+            self._connect_identity_signals()
+            self._sync_from_model()
             self._refresh_derived()
+
+    def _connect_identity_signals(self) -> None:
+        """Wire identity/detail widgets so edits flow back into the model."""
+        self._name_edit.textEdited.connect(self._sync_to_model)
+        self._player_edit.textEdited.connect(self._sync_to_model)
+        self._campaign_edit.textEdited.connect(self._sync_to_model)
+        self._alignment_edit.textEdited.connect(self._sync_to_model)
+        self._deity_edit.textEdited.connect(self._sync_to_model)
+        self._homeland_edit.textEdited.connect(self._sync_to_model)
+        self._gender_edit.textEdited.connect(self._sync_to_model)
+        self._height_edit.textEdited.connect(self._sync_to_model)
+        self._weight_edit.textEdited.connect(self._sync_to_model)
+        self._eyes_edit.textEdited.connect(self._sync_to_model)
+        self._hair_edit.textEdited.connect(self._sync_to_model)
+        self._skin_edit.textEdited.connect(self._sync_to_model)
+        self._age_spin.valueChanged.connect(lambda _: self._sync_to_model())
+        self._xp_spin.valueChanged.connect(lambda _: self._sync_to_model())
 
     # ------------------------------------------------------------------
 
@@ -104,6 +124,8 @@ class StatsAndCharacterDetailsTab(QWidget):
         self._deity_edit = QLineEdit()
         self._homeland_edit = QLineEdit()
         self._race_edit = QLineEdit()
+        self._race_edit.setReadOnly(True)
+        self._race_edit.setToolTip("Set on the Race & Templates tab.")
         self._gender_edit = QLineEdit()
         self._age_spin = QSpinBox()
         self._age_spin.setRange(0, 9999)
@@ -241,6 +263,8 @@ class StatsAndCharacterDetailsTab(QWidget):
         self._derived_labels["will"].setText(self._signed(stats.will))
         light, medium, heavy = stats.carrying_capacity
         self._derived_labels["carry"].setText(f"{light} / {medium} / {heavy} lb.")
+        # Race is owned by the Race & Templates tab; mirror it read-only here.
+        self._race_edit.setText(self._model.character.race)
 
     # ------------------------------------------------------------------
     # Signal handlers
@@ -269,21 +293,67 @@ class StatsAndCharacterDetailsTab(QWidget):
         next_xp = xp_for_level(current_lvl + 1)
         self._next_level_label.setText(f"{next_xp:,}")
 
-    def _reset(self) -> None:
-        self._name_edit.clear()
-        self._player_edit.clear()
-        self._campaign_edit.clear()
-        self._alignment_edit.clear()
-        self._deity_edit.clear()
-        self._homeland_edit.clear()
-        self._race_edit.clear()
-        self._gender_edit.clear()
-        self._age_spin.setValue(0)
-        self._height_edit.clear()
-        self._weight_edit.clear()
-        self._eyes_edit.clear()
-        self._hair_edit.clear()
-        self._skin_edit.clear()
-        self._xp_spin.setValue(0)
+    def _sync_to_model(self) -> None:
+        """Write identity and detail fields into the active character.
+
+        Race is intentionally excluded: it is owned by the Race & Templates
+        tab and only mirrored read-only here.
+        """
+        if not self._model:
+            return
+        char = self._model.character
+        char.name = self._name_edit.text()
+        char.player = self._player_edit.text()
+        char.campaign = self._campaign_edit.text()
+        char.alignment = self._alignment_edit.text()
+        char.deity = self._deity_edit.text()
+        char.homeland = self._homeland_edit.text()
+        char.gender = self._gender_edit.text()
+        char.age = self._age_spin.value()
+        char.height = self._height_edit.text()
+        char.weight = self._weight_edit.text()
+        char.eyes = self._eyes_edit.text()
+        char.hair = self._hair_edit.text()
+        char.skin = self._skin_edit.text()
+        char.experience = self._xp_spin.value()
+
+    def _sync_from_model(self) -> None:
+        """Repopulate every widget from the active character (load/reset)."""
+        char = self._model.character if self._model else None
+        fields = {
+            self._name_edit: char.name if char else "",
+            self._player_edit: char.player if char else "",
+            self._campaign_edit: char.campaign if char else "",
+            self._alignment_edit: char.alignment if char else "",
+            self._deity_edit: char.deity if char else "",
+            self._homeland_edit: char.homeland if char else "",
+            self._race_edit: char.race if char else "",
+            self._gender_edit: char.gender if char else "",
+            self._height_edit: char.height if char else "",
+            self._weight_edit: char.weight if char else "",
+            self._eyes_edit: char.eyes if char else "",
+            self._hair_edit: char.hair if char else "",
+            self._skin_edit: char.skin if char else "",
+        }
+        for widget, value in fields.items():
+            widget.blockSignals(True)
+            widget.setText(value)
+            widget.blockSignals(False)
+        for spin, value in (
+            (self._age_spin, char.age if char else 0),
+            (self._xp_spin, char.experience if char else 0),
+        ):
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)
+        self._update_next_level(self._xp_spin.value())
+        scores = char.ability_scores if char else {}
         for ab in _ABILITIES:
-            self._ability_spinboxes[ab].setValue(10)
+            spinbox = self._ability_spinboxes[ab]
+            value = int(scores.get(ab, 10))
+            spinbox.blockSignals(True)
+            spinbox.setValue(value)
+            spinbox.blockSignals(False)
+            mod = ability_modifier(value)
+            sign = "+" if mod >= 0 else ""
+            self._modifier_labels[ab].setText(f"{sign}{mod}")

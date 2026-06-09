@@ -145,7 +145,7 @@ def catalog_db(tmp_path: Path) -> Path:
         )
         conn.executemany(
             "INSERT INTO creatures (name, size, type, hit_dice, str_score, dex_score, "
-            "con_score, int_score, wis_score, cha_score, armor_class, source) VALUES "
+            "con_score, int_score, wis_score, cha_score, natural_armor, source) VALUES "
             "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 ("Wolf", "Medium", "Animal", "2d8+4", 13, 15, 15, 2, 12, 6, 14, "MM"),
@@ -681,3 +681,146 @@ class TestSaveLoadRoundTrip:
         assert loaded.skill_tricks == ["Acrobatic Backstab"]
         assert any(t["trait_name"] == "Aggressive" for t in loaded.traits)
         assert any(g["graft_name"] == "Fiendish Arm" for g in loaded.grafts)
+
+
+# ---------------------------------------------------------------------------
+# Stats & Character Details (identity + ability scores)
+# ---------------------------------------------------------------------------
+
+
+class TestStatsAndCharacterDetailsTab:
+    def test_identity_edits_persist_and_restore(
+        self, model: object, tmp_path: Path
+    ) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        tab = StatsAndCharacterDetailsTab(model=model)
+        tab._name_edit.setText("Mialee")
+        tab._player_edit.setText("Jess")
+        tab._deity_edit.setText("Boccob")
+        tab._age_spin.setValue(27)
+        tab._xp_spin.setValue(3000)
+        tab._ability_spinboxes["INT"].setValue(16)
+        tab._sync_to_model()
+
+        assert model.character.name == "Mialee"
+        assert model.character.player == "Jess"
+        assert model.character.deity == "Boccob"
+        assert model.character.age == 27
+        assert model.character.experience == 3000
+        assert model.character.ability_scores["INT"] == 16
+
+        loaded = _round_trip(model.character, tmp_path)
+        model.character = loaded
+        model.character_loaded.emit(loaded.id or 0)
+
+        assert tab._name_edit.text() == "Mialee"
+        assert tab._player_edit.text() == "Jess"
+        assert tab._deity_edit.text() == "Boccob"
+        assert tab._age_spin.value() == 27
+        assert tab._xp_spin.value() == 3000
+        assert tab._ability_spinboxes["INT"].value() == 16
+
+    def test_race_is_read_only_mirror(self, model: object) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        tab = StatsAndCharacterDetailsTab(model=model)
+        assert tab._race_edit.isReadOnly()
+
+        # The Race tab owns the value; this tab only mirrors it on refresh.
+        model.character.race = "Elf"
+        model.derived_stats_changed.emit()
+        assert tab._race_edit.text() == "Elf"
+
+    def test_reset_clears_fields(self, model: object) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        tab = StatsAndCharacterDetailsTab(model=model)
+        tab._name_edit.setText("Temp")
+        tab._sync_to_model()
+        model.new_character()
+        assert tab._name_edit.text() == ""
+        assert tab._ability_spinboxes["STR"].value() == 10
+
+
+# ---------------------------------------------------------------------------
+# Race & Templates
+# ---------------------------------------------------------------------------
+
+
+class TestRaceAndTemplatesTab:
+    def test_race_selection_persists_to_model(self, model: object) -> None:
+        from heroforge.ui.tabs.race_and_templates import RaceAndTemplatesTab
+
+        tab = RaceAndTemplatesTab(model=model)
+        tab._race_combo.setCurrentText("Half-Orc")
+        assert model.character.race == "Half-Orc"
+
+    def test_templates_round_trip(self, model: object, tmp_path: Path) -> None:
+        from heroforge.ui.tabs.race_and_templates import RaceAndTemplatesTab
+
+        tab = RaceAndTemplatesTab(model=model)
+        tab._available_templates = ["Celestial", "Fiendish"]
+        tab._add_template()
+        tab._add_template()
+        assert model.character.templates == ["Celestial", "Fiendish"]
+
+        loaded = _round_trip(model.character, tmp_path)
+        model.character = loaded
+        model.character_loaded.emit(loaded.id or 0)
+
+        assert tab._race_combo.currentText() == loaded.race
+        restored = [
+            tab._template_list.item(i).text() for i in range(tab._template_list.count())
+        ]
+        assert restored == ["Celestial", "Fiendish"]
+
+
+# ---------------------------------------------------------------------------
+# Feats / Prestige / Skills restore-on-load
+# ---------------------------------------------------------------------------
+
+
+class TestCharacterBackedTabRestore:
+    def test_feats_restore_on_load(self, model: object) -> None:
+        from heroforge.ui.tabs.feats import FeatsTab
+
+        tab = FeatsTab(model=model)
+        model.character.feats = ["Power Attack", "Cleave"]
+        model.character_loaded.emit(0)
+
+        taken = [tab._taken_list.item(i).text() for i in range(tab._taken_list.count())]
+        assert taken == ["Power Attack", "Cleave"]
+
+    def test_prestige_classes_restore_on_load(self, model: object) -> None:
+        from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+
+        tab = PrestigeClassesTab(model=model)
+        model.character.classes = [("Fighter", 4), ("Arcane Archer", 2)]
+        model.character_loaded.emit(0)
+
+        assert tab._taken_table.rowCount() == 2
+        assert tab._taken_table.item(0, 0).text() == "Fighter"
+        assert tab._taken_table.cellWidget(0, 1).value() == 4
+        assert tab._taken_table.item(1, 0).text() == "Arcane Archer"
+        assert tab._taken_table.cellWidget(1, 1).value() == 2
+
+    def test_skills_restore_on_load(self, model: object) -> None:
+        from heroforge.ui.tabs.skills import SkillsTab
+
+        tab = SkillsTab(model=model)
+        model.character.skills = {"Spot": 5.0, "Listen": 3.5}
+        model.character_loaded.emit(0)
+
+        by_name = {}
+        for row, spin in enumerate(tab._rank_spinboxes):
+            name = tab._table.item(row, 0).text()
+            by_name[name] = spin.value()
+        assert by_name["Spot"] == 5.0
+        assert by_name["Listen"] == 3.5

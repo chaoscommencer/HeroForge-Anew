@@ -33,6 +33,8 @@ class PrestigeClassesTab(QWidget):
         self._build_ui()
         if model:
             model.character_reset.connect(self._reset)
+            model.character_loaded.connect(lambda _id: self._sync_from_model())
+            self._sync_from_model()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -77,18 +79,22 @@ class PrestigeClassesTab(QWidget):
         selected = self._avail_list.selectedItems()
         if not selected:
             return
-        name = selected[0].text()
+        self._append_row(selected[0].text(), 1)
+        self._sync_classes()
+
+    def _append_row(self, name: str, level: int) -> None:
+        """Add a class row to the taken table without writing to the model."""
         row = self._taken_table.rowCount()
         self._taken_table.insertRow(row)
         self._taken_table.setItem(row, 0, QTableWidgetItem(name))
         spin = QSpinBox()
         spin.setRange(1, 10)
+        spin.setValue(max(1, int(level)))
         spin.valueChanged.connect(lambda _: self._sync_classes())
         self._taken_table.setCellWidget(row, 1, spin)
         rm_btn = QPushButton("Remove")
         rm_btn.clicked.connect(lambda _, b=rm_btn: self._remove_prestige_row(b))
         self._taken_table.setCellWidget(row, 2, rm_btn)
-        self._sync_classes()
 
     def _remove_prestige_row(self, button: QPushButton) -> None:
         for row in range(self._taken_table.rowCount()):
@@ -118,3 +124,10 @@ class PrestigeClassesTab(QWidget):
     def _reset(self) -> None:
         self._taken_table.setRowCount(0)
         self._sync_classes()
+
+    def _sync_from_model(self) -> None:
+        """Rebuild the taken-class table from the loaded character."""
+        self._taken_table.setRowCount(0)
+        if self._model is not None:
+            for class_name, level in self._model.character.classes:
+                self._append_row(class_name, level)

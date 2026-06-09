@@ -524,7 +524,15 @@ class TestDataFileSeeding:
         return db_path
 
     @pytest.mark.parametrize(
-        "table", ["weapons", "creatures", "classes", "class_skills", "tables"]
+        "table",
+        [
+            "weapons",
+            "creatures",
+            "classes",
+            "class_skills",
+            "tables",
+            "class_weapons_armor",
+        ],
     )
     def test_table_is_populated(self, data_db: Path, table: str) -> None:
         conn = get_connection(data_db)
@@ -589,6 +597,40 @@ class TestDataFileSeeding:
         finally:
             conn.close()
         assert {"Climb", "Intimidate", "Jump", "Swim"} <= fighter_skills
+
+    def test_class_weapons_armor_are_seeded(self, data_db: Path) -> None:
+        conn = get_connection(data_db)
+        try:
+            profs = {
+                cls: {
+                    r[0]
+                    for r in conn.execute(
+                        "SELECT proficiency FROM class_weapons_armor "
+                        "WHERE class_name = ?",
+                        (cls,),
+                    )
+                }
+                for cls in ("Fighter", "Wizard", "Rogue")
+            }
+        finally:
+            conn.close()
+        # The Fighter is proficient with all armor, shields and martial weapons.
+        assert {
+            "Light armor",
+            "Medium armor",
+            "Heavy armor",
+            "Shields",
+            "Tower shields",
+            "Simple weapons",
+            "Martial weapons",
+        } <= profs["Fighter"]
+        # The Wizard has no armor proficiency, only its short weapon list.
+        assert "Dagger" in profs["Wizard"]
+        assert "Heavy armor" not in profs["Wizard"]
+        assert "Martial weapons" not in profs["Wizard"]
+        # The Rogue's individually granted weapons are split out of the list.
+        assert "Rapier" in profs["Rogue"]
+        assert "Light armor" in profs["Rogue"]
 
     def test_creature_stat_blocks_are_migrated(self, data_db: Path) -> None:
         conn = get_connection(data_db)

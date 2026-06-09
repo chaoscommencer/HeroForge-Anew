@@ -92,7 +92,7 @@ class SkillsTab(QWidget):
         if model:
             model.character_reset.connect(self._reset)
             model.ability_score_changed.connect(self._on_ability_score_changed)
-            model.character_loaded.connect(lambda _id: self._refresh_familiar_bonuses())
+            model.character_loaded.connect(lambda _id: self._sync_from_model())
             model.derived_stats_changed.connect(self._refresh_familiar_bonuses)
             self._update_ability_mods()
             self._refresh_familiar_bonuses()
@@ -247,5 +247,16 @@ class SkillsTab(QWidget):
     def _reset(self) -> None:
         for spin in self._rank_spinboxes:
             spin.setValue(0.0)
+        self._update_ability_mods()
+        self._refresh_familiar_bonuses()
+
+    def _sync_from_model(self) -> None:
+        """Restore skill ranks from the loaded character (§8.4)."""
+        saved = self._model.character.skills if self._model else {}
+        for row, (sname, *_rest) in enumerate(_SKILLS):
+            spin = self._rank_spinboxes[row]
+            spin.blockSignals(True)
+            spin.setValue(float(saved.get(sname, 0.0)))
+            spin.blockSignals(False)
         self._update_ability_mods()
         self._refresh_familiar_bonuses()
