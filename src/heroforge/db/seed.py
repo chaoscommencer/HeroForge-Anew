@@ -1385,6 +1385,14 @@ def _save_progression(factor: object) -> str:
     return "good" if f >= 0.45 else "poor"
 
 
+#: The ``ClassInfo`` header lives within the first few rows; scan a small,
+#: fixed window rather than the whole sheet when locating it.
+_CLASS_HEADER_SEARCH_ROWS = 6
+
+#: Non-class placeholder rows present in ``ClassInfo.xlsx`` that must be skipped.
+_CLASS_PLACEHOLDER_NAMES = frozenset({"Select Class", "N/A", "<custom-defined class>"})
+
+
 def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
     """Insert rows from ``ClassInfo.xlsx`` into *classes* (and *class_skills*).
 
@@ -1414,7 +1422,7 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
 
         # Locate the header row (the one carrying both "Abr" and "Skill Pts").
         headers: list[str] = []
-        for candidate in rows[:6]:
+        for candidate in rows[:_CLASS_HEADER_SEARCH_ROWS]:
             labels = [str(h).strip() if h is not None else "" for h in candidate]
             if "Abr" in labels and "Skill Pts" in labels:
                 headers = labels
@@ -1466,11 +1474,7 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
                 continue
             # Skip placeholders / non-class rows (these have no abbreviation or
             # are explicit placeholders in the source sheet).
-            if not cell(row_data, abr_idx) or name in (
-                "Select Class",
-                "N/A",
-                "<custom-defined class>",
-            ):
+            if not cell(row_data, abr_idx) or name in _CLASS_PLACEHOLDER_NAMES:
                 skipped += 1
                 continue
             try:
