@@ -82,12 +82,10 @@ class LGGameLogTab(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
 
         banner = QLabel(
-            "⚠ Living Greyhawk content is deprecated and retained for legacy "
-            "characters only."
+            "Deprecated: Living Greyhawk content is retained for legacy characters only."
         )
         banner.setWordWrap(True)
         banner.setObjectName("lgDeprecationNotice")
-        banner.setStyleSheet("color: #8a6d00; font-style: italic;")
         layout.addWidget(banner)
 
         self._table = QTableWidget(0, len(_HEADERS))
