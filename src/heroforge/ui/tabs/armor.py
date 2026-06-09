@@ -22,11 +22,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from heroforge.db.data_access import ArmorItem
 from heroforge.logic import combat
 from heroforge.ui.tabs._tab_helper import pick_from_catalog
 
 if TYPE_CHECKING:
-    from heroforge.db.data_access import ArmorItem
     from heroforge.ui.main_window import CharacterModel
 
 _BODY_SLOT = "Body Armor"
@@ -143,7 +143,17 @@ class ArmorTab(QWidget):
         name = pick_from_catalog(self, f"Select {slot}", "Item:", list(by_name))
         if name is None:
             return
-        self._set_item(slot, by_name.get(name))
+        item = by_name.get(name) or ArmorItem(
+            name=name,
+            type="Shield" if is_shield else "Armor",
+            ac_bonus=0,
+            max_dex_bonus=None,
+            check_penalty=0,
+            arcane_spell_failure=0,
+            weight=0.0,
+            source="",
+        )
+        self._set_item(slot, item)
         self._sync_to_model()
         self._refresh_summary()
 
@@ -215,10 +225,23 @@ class ArmorTab(QWidget):
             catalog = {a.name: a for a in self._model.game_data().list_armor()}
             for entry in self._model.character.equipment:
                 slot = entry.get("slot")
+                item_name = entry.get("item_name", "")
+                if not item_name or slot not in _OWNED_SLOTS:
+                    continue
+                item = catalog.get(item_name) or ArmorItem(
+                    name=item_name,
+                    type="Shield" if slot == _SHIELD_SLOT else "Armor",
+                    ac_bonus=0,
+                    max_dex_bonus=None,
+                    check_penalty=0,
+                    arcane_spell_failure=0,
+                    weight=entry.get("weight") or 0.0,
+                    source="",
+                )
                 if slot == _BODY_SLOT:
-                    body = catalog.get(entry.get("item_name", ""))
+                    body = item
                 elif slot == _SHIELD_SLOT:
-                    shield = catalog.get(entry.get("item_name", ""))
+                    shield = item
         self._set_item(_BODY_SLOT, body)
         self._set_item(_SHIELD_SLOT, shield)
         self._refresh_summary()
