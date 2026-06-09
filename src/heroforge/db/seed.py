@@ -1181,8 +1181,9 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
                             or ""
                         ).strip(),
                         (row.get("Size") or row.get("size") or "").strip(),
-                        # The source file has no Small-size damage column; the
-                        # fallbacks honour a tidy export that supplies one.
+                        # The current source file has no Small-size damage
+                        # column; the fallbacks support tidy exports that may
+                        # supply one via "Damage (S)" or "damage_small".
                         (
                             row.get("Damage (S)") or row.get("damage_small") or ""
                         ).strip(),
