@@ -1103,7 +1103,6 @@ def seed_workbook(
 #: Greataxe=1d12, Greatsword=2d6).
 _WEAPON_DAMAGE_SHEET = "Class Weapons & Armor"
 _WEAPON_DAMAGE_HEADER_ROW = 3
-_WEAPON_DAMAGE_FIRST_ROW = 4
 _WEAPON_DAMAGE_LAST_ROW = 20
 _WEAPON_DAMAGE_FIRST_COL = 11  # column K (Fine)
 _WEAPON_DAMAGE_LAST_COL = 19  # column S (Colossal)
