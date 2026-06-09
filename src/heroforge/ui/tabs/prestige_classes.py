@@ -83,7 +83,12 @@ class PrestigeClassesTab(QWidget):
         self._sync_classes()
 
     def _append_row(self, name: str, level: int) -> None:
-        """Add a class row to the taken table without writing to the model."""
+        """Add a class row to the taken table.
+
+        The level spinbox's ``valueChanged`` handler is connected *after* the
+        initial value is set, so building or restoring rows here does not itself
+        write to the model; only subsequent user edits trigger ``_sync_classes``.
+        """
         row = self._taken_table.rowCount()
         self._taken_table.insertRow(row)
         self._taken_table.setItem(row, 0, QTableWidgetItem(name))

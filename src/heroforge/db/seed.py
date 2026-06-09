@@ -1812,12 +1812,9 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
                         if cell(row_data, idx).lower() == "true"
                     ]
                     proficiencies.extend(
-                        weapon
-                        for weapon in (
-                            part.strip()
-                            for part in cell(row_data, other_weapons_idx).split(";")
-                        )
-                        if weapon
+                        part.strip()
+                        for part in cell(row_data, other_weapons_idx).split(";")
+                        if part.strip()
                     )
                     for proficiency in proficiencies:
                         try:
