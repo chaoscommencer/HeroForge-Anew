@@ -426,6 +426,7 @@ class TestHelpers:
 
 
 @requires_data_files
+@requires_workbook
 class TestDataFileSeeding:
     """Regression tests for the four ``data/`` source files.
 
