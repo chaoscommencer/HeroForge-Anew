@@ -439,6 +439,115 @@ class TestCompanions:
 
 
 # ---------------------------------------------------------------------------
+# LG Game Log (Living Greyhawk; deprecated)
+# ---------------------------------------------------------------------------
+
+
+class TestLGGameLogTab:
+    def test_add_record_persists_as_game_log(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        tab = LGGameLogTab(model=model)
+        tab.add_record("2024-02-02", "Defeated bandits", 150, 450, "AR note")
+
+        records = [
+            r for r in model.character.lg_records if r["record_type"] == "game_log"
+        ]
+        assert len(records) == 1
+        rec = records[0]
+        assert rec["event_date"] == "2024-02-02"
+        assert rec["description"] == "Defeated bandits"
+        assert rec["gp_change"] == 150.0
+        assert rec["xp_change"] == 450.0
+        assert rec["notes"] == "AR note"
+
+    def test_other_lg_record_types_preserved(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        model.character.lg_records = [
+            {"record_type": "item_access", "description": "Boots of Speed"}
+        ]
+        tab = LGGameLogTab(model=model)
+        tab.add_record(description="A new adventure")
+
+        types = [r["record_type"] for r in model.character.lg_records]
+        assert "item_access" in types
+        assert "game_log" in types
+
+    def test_sync_preserves_interleaved_ordering(self, model: object) -> None:
+        """game_log records replaced in-place; sibling record positions unchanged."""
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        # Start with interleaved records: item_access / game_log / mil
+        model.character.lg_records = [
+            {"record_type": "item_access", "description": "Ring"},
+            {
+                "record_type": "game_log",
+                "event_date": "2024-01-01",
+                "description": "Old session",
+                "gp_change": 0.0,
+                "xp_change": 0.0,
+                "notes": None,
+            },
+            {"record_type": "mil", "description": "Promotion"},
+        ]
+        tab = LGGameLogTab(model=model)
+        # Edit the existing game_log row via the table
+        tab._table.item(0, 1).setText("Updated session")
+
+        records = model.character.lg_records
+        # Ordering must still be: item_access, game_log, mil
+        assert [r["record_type"] for r in records] == [
+            "item_access",
+            "game_log",
+            "mil",
+        ]
+        assert records[1]["description"] == "Updated session"
+
+    def test_cell_edit_syncs_to_model(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        tab = LGGameLogTab(model=model)
+        tab.add_record(description="Original")
+        tab._table.item(0, 1).setText("Edited")
+
+        record = next(
+            r for r in model.character.lg_records if r["record_type"] == "game_log"
+        )
+        assert record["description"] == "Edited"
+
+    def test_sync_from_model_shows_only_game_log_rows(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        model.character.lg_records = [
+            {"record_type": "item_access", "description": "Wand"},
+            {
+                "record_type": "game_log",
+                "event_date": "2024-01-01",
+                "description": "Session 1",
+                "gp_change": 10.0,
+                "xp_change": 20.0,
+                "notes": "",
+            },
+        ]
+        tab = LGGameLogTab(model=model)
+        assert tab._table.rowCount() == 1
+        assert tab._table.item(0, 1).text() == "Session 1"
+
+    def test_records_round_trip(self, model: object, tmp_path: Path) -> None:
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        tab = LGGameLogTab(model=model)
+        tab.add_record("2024-03-03", "Slew the dragon", 500, 1000, "Big haul")
+
+        loaded = _round_trip(model.character, tmp_path)
+        records = [r for r in loaded.lg_records if r["record_type"] == "game_log"]
+        assert len(records) == 1
+        assert records[0]["description"] == "Slew the dragon"
+        assert records[0]["gp_change"] == 500.0
+
+
+# ---------------------------------------------------------------------------
 # Full save/load round-trip across several tabs
 # ---------------------------------------------------------------------------
 
