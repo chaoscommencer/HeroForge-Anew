@@ -1264,6 +1264,13 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
     inserted = 0
     skipped = 0
     medium_damage = _load_medium_weapon_damage(conn)
+    if not medium_damage:
+        logger.warning(
+            "weapon_damage has no %s rows; skipping weapons seed to avoid "
+            "persisting raw damage step codes",
+            _MEDIUM_SIZE,
+        )
+        return
     with csv_path.open(encoding="utf-8-sig", errors="replace", newline="") as fh:
         reader = csv.DictReader(fh)
         for row in reader:

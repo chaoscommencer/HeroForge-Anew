@@ -340,6 +340,34 @@ class TestWeaponDamageMatrix:
         assert rows["Longsword"] == "1d8"
         assert rows["Mystery Blade"] == "99"
 
+    def test_seed_weapons_skips_when_matrix_is_missing(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from heroforge.db.schema import initialize_database
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        with (data_dir / "WeaponInfo.csv").open(
+            "w", encoding="utf-8", newline=""
+        ) as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(["Select A Weapon", "Dmg1(M)"])
+            writer.writerow(["Longsword", "6"])
+
+        conn = initialize_database(tmp_path / "weapons_no_matrix.db")
+        try:
+            caplog.set_level(logging.WARNING, logger=seed.__name__)
+            seed.seed_weapons(conn, data_dir)
+            count = conn.execute("SELECT COUNT(*) FROM weapons").fetchone()[0]
+        finally:
+            conn.close()
+
+        assert count == 0
+        assert (
+            "skipping weapons seed to avoid persisting raw damage step codes"
+            in caplog.text
+        )
+
 
 class TestHelpers:
     def test_strip_footnotes(self) -> None:
