@@ -254,12 +254,8 @@ def export_character_sheet_pdf(
     text = export_character_sheet_text(character_data)
 
     # reportlab accepts a filename or a binary file object; normalise PathLike
-    # to a string while leaving file objects untouched.
-    destination: str | BinaryIO
-    if isinstance(path, os.PathLike):
-        destination = os.fspath(path)
-    else:
-        destination = path  # str or file object
+    # to a string while leaving str paths and file objects untouched.
+    destination = os.fspath(path) if isinstance(path, os.PathLike) else path
 
     page_width, page_height = letter
     margin = 54.0  # 0.75 inch

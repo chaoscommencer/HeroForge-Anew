@@ -161,7 +161,6 @@ class TestExportCharacterSheetPdf:
         # A well-formed PDF starts with the %PDF signature and ends with %%EOF.
         assert contents.startswith(b"%PDF-")
         assert b"%%EOF" in contents
-        assert len(contents) > 0
 
     def test_writes_valid_pdf_to_file_object(self) -> None:
         import io
