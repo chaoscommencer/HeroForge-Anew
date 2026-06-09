@@ -333,6 +333,14 @@ CREATE TABLE IF NOT EXISTS weapons (
     source          TEXT
 );
 
+CREATE TABLE IF NOT EXISTS weapon_damage (
+    id              INTEGER PRIMARY KEY,
+    step_code       INTEGER NOT NULL,
+    size            TEXT NOT NULL,
+    damage          TEXT NOT NULL,
+    UNIQUE(step_code, size)
+);
+
 CREATE TABLE IF NOT EXISTS armor (
     id                      INTEGER PRIMARY KEY,
     name                    TEXT UNIQUE NOT NULL,

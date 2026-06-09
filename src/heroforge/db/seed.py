@@ -1087,34 +1087,142 @@ def seed_workbook(
 # Per-table seed functions
 # ---------------------------------------------------------------------------
 
-#: ``WeaponInfo.csv`` encodes weapon damage as an integer step on the D&D 3.5
-#: weapon-damage progression rather than a literal die expression.  This maps
-#: each Medium-size step code to the die it represents, matching the workbook's
-#: own decode (verified against canonical weapons such as Dagger=1d4,
-#: Longsword=1d8, Greataxe=1d12, Greatsword=2d6).
-_WEAPON_DAMAGE_DICE: dict[int, str] = {
-    0: "—",
-    1: "1",
-    2: "1d2",
-    3: "1d3",
-    4: "1d4",
-    5: "1d6",
-    6: "1d8",
-    7: "1d10",
-    8: "1d12",
-    9: "2d4",
-    10: "2d6",
-    11: "2d8",
-    12: "2d10",
-    13: "",
-}
+#: ``WeaponInfo.csv`` encodes weapon damage as an integer *step code* on the
+#: D&D 3.5 weapon-damage progression rather than a literal die expression.  The
+#: canonical, size-aware decode lives in the workbook's "Class Weapons & Armor"
+#: sheet as a 2-D matrix (base damage × creature size); it is seeded into the
+#: :data:`weapon_damage <heroforge.db.game_schema>` table by
+#: :func:`seed_weapon_damage` and read back here, replacing what used to be a
+#: hand-transcribed in-code constant.
+#:
+#: The matrix occupies cells ``K4:S20`` (the ``TblWeaponDamage`` named range)
+#: with the size headers on row 3 (``K3:S3`` / ``TblWeaponSizeLookup``); a
+#: weapon's ``Dmg1(M)`` step code is the 1-based row offset into that range, so
+#: ``INDEX(TblWeaponDamage, step_code, size_column)`` yields the size-adjusted
+#: die (verified against canonical weapons such as Dagger=1d4, Longsword=1d8,
+#: Greataxe=1d12, Greatsword=2d6).
+_WEAPON_DAMAGE_SHEET = "Class Weapons & Armor"
+_WEAPON_DAMAGE_HEADER_ROW = 3
+_WEAPON_DAMAGE_LAST_ROW = 20
+_WEAPON_DAMAGE_FIRST_COL = 11  # column K (Fine)
+_WEAPON_DAMAGE_LAST_COL = 19  # column S (Colossal)
+_MEDIUM_SIZE = "Medium"
 
 
-def _decode_weapon_damage(code: str) -> str:
+def _extract_weapon_damage(wb: object) -> list[tuple[object, ...]]:
+    """Extract the size-aware weapon-damage matrix from the workbook.
+
+    Returns ``(step_code, size, damage)`` tuples drawn from the
+    ``TblWeaponDamage`` named range (``K4:S20``) on the "Class Weapons & Armor"
+    sheet.  Cells that are empty (a weapon too small to deal damage at that
+    creature size) are skipped.  The step code is the 1-based row offset into
+    the matrix, matching the ``INDEX(TblWeaponDamage, step_code, …)`` lookup the
+    workbook uses to decode ``WeaponInfo.csv`` ``Dmg1(M)`` codes.
+    """
+    ws = wb[_WEAPON_DAMAGE_SHEET]  # type: ignore[index]
+    rows = list(
+        ws.iter_rows(  # type: ignore[attr-defined]
+            min_row=_WEAPON_DAMAGE_HEADER_ROW,
+            max_row=_WEAPON_DAMAGE_LAST_ROW,
+            min_col=_WEAPON_DAMAGE_FIRST_COL,
+            max_col=_WEAPON_DAMAGE_LAST_COL,
+            values_only=True,
+        )
+    )
+    if not rows:
+        return []
+
+    sizes = [_cell_value(value) for value in rows[0]]
+    extracted: list[tuple[object, ...]] = []
+    for offset, row in enumerate(rows[1:], start=1):
+        step_code = offset  # row 4 → step 1, row 5 → step 2, …
+        # ``sizes`` and ``row`` are sliced from the same K:S column range, so
+        # they always share a width; ``strict`` turns any future layout drift
+        # into a loud error instead of silently dropping cells.
+        for size, cell in zip(sizes, row, strict=True):
+            damage = _cell_value(cell)
+            if not size or not damage:
+                continue
+            extracted.append((step_code, size, damage))
+    return extracted
+
+
+def seed_weapon_damage(
+    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+) -> None:
+    """Seed the *weapon_damage* table from the workbook damage-by-size matrix.
+
+    This must run before :func:`seed_weapons` so the latter can decode each
+    weapon's Medium-size damage from the database rather than a hand-maintained
+    constant.  If the workbook is missing the function logs a warning and leaves
+    the table untouched.
+    """
+    workbook_path = Path(workbook_path)
+    if not workbook_path.exists():
+        logger.warning(
+            "Workbook not found at %s – skipping weapon_damage matrix",
+            workbook_path,
+        )
+        return
+
+    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
+    try:
+        rows = _extract_weapon_damage(wb)
+    except KeyError:
+        logger.warning(
+            "Sheet %r not found in workbook – skipping weapon_damage",
+            _WEAPON_DAMAGE_SHEET,
+        )
+        return
+    finally:
+        wb.close()
+
+    if not rows:
+        logger.warning(
+            "No weapon_damage rows extracted from workbook – leaving table untouched"
+        )
+        return
+
+    conn.execute("DELETE FROM weapon_damage")
+    inserted = 0
+    skipped = 0
+    for values in rows:
+        try:
+            conn.execute(
+                "INSERT INTO weapon_damage (step_code, size, damage) "
+                "VALUES (?, ?, ?)",
+                values,
+            )
+            inserted += 1
+        except sqlite3.Error as exc:
+            logger.debug("Skipping weapon_damage row %r: %s", values, exc)
+            skipped += 1
+    conn.commit()
+    logger.info("weapon_damage: inserted %d rows, skipped %d", inserted, skipped)
+    if skipped:
+        logger.warning(
+            "weapon_damage: %d row(s) skipped – matrix may be incomplete", skipped
+        )
+
+
+def _load_medium_weapon_damage(conn: sqlite3.Connection) -> dict[int, str]:
+    """Return the Medium-size ``{step_code: die}`` map from *weapon_damage*."""
+    return {
+        int(row[0]): str(row[1])
+        for row in conn.execute(
+            "SELECT step_code, damage FROM weapon_damage WHERE size = ?",
+            (_MEDIUM_SIZE,),
+        )
+    }
+
+
+def _decode_weapon_damage(code: str, damage_by_step: dict[int, str]) -> str:
     """Translate a ``WeaponInfo.csv`` damage *code* into a die expression.
 
-    Blank codes (and the "special/no damage" code 13) yield an empty string;
-    references to other cells (e.g. ``ref:UnarmedStrikeDamage``) are passed
+    *damage_by_step* maps each Medium-size step code to its die (loaded from the
+    seeded ``weapon_damage`` table via :func:`_load_medium_weapon_damage`).
+    Blank codes yield an empty string; references to other cells (e.g.
+    ``ref:UnarmedStrikeDamage``) and codes absent from the matrix are passed
     through unchanged so the source value is never silently lost.
     """
     code = (code or "").strip()
@@ -1124,7 +1232,7 @@ def _decode_weapon_damage(code: str) -> str:
         step = int(float(code))
     except (TypeError, ValueError):
         return code  # e.g. "ref:UnarmedStrikeDamage" – preserve verbatim
-    return _WEAPON_DAMAGE_DICE.get(step, code)
+    return damage_by_step.get(step, code)
 
 
 def _format_weapon_critical(threat: str, multiplier: str) -> str:
@@ -1155,6 +1263,14 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
 
     inserted = 0
     skipped = 0
+    medium_damage = _load_medium_weapon_damage(conn)
+    if not medium_damage:
+        logger.warning(
+            "weapon_damage table has no %s rows; skipping weapon seeding "
+            "to prevent persisting raw damage step codes",
+            _MEDIUM_SIZE,
+        )
+        return
     with csv_path.open(encoding="utf-8-sig", errors="replace", newline="") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
@@ -1191,7 +1307,8 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
                             row.get("Dmg1(M)")
                             or row.get("Damage (M)")
                             or row.get("damage_medium")
-                            or ""
+                            or "",
+                            medium_damage,
                         ),
                         # Honour a pre-formatted critical column if one is present,
                         # otherwise build it from the threat/multiplier codes.
@@ -1640,6 +1757,7 @@ def seed_all(
     conn = initialize_database(db_path)
 
     try:
+        seed_weapon_damage(conn, workbook_path)
         seed_weapons(conn, data_dir)
         seed_creatures(conn, data_dir)
         seed_tables(conn, data_dir)

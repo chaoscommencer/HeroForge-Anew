@@ -239,6 +239,134 @@ class TestMissingWorkbook:
         assert count == 0
 
 
+class TestWeaponDamageMatrix:
+    """The size-aware ``weapon_damage`` matrix replaces the in-code constant."""
+
+    @pytest.fixture(scope="class")
+    def damage_db(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        from heroforge.db.schema import initialize_database
+
+        db_path = tmp_path_factory.mktemp("weapon_damage") / "wd.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_weapon_damage(conn)
+        finally:
+            conn.close()
+        return db_path
+
+    @requires_workbook
+    def test_matrix_is_populated(self, damage_db: Path) -> None:
+        conn = get_connection(damage_db)
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM weapon_damage").fetchone()[0]
+        finally:
+            conn.close()
+        assert count > 0
+
+    @requires_workbook
+    def test_medium_damage_matches_canonical_weapons(self, damage_db: Path) -> None:
+        # Step codes come from WeaponInfo.csv Dmg1(M): Dagger=4, Longsword=6,
+        # Greataxe=8, Greatsword=10.
+        conn = get_connection(damage_db)
+        try:
+            medium = seed._load_medium_weapon_damage(conn)
+        finally:
+            conn.close()
+        assert medium[4] == "1d4"
+        assert medium[6] == "1d8"
+        assert medium[8] == "1d12"
+        assert medium[10] == "2d6"
+
+    @requires_workbook
+    def test_size_adjustment_follows_srd(self, damage_db: Path) -> None:
+        # The Longsword progression (step 6) scales by the SRD size rules:
+        # Small 1d6, Medium 1d8, Large 2d6, Huge 3d6.
+        conn = get_connection(damage_db)
+        try:
+            row = {
+                r["size"]: r["damage"]
+                for r in conn.execute(
+                    "SELECT size, damage FROM weapon_damage WHERE step_code = 6"
+                )
+            }
+        finally:
+            conn.close()
+        assert row["Small"] == "1d6"
+        assert row["Medium"] == "1d8"
+        assert row["Large"] == "2d6"
+        assert row["Huge"] == "3d6"
+
+    def test_missing_workbook_leaves_table_untouched(self, tmp_path: Path) -> None:
+        from heroforge.db.schema import initialize_database
+
+        db_path = tmp_path / "no_workbook.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_weapon_damage(conn, tmp_path / "does_not_exist.xlsm")
+            count = conn.execute("SELECT COUNT(*) FROM weapon_damage").fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 0
+
+    @requires_workbook
+    def test_seed_weapons_decodes_medium_from_matrix(self, tmp_path: Path) -> None:
+        """End-to-end: ``seed_weapons`` reads Medium damage from the matrix.
+
+        Known step codes resolve to canonical dice; codes absent from the matrix
+        fall through to the raw source value rather than being lost.
+        """
+        from heroforge.db.schema import initialize_database
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        with (data_dir / "WeaponInfo.csv").open(
+            "w", encoding="utf-8", newline=""
+        ) as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(["Select A Weapon", "Dmg1(M)"])
+            writer.writerow(["Longsword", "6"])  # known → 1d8
+            writer.writerow(["Mystery Blade", "99"])  # unknown → passthrough
+
+        conn = initialize_database(tmp_path / "weapons.db")
+        try:
+            seed.seed_weapon_damage(conn)
+            seed.seed_weapons(conn, data_dir)
+            rows = {
+                r["name"]: r["damage_medium"]
+                for r in conn.execute("SELECT name, damage_medium FROM weapons")
+            }
+        finally:
+            conn.close()
+        assert rows["Longsword"] == "1d8"
+        assert rows["Mystery Blade"] == "99"
+
+    def test_seed_weapons_skips_when_matrix_is_missing(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from heroforge.db.schema import initialize_database
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        with (data_dir / "WeaponInfo.csv").open(
+            "w", encoding="utf-8", newline=""
+        ) as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(["Select A Weapon", "Dmg1(M)"])
+            writer.writerow(["Longsword", "6"])
+
+        conn = initialize_database(tmp_path / "weapons_no_matrix.db")
+        try:
+            caplog.set_level(logging.WARNING, logger=seed.__name__)
+            seed.seed_weapons(conn, data_dir)
+            count = conn.execute("SELECT COUNT(*) FROM weapons").fetchone()[0]
+        finally:
+            conn.close()
+
+        assert count == 0
+        assert "weapon_damage table has no Medium rows" in caplog.text
+        assert "skipping weapon seeding" in caplog.text
+
+
 class TestHelpers:
     def test_strip_footnotes(self) -> None:
         assert seed._strip_footnotes("Appraise\u00b9") == "Appraise"
@@ -324,6 +452,7 @@ class TestHelpers:
 
 
 @requires_data_files
+@requires_workbook
 class TestDataFileSeeding:
     """Regression tests for the four ``data/`` source files.
 
@@ -339,6 +468,7 @@ class TestDataFileSeeding:
         db_path = tmp_path_factory.mktemp("datafiles") / "data.db"
         conn = initialize_database(db_path)
         try:
+            seed.seed_weapon_damage(conn)
             seed.seed_weapons(conn, seed._DEFAULT_DATA_DIR)
             seed.seed_creatures(conn, seed._DEFAULT_DATA_DIR)
             seed.seed_tables(conn, seed._DEFAULT_DATA_DIR)
@@ -374,6 +504,7 @@ class TestDataFileSeeding:
         # Damage step codes are decoded to canonical 3.5 dice.
         assert rows["Dagger"]["damage_medium"] == "1d4"
         assert rows["Longsword"]["damage_medium"] == "1d8"
+        assert rows["Greataxe"]["damage_medium"] == "1d12"
         assert rows["Greatsword"]["damage_medium"] == "2d6"
         # Threat/multiplier columns are formatted into a critical string.
         assert rows["Dagger"]["critical"] == "19-20/\u00d72"
@@ -469,12 +600,17 @@ class TestDataFileHelpers:
         ]
 
     def test_decode_weapon_damage(self) -> None:
-        assert seed._decode_weapon_damage("4") == "1d4"
-        assert seed._decode_weapon_damage("6") == "1d8"
-        assert seed._decode_weapon_damage("10") == "2d6"
-        assert seed._decode_weapon_damage("") == ""
+        # The Medium-size {step_code: die} map is loaded from the seeded
+        # weapon_damage table; here a representative slice stands in for it.
+        medium = {4: "1d4", 6: "1d8", 10: "2d6"}
+        assert seed._decode_weapon_damage("4", medium) == "1d4"
+        assert seed._decode_weapon_damage("6", medium) == "1d8"
+        assert seed._decode_weapon_damage("10", medium) == "2d6"
+        assert seed._decode_weapon_damage("", medium) == ""
+        # Codes absent from the matrix fall through to the raw source value.
+        assert seed._decode_weapon_damage("99", medium) == "99"
         # Non-numeric source values (cell references) are preserved verbatim.
-        assert seed._decode_weapon_damage("ref:Unarmed") == "ref:Unarmed"
+        assert seed._decode_weapon_damage("ref:Unarmed", medium) == "ref:Unarmed"
 
     def test_format_weapon_critical(self) -> None:
         assert seed._format_weapon_critical("20", "2") == "\u00d72"
