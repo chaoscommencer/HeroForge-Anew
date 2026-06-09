@@ -474,6 +474,36 @@ class TestLGGameLogTab:
         assert "item_access" in types
         assert "game_log" in types
 
+    def test_sync_preserves_interleaved_ordering(self, model: object) -> None:
+        """game_log records replaced in-place; sibling record positions unchanged."""
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        # Start with interleaved records: item_access / game_log / mil
+        model.character.lg_records = [
+            {"record_type": "item_access", "description": "Ring"},
+            {
+                "record_type": "game_log",
+                "event_date": "2024-01-01",
+                "description": "Old session",
+                "gp_change": 0.0,
+                "xp_change": 0.0,
+                "notes": None,
+            },
+            {"record_type": "mil", "description": "Promotion"},
+        ]
+        tab = LGGameLogTab(model=model)
+        # Edit the existing game_log row via the table
+        tab._table.item(0, 1).setText("Updated session")
+
+        records = model.character.lg_records
+        # Ordering must still be: item_access, game_log, mil
+        assert [r["record_type"] for r in records] == [
+            "item_access",
+            "game_log",
+            "mil",
+        ]
+        assert records[1]["description"] == "Updated session"
+
     def test_cell_edit_syncs_to_model(self, model: object) -> None:
         from heroforge.ui.tabs.lg_game_log import LGGameLogTab
 

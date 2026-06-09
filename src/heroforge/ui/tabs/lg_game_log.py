@@ -173,14 +173,22 @@ class LGGameLogTab(QWidget):
     def _sync_to_model(self) -> None:
         if self._model is None:
             return
-        # Preserve other LG record types (Item Access, MIL, …) that share the
-        # lg_records list; only this tab's game_log rows are replaced.
-        others = [
-            r
-            for r in self._model.character.lg_records
-            if r.get("record_type") != RECORD_TYPE
-        ]
-        self._model.character.lg_records = self._entries() + others
+        # Replace game_log records in-place so that the relative ordering of
+        # other LG record types (Item Access, MIL, …) is preserved.  Excess
+        # old game_log slots are dropped; extra new entries are appended.
+        new_entries = iter(self._entries())
+        result: list[dict] = []  # type: ignore[type-arg]
+        for r in self._model.character.lg_records:
+            if r.get("record_type") == RECORD_TYPE:
+                replacement = next(new_entries, None)
+                if replacement is not None:
+                    result.append(replacement)
+                # else: old slot has no corresponding new entry → drop it.
+            else:
+                result.append(r)
+        # Any new entries beyond the original game_log count go at the end.
+        result.extend(new_entries)
+        self._model.character.lg_records = result
 
     def _sync_from_model(self) -> None:
         self._loading = True
