@@ -80,8 +80,17 @@ graphify explain "compute_derived_stats()"
 ```
 
 The generated `graphify-out/` directory is git-ignored. In Copilot's environment
-the tool is pre-installed and the graph is pre-built by
+the tool is pre-installed, the graph is pre-built, and the skill is registered for
+Copilot (`graphify install --platform copilot`) by
 `.github/workflows/copilot-setup-steps.yml`; see `.github/skills/graphify/SKILL.md`.
+
+To register the graphify skill with your own AI assistant so it uses the graph
+automatically, run one of:
+
+```bash
+graphify vscode install            # VS Code Copilot Chat
+graphify install --platform copilot  # GitHub Copilot CLI
+```
 
 ## Project Structure
 

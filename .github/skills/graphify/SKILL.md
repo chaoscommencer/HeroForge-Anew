@@ -13,6 +13,7 @@ user-invocable: true
 
 `graphify` (PyPI package **`graphifyy`**, CLI command `graphify`) is pre-installed
 in this environment via `.github/workflows/copilot-setup-steps.yml`, which also
+registers this skill with Copilot (`graphify install --platform copilot`) and
 pre-builds the graph at `graphify-out/graph.json` before the task starts.
 
 Code is extracted **locally** with tree-sitter (AST) — **no API key and no network
