@@ -1174,17 +1174,38 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
                     """,
                     (
                         name,
-                        (row.get("Cat") or row.get("Category") or "").strip(),
+                        (
+                            row.get("Cat")
+                            or row.get("Category")
+                            or row.get("category")
+                            or ""
+                        ).strip(),
                         (row.get("Size") or row.get("size") or "").strip(),
-                        "",  # No Small-size damage column in the source file.
+                        # The source file has no Small-size damage column; the
+                        # fallbacks honour a tidy export that supplies one.
+                        (
+                            row.get("Damage (S)") or row.get("damage_small") or ""
+                        ).strip(),
                         _decode_weapon_damage(
-                            row.get("Dmg1(M)") or row.get("Damage (M)") or ""
+                            row.get("Dmg1(M)")
+                            or row.get("Damage (M)")
+                            or row.get("damage_medium")
+                            or ""
                         ),
-                        _format_weapon_critical(
+                        # Honour a pre-formatted critical column if one is present,
+                        # otherwise build it from the threat/multiplier codes.
+                        (row.get("Critical") or row.get("critical") or "").strip()
+                        or _format_weapon_critical(
                             row.get("Threat") or "", row.get("Crit1") or ""
                         ),
-                        _safe_int(row.get("Range") or row.get("Range Increment")),
-                        _safe_float(row.get("Wgt") or row.get("Weight")),
+                        _safe_int(
+                            row.get("Range")
+                            or row.get("Range Increment")
+                            or row.get("range_increment")
+                        ),
+                        _safe_float(
+                            row.get("Wgt") or row.get("Weight") or row.get("weight")
+                        ),
                         (row.get("Type") or row.get("damage_type") or "").strip(),
                         (row.get("Source") or row.get("source") or "").strip(),
                     ),
@@ -1242,15 +1263,31 @@ def seed_creatures(conn: sqlite3.Connection, data_dir: Path) -> None:
                         (row.get("Type") or row.get("type") or "").strip(),
                         (row.get("Subtype") or row.get("subtype") or "").strip(),
                         (row.get("HD") or row.get("hit_dice") or "").strip(),
-                        _safe_int(row.get("Str") or row.get("str_score")),
-                        _safe_int(row.get("Dex") or row.get("dex_score")),
-                        _safe_int(row.get("Con") or row.get("con_score")),
-                        _safe_int(row.get("Int") or row.get("int_score")),
-                        _safe_int(row.get("Wis") or row.get("wis_score")),
-                        _safe_int(row.get("Cha") or row.get("cha_score")),
+                        _safe_int(
+                            row.get("Str") or row.get("STR") or row.get("str_score")
+                        ),
+                        _safe_int(
+                            row.get("Dex") or row.get("DEX") or row.get("dex_score")
+                        ),
+                        _safe_int(
+                            row.get("Con") or row.get("CON") or row.get("con_score")
+                        ),
+                        _safe_int(
+                            row.get("Int") or row.get("INT") or row.get("int_score")
+                        ),
+                        _safe_int(
+                            row.get("Wis") or row.get("WIS") or row.get("wis_score")
+                        ),
+                        _safe_int(
+                            row.get("Cha") or row.get("CHA") or row.get("cha_score")
+                        ),
                         (row.get("BAB") or row.get("bab") or "").strip(),
                         _safe_int(row.get("Grapple") or row.get("grapple_mod")),
-                        _safe_int(row.get("Natural Armor") or row.get("armor_class")),
+                        _safe_int(
+                            row.get("Natural Armor")
+                            or row.get("AC")
+                            or row.get("armor_class")
+                        ),
                         (
                             row.get("Land")
                             or row.get("Speed")
