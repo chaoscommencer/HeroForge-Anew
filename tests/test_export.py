@@ -11,7 +11,12 @@ for a blank/new character.
 from __future__ import annotations
 
 from heroforge.logic.derived_stats import ClassProgression, compute_derived_stats
-from heroforge.logic.export import character_sheet_data, export_character_sheet_text
+from heroforge.logic.export import (
+    character_sheet_data,
+    export_character_sheet_text,
+    export_table_tent_text,
+    table_tent_data,
+)
 from heroforge.models.character import Character
 
 
@@ -132,3 +137,58 @@ class TestExportCharacterSheetText:
         assert text.count("(none)") >= 4
         # Default ability scores render at 10 with a +0 modifier.
         assert "STR: 10  (mod +0)" in text
+
+
+class TestExportTableTentText:
+    """Rendering the folded printable name-card (Table Tent)."""
+
+    def _derived(self, character: Character) -> object:
+        progressions = {
+            "Fighter": ClassProgression("Fighter", "fast", "good", "poor", "poor")
+        }
+        return compute_derived_stats(character, progressions)
+
+    def test_payload_is_subset_of_character_sheet_data(self) -> None:
+        character = _populated_character()
+
+        assert table_tent_data(character) == character_sheet_data(character)
+
+    def test_renders_identity_and_combat_for_both_faces(self) -> None:
+        character = _populated_character()
+        derived = self._derived(character)
+
+        text = export_table_tent_text(table_tent_data(character, derived))
+
+        # The name (upper-cased) and player appear once per face → twice total.
+        assert text.count("ARAGORN") == 2
+        assert text.count("Player: Viggo") == 2
+        assert "Human Fighter 5 (LG)" in text
+        # Real computed combat numbers, not "?" placeholders.
+        assert f"Init {derived.initiative:+d}" in text
+        assert f"AC {derived.armor_class}" in text
+        assert f"Fort {derived.fortitude:+d}" in text
+
+    def test_top_face_is_inverted_relative_to_bottom_face(self) -> None:
+        """Folding the printed card must leave both faces upright."""
+        text = export_table_tent_text(table_tent_data(_populated_character()))
+        lines = text.splitlines()
+        fold_index = next(
+            i
+            for i, ln in enumerate(lines)
+            if ln.strip() and set(ln.strip()) <= {"-", " "}
+        )
+
+        # Strip the two-line header/instruction preamble from the top face.
+        top_face = [ln for ln in lines[2:fold_index] if ln.strip()]
+        bottom_face = [ln for ln in lines[fold_index + 1 :] if ln.strip()]
+
+        assert top_face == list(reversed(bottom_face))
+
+    def test_empty_character_renders_without_crashing(self) -> None:
+        text = export_table_tent_text(table_tent_data(Character()))
+
+        assert "TABLE TENT" in text
+        # A blank character still shows a name placeholder on both faces.
+        assert text.count("UNKNOWN HERO") == 2
+        # Unknown combat values fall back to the "?" placeholder.
+        assert "AC ?" in text

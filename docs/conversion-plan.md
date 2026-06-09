@@ -127,6 +127,7 @@ HeroForge-Anew/
 │               ├── animal_companion.py
 │               ├── familiar.py
 │               ├── character_sheet.py  ← read-only summary (replaces CS I–V)
+│               ├── table_tent.py       ← printable folded name-card summary
 │               ├── game_log.py
 │               ├── lg_game_log.py    ← Living Greyhawk variant (deprecated)
 │               └── initiative_card.py
@@ -457,6 +458,7 @@ Each VBA function or macro is converted to a standalone, pure Python function in
 | Function | Description |
 |---|---|
 | `export_character_sheet_text(character)` | Plain-text character sheet |
+| `export_table_tent_text(character)` | Printable folded name-card (Table Tent) summary |
 | `export_character_sheet_pdf(character, path)` | PDF character sheet via `reportlab` |
 
 ### 7.3 Acceptance Criteria
@@ -498,6 +500,7 @@ Each tab in the Excel workbook maps to a `QWidget` subclass in `src/heroforge/ui
 | Animal Companion | `AnimalCompanionTab` | `tabs/animal_companion.py` |
 | Familiar | `FamiliarTab` | `tabs/familiar.py` |
 | Character Sheet I–V | `CharacterSheetTab` | `tabs/character_sheet.py` |
+| Table Tent | `TableTentTab` | `tabs/table_tent.py` |
 | Game Log | `GameLogTab` | `tabs/game_log.py` |
 | LG Game Log | `LGGameLogTab` (deprecated) | `tabs/lg_game_log.py` |
 | Initiative Card | `InitiativeCardTab` | `tabs/initiative_card.py` |
@@ -666,7 +669,7 @@ The following is the complete list of sheets in `HeroForge Anew 3.5 v7.4.0.1.xls
 | Game Log | PyQt tab |
 | LG Game Log | `LGGameLogTab` (Living Greyhawk; implemented, deprecated in the UI) |
 | Initiative Card | PyQt tab |
-| Table Tent | Low priority; printable summary |
+| Table Tent | `TableTentTab` (implemented; printable folded name-card summary via `logic/export.py`) |
 | ExportSheet | Replaced by `logic/export.py` |
 
 ### 11.2 Configuration Sheets (→ PyQt dialog)
