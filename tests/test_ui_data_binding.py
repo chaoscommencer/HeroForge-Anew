@@ -573,3 +573,100 @@ class TestCrossTabSignalPropagation:
         # A subsequent character_reset must clear the list.
         empty_model.new_character()
         assert tab._buff_list.count() == 0
+
+
+class TestDialogMenuWiring:
+    """§8.3: every configuration / custom dialog is reachable from the UI."""
+
+    @staticmethod
+    def _find_action(window: object, path: tuple[str, ...]) -> object:
+        """Return the QAction reached by walking *path* of menu/action texts."""
+        actions = window.menuBar().actions()
+        target = None
+        for text in path:
+            target = next(a for a in actions if a.text() == text)
+            menu = target.menu()
+            actions = menu.actions() if menu is not None else []
+        return target
+
+    def test_tools_menu_exposes_each_dialog(self, qapp: object) -> None:
+        from heroforge.ui.main_window import MainWindow
+
+        window = MainWindow()
+        tools = next(
+            a.menu() for a in window.menuBar().actions() if a.text() == "&Tools"
+        )
+        assert tools is not None
+        labels = {a.text() for a in tools.actions()}
+        assert {"&Options…", "Select &Sources…", "Template &Info…"} <= labels
+
+        custom = next(a.menu() for a in tools.actions() if a.text() == "Create &Custom")
+        assert custom is not None
+        custom_labels = {a.text() for a in custom.actions()}
+        assert custom_labels == {
+            "Custom &Race…",
+            "Custom &Template…",
+            "Custom &Class…",
+            "Custom &Familiar…",
+        }
+
+    @pytest.mark.parametrize(
+        ("path", "dialog_name"),
+        [
+            (("&Tools", "&Options…"), "OptionsDialog"),
+            (("&Tools", "Select &Sources…"), "SourceSelectDialog"),
+            (("&Tools", "Template &Info…"), "TemplateInfoDialog"),
+            (("&Tools", "Create &Custom", "Custom &Race…"), "CustomRaceDialog"),
+            (
+                ("&Tools", "Create &Custom", "Custom &Template…"),
+                "CustomTemplateDialog",
+            ),
+            (("&Tools", "Create &Custom", "Custom &Class…"), "CustomClassDialog"),
+            (
+                ("&Tools", "Create &Custom", "Custom &Familiar…"),
+                "CustomFamiliarDialog",
+            ),
+        ],
+    )
+    def test_triggering_action_opens_expected_dialog(
+        self,
+        qapp: object,
+        monkeypatch: pytest.MonkeyPatch,
+        path: tuple[str, ...],
+        dialog_name: str,
+    ) -> None:
+        from heroforge.ui.main_window import MainWindow
+
+        # Capture (instead of modally exec'ing) the dialog so the test never
+        # blocks while still exercising the real construction/parenting path.
+        opened: list[object] = []
+        monkeypatch.setattr(
+            MainWindow,
+            "_open_dialog",
+            lambda self, dialog: (opened.append(dialog), dialog)[1],
+        )
+
+        window = MainWindow()
+        action = self._find_action(window, path)
+        action.trigger()
+
+        assert len(opened) == 1
+        dialog = opened[0]
+        assert type(dialog).__name__ == dialog_name
+        # Dialogs must be parented to the main window (§8.3 requirement).
+        assert dialog.parent() is window
+
+    def test_file_and_help_actions_still_present(self, qapp: object) -> None:
+        from heroforge.ui.main_window import MainWindow
+
+        window = MainWindow()
+        menu_titles = [a.text() for a in window.menuBar().actions()]
+        assert "&File" in menu_titles
+        assert "&Help" in menu_titles
+
+        file_menu = next(
+            a.menu() for a in window.menuBar().actions() if a.text() == "&File"
+        )
+        file_labels = {a.text() for a in file_menu.actions()}
+        assert "&New Character" in file_labels
+        assert "E&xit" in file_labels
