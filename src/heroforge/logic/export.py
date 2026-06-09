@@ -278,8 +278,8 @@ def _table_tent_panel(character_data: dict) -> list[str]:  # type: ignore[type-a
         f"HP {hp}   Init {init}   Speed {speed} ft.",
         f"Fort {fort}   Ref {ref}   Will {will}",
     ]
-    # Drop any leading/blank-only fields that have no content so short panels
-    # (e.g. a blank new character) stay tidy, then centre every line.
+    # Keep the fixed row structure (including intentional blank rows) so the
+    # printed layout mirrors the legacy Excel Table Tent panel.
     return [line.center(TABLE_TENT_WIDTH).rstrip() for line in panel]
 
 

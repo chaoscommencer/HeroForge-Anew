@@ -192,3 +192,22 @@ class TestExportTableTentText:
         assert text.count("UNKNOWN HERO") == 2
         # Unknown combat values fall back to the "?" placeholder.
         assert "AC ?" in text
+
+    def test_empty_identity_fields_keep_fixed_panel_rows(self) -> None:
+        text = export_table_tent_text(table_tent_data(Character(name="Aragorn")))
+        lines = text.splitlines()
+        fold_index = next(
+            i
+            for i, ln in enumerate(lines)
+            if ln.strip() and set(ln.strip()) <= {"-", " "}
+        )
+
+        top_face = lines[3:fold_index]
+        bottom_face = lines[fold_index + 1 :]
+
+        assert len(top_face) == 7
+        assert len(bottom_face) == 7
+        # Player/descriptor/spacer rows are intentionally preserved as blanks.
+        assert bottom_face[1].strip() == ""
+        assert bottom_face[2].strip() == ""
+        assert bottom_face[3].strip() == ""

@@ -377,6 +377,15 @@ class TestTableTentTabRealData:
 
         assert "GANDALF" in tab._text_edit.toPlainText()
 
+    def test_uses_fixed_width_font_for_alignment(self, empty_model: object) -> None:
+        from PyQt6.QtGui import QFont
+
+        from heroforge.ui.tabs.table_tent import TableTentTab
+
+        tab = TableTentTab(model=empty_model)
+
+        assert tab._text_edit.font().styleHint() == QFont.StyleHint.Monospace
+
 
 class TestFeatsTabPrerequisites:
     def test_unmet_prereq_disables_feat(self, model: object) -> None:

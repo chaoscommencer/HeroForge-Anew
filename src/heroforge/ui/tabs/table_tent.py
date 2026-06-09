@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QFontDatabase
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -65,7 +65,9 @@ class TableTentTab(QWidget):
         self._text_edit = QTextEdit()
         self._text_edit.setReadOnly(True)
         # A fixed-pitch font keeps the centred panels aligned when printed.
-        self._text_edit.setFont(QFont("Courier New"))
+        fixed_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        fixed_font.setStyleHint(QFont.StyleHint.Monospace)
+        self._text_edit.setFont(fixed_font)
         self._text_edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         layout.addWidget(self._text_edit)
         self._refresh()
