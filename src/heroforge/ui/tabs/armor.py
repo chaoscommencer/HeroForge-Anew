@@ -368,7 +368,9 @@ class ArmorTab(QWidget):
                             else int(entry.get("max_dex_bonus"))
                         ),
                         check_penalty=int(entry.get("check_penalty") or 0),
-                        arcane_spell_failure=int(entry.get("arcane_spell_failure") or 0),
+                        arcane_spell_failure=int(
+                            entry.get("arcane_spell_failure") or 0
+                        ),
                         weight=float(entry.get("weight") or 0.0),
                         source="",
                     )

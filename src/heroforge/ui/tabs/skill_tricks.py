@@ -127,8 +127,7 @@ class SkillTricksTab(QWidget):
                 self.learn(item.text())
         else:
             options = [
-                self._avail_list.item(i).text()
-                for i in range(self._avail_list.count())
+                self._avail_list.item(i).text() for i in range(self._avail_list.count())
             ]
             name = pick_from_catalog(self, "Add Skill Trick", "Skill trick:", options)
             if name:
