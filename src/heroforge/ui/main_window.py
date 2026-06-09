@@ -66,6 +66,7 @@ from heroforge.ui.tabs.spells import SpellsTab
 
 # Tab imports
 from heroforge.ui.tabs.stats_and_character_details import StatsAndCharacterDetailsTab
+from heroforge.ui.tabs.table_tent import TableTentTab
 from heroforge.ui.tabs.traits_and_flaws import TraitsAndFlawsTab
 
 # ---------------------------------------------------------------------------
@@ -341,6 +342,7 @@ class MainWindow(QMainWindow):
         ("Animal Companion", AnimalCompanionTab),
         ("Familiar", FamiliarTab),
         ("Character Sheet", CharacterSheetTab),
+        ("Table Tent", TableTentTab),
         ("Game Log", GameLogTab),
         ("LG Game Log", LGGameLogTab),
         ("Initiative Card", InitiativeCardTab),

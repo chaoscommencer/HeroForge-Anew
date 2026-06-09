@@ -215,3 +215,108 @@ def export_character_sheet_text(character_data: dict) -> str:  # type: ignore[ty
 
     lines.append(sep)
     return "\n".join(lines)
+
+
+#: Printable width (in characters) of a single Table Tent panel.
+TABLE_TENT_WIDTH = 60
+
+
+def table_tent_data(
+    character: Character,
+    derived: DerivedStats | None = None,
+) -> dict:  # type: ignore[type-arg]
+    """Build the :func:`export_table_tent_text` payload for *character*.
+
+    The Table Tent currently reuses the full :func:`character_sheet_data`
+    payload so both exporters share a single model→dict bridge.
+    """
+    return character_sheet_data(character, derived)
+
+
+def _signed(value: object) -> str:
+    """Render a numeric modifier with an explicit sign, passing text through."""
+    if isinstance(value, bool):  # bool is an int subclass; treat it as text.
+        return str(value)
+    if isinstance(value, int):
+        return f"+{value}" if value >= 0 else str(value)
+    return str(value)
+
+
+def _table_tent_panel(character_data: dict) -> list[str]:  # type: ignore[type-arg]
+    """Render one upright Table Tent panel as a list of centred lines."""
+
+    def get(key: str, default: object = "") -> object:
+        return character_data.get(key, default)
+
+    name = str(get("name", "Unknown Hero")).strip() or "Unknown Hero"
+    player = str(get("player", "")).strip()
+    race = str(get("race", "")).strip()
+    alignment = str(get("alignment", "")).strip()
+
+    classes: list[tuple[str, int]] = character_data.get("classes", [])  # type: ignore[assignment]
+    class_str = ", ".join(f"{cls} {lvl}" for cls, lvl in classes)
+    descriptor = " ".join(part for part in (race, class_str) if part)
+    if alignment:
+        descriptor = f"{descriptor} ({alignment})" if descriptor else f"({alignment})"
+
+    hp = get("hp", "?")
+    speed = get("speed", 30)
+    init = _signed(get("initiative", "?"))
+    ac = get("ac", "?")
+    tac = get("touch_ac", "?")
+    ffac = get("flat_footed_ac", "?")
+    fort = _signed(get("fort", "?"))
+    ref = _signed(get("ref", "?"))
+    will = _signed(get("will", "?"))
+
+    panel: list[str] = [
+        name.upper(),
+        f"Player: {player}" if player else "",
+        descriptor,
+        "",
+        f"AC {ac}   Touch {tac}   Flat-Footed {ffac}",
+        f"HP {hp}   Init {init}   Speed {speed} ft.",
+        f"Fort {fort}   Ref {ref}   Will {will}",
+    ]
+    # Keep the fixed row structure (including intentional blank rows) so the
+    # printed layout mirrors the legacy Excel Table Tent panel.
+    return [line.center(TABLE_TENT_WIDTH).rstrip() for line in panel]
+
+
+def export_table_tent_text(character_data: dict) -> str:  # type: ignore[type-arg]
+    """Format a printable Table Tent (folded name-card) from *character_data*.
+
+    The Table Tent is the folded card a player stands on the table so the name
+    and key combat numbers are visible from across the table.  It is printed as
+    two panels separated by a fold line; the upper panel is inverted (its line
+    order reversed) so that, once the page is folded along the centre line, both
+    faces read upright to people seated on either side.
+
+    *character_data* accepts the same payload as
+    :func:`export_character_sheet_text` (see :func:`table_tent_data`); only the
+    identity and combat fields are used.
+
+    Returns:
+        Multi-line plain-text Table Tent string.
+    """
+    # A dashed fold guide ("- - - …") spanning the panel width.
+    fold = "- " * (TABLE_TENT_WIDTH // 2)
+    fold_line = fold[:TABLE_TENT_WIDTH].rstrip()
+
+    panel = _table_tent_panel(character_data)
+    # Top face is printed upside-down (reversed) so it reads upright once the
+    # card is folded; the bottom face is printed normally.
+    top_face = list(reversed(panel))
+
+    lines: list[str] = []
+    lines.append("TABLE TENT".center(TABLE_TENT_WIDTH).rstrip())
+    lines.append(
+        "(fold along the centre line; both faces read upright)".center(
+            TABLE_TENT_WIDTH
+        ).rstrip()
+    )
+    lines.append("")
+    lines.extend(top_face)
+    lines.append(fold_line)
+    lines.extend(panel)
+    return "\n".join(lines)

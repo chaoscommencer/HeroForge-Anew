@@ -349,6 +349,44 @@ class TestCharacterSheetTabRealData:
         assert "Boromir" not in tab._text_edit.toPlainText()
 
 
+class TestTableTentTabRealData:
+    def test_tent_shows_name_on_both_faces(self, empty_model: object) -> None:
+        from heroforge.ui.tabs.table_tent import TableTentTab
+
+        tab = TableTentTab(model=empty_model)
+        empty_model.character.name = "Aragorn"
+        empty_model.ability_score_changed.emit("DEX", 16)
+
+        text = tab._text_edit.toPlainText()
+        # Name is repeated once per folded face.
+        assert text.count("ARAGORN") == 2
+        # Derived combat values render real numbers, not the "?" placeholder.
+        assert "Init +3" in text
+
+    def test_loaded_signal_refreshes_from_loaded_character(
+        self, empty_model: object
+    ) -> None:
+        from heroforge.models.character import Character
+        from heroforge.ui.tabs.table_tent import TableTentTab
+
+        tab = TableTentTab(model=empty_model)
+        assert "GANDALF" not in tab._text_edit.toPlainText()
+
+        empty_model.character = Character(name="Gandalf", race="Maia")
+        empty_model.character_loaded.emit(0)
+
+        assert "GANDALF" in tab._text_edit.toPlainText()
+
+    def test_uses_fixed_width_font_for_alignment(self, empty_model: object) -> None:
+        from PyQt6.QtGui import QFont
+
+        from heroforge.ui.tabs.table_tent import TableTentTab
+
+        tab = TableTentTab(model=empty_model)
+
+        assert tab._text_edit.font().styleHint() == QFont.StyleHint.Monospace
+
+
 class TestFeatsTabPrerequisites:
     def test_unmet_prereq_disables_feat(self, model: object) -> None:
         from PyQt6.QtCore import Qt
