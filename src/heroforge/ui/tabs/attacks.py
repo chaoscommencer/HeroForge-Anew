@@ -121,7 +121,11 @@ class AttacksTab(QWidget):
         """Recompute each weapon's attack-bonus cell from current derived stats."""
         for row in range(self._weapons_table.rowCount()):
             range_item = self._weapons_table.item(row, 4)
-            ranged = bool(range_item and range_item.text() not in ("", "—"))
+            text = range_item.text().strip() if range_item else ""
+            try:
+                ranged = int(text) > 0
+            except ValueError:
+                ranged = text not in ("", "—")
             bonus = self._attack_bonus_for(ranged)
             self._weapons_table.setItem(row, 1, QTableWidgetItem(bonus))
         self._sync_to_model()
