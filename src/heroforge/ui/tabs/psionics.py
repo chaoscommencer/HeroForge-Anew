@@ -101,6 +101,7 @@ class PsionicsTab(QWidget):
         self._remaining_lbl.setText(str(remaining))
 
     def _on_pp_changed(self, _value: int) -> None:
+        self._spent_pp.setMaximum(self._total_pp.value())
         self._update_remaining()
         if not self._loading and self._model is not None:
             self._model.character.options[_TOTAL_KEY] = str(self._total_pp.value())
