@@ -201,12 +201,47 @@ class AttacksTab(QWidget):
         self._sync_to_model()
 
     def _add_weapon(self) -> None:
-        weapons = self._model.game_data().list_weapons() if self._model else []
-        catalog = {w.name: w for w in weapons}
+        game_weapons = self._model.game_data().list_weapons() if self._model else []
+        catalog: dict[str, WeaponItem | None] = {w.name: w for w in game_weapons}
+        # Merge in character's custom weapons.
+        if self._model:
+            for entry in self._model.character.custom_weapons:
+                name = entry.get("name", "")
+                if name and name not in catalog:
+                    from heroforge.db.data_access import WeaponItem as _WI
+
+                    catalog[name] = _WI(
+                        name=name,
+                        category=entry.get("category", ""),
+                        damage=entry.get("damage", ""),
+                        critical=entry.get("critical", ""),
+                        range_increment=int(entry.get("range_increment", 0)),
+                        damage_type=entry.get("damage_type", ""),
+                        source="",
+                    )
         name = pick_from_catalog(self, "Add Weapon", "Weapon:", list(catalog.keys()))
         if name is None:
             return
-        self.add_weapon(catalog.get(name), name=name)
+        weapon = catalog.get(name)
+        if weapon is None and self._model:
+            # New custom weapon — store with empty stats and let the user fill in
+            # the row directly; also register in custom_weapons for future picks.
+            self._model.character.custom_weapons = [
+                e
+                for e in self._model.character.custom_weapons
+                if e.get("name") != name
+            ] + [
+                {
+                    "name": name,
+                    "category": "",
+                    "damage": "",
+                    "critical": "",
+                    "range_increment": 0,
+                    "damage_type": "",
+                    "weight": 0.0,
+                }
+            ]
+        self.add_weapon(weapon, name=name)
 
     def _remove_weapon(self) -> None:
         rows = sorted(

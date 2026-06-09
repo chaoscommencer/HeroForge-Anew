@@ -5,6 +5,10 @@ in :attr:`Character.equipment` under the ``Body Armor`` and ``Shield`` slots.
 The AC summary (total/touch/flat-footed) is computed from the equipped items and
 the character's Dexterity modifier (capped by the armor's max-Dex bonus) and
 refreshes in real time via :func:`heroforge.logic.combat`.
+
+Custom armor/shield entries not present in the game catalogue are persisted to
+the ``character_custom_armor`` table in the character save file and merged back
+into the catalogue on load.
 """
 
 from __future__ import annotations
@@ -12,12 +16,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -32,6 +41,68 @@ if TYPE_CHECKING:
 _BODY_SLOT = "Body Armor"
 _SHIELD_SLOT = "Shield"
 _OWNED_SLOTS = {_BODY_SLOT, _SHIELD_SLOT}
+
+
+class _CustomArmorDialog(QDialog):
+    """Dialog for specifying stats of a custom armor or shield entry."""
+
+    def __init__(
+        self, name: str, is_shield: bool, parent: QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(f"Custom {'Shield' if is_shield else 'Armor'}: {name}")
+        layout = QFormLayout(self)
+
+        self._ac = QSpinBox()
+        self._ac.setRange(0, 99)
+        layout.addRow("AC Bonus:", self._ac)
+
+        self._maxdex = QSpinBox()
+        self._maxdex.setRange(-1, 99)
+        self._maxdex.setSpecialValueText("—")
+        self._maxdex.setValue(-1)
+        layout.addRow("Max Dex Bonus:", self._maxdex)
+
+        self._acp = QSpinBox()
+        self._acp.setRange(-99, 0)
+        layout.addRow("Check Penalty:", self._acp)
+
+        self._asf = QSpinBox()
+        self._asf.setRange(0, 100)
+        self._asf.setSuffix("%")
+        layout.addRow("Arcane Spell Failure:", self._asf)
+
+        self._weight = QDoubleSpinBox()
+        self._weight.setRange(0, 9999)
+        self._weight.setDecimals(1)
+        self._weight.setSuffix(" lb")
+        layout.addRow("Weight:", self._weight)
+
+        self._is_shield = QCheckBox()
+        self._is_shield.setChecked(is_shield)
+        layout.addRow("Shield:", self._is_shield)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def result_item(self, name: str) -> ArmorItem:
+        """Return an :class:`ArmorItem` from the dialog's current field values."""
+        max_dex = None if self._maxdex.value() < 0 else self._maxdex.value()
+        item_type = "Shield" if self._is_shield.isChecked() else "Armor"
+        return ArmorItem(
+            name=name,
+            type=item_type,
+            ac_bonus=self._ac.value(),
+            max_dex_bonus=max_dex,
+            check_penalty=self._acp.value(),
+            arcane_spell_failure=self._asf.value(),
+            weight=self._weight.value(),
+            source="",
+        )
 
 
 class ArmorTab(QWidget):
@@ -135,27 +206,69 @@ class ArmorTab(QWidget):
                 "—" if item.max_dex_bonus is None else str(item.max_dex_bonus)
             )
 
+    def _merged_catalog(self, is_shield: bool) -> dict[str, ArmorItem]:
+        """Return the merged game + character-custom catalog for this slot type."""
+        game_items = self._model.game_data().list_armor() if self._model else []
+        merged = {a.name: a for a in game_items if a.is_shield == is_shield}
+        if self._model:
+            for entry in self._model.character.custom_armor:
+                name = entry.get("name", "")
+                if not name:
+                    continue
+                # Compare against the canonical value set by _CustomArmorDialog.
+                item_is_shield = entry.get("type") == "Shield"
+                if item_is_shield != is_shield:
+                    continue
+                merged[name] = ArmorItem(
+                    name=name,
+                    type=entry.get("type", "Shield" if is_shield else "Armor"),
+                    ac_bonus=int(entry.get("ac_bonus", 0)),
+                    max_dex_bonus=entry.get("max_dex_bonus"),
+                    check_penalty=int(entry.get("check_penalty", 0)),
+                    arcane_spell_failure=int(entry.get("arcane_spell_failure", 0)),
+                    weight=float(entry.get("weight", 0)),
+                    source="",
+                )
+        return merged
+
     def _select(self, slot: str) -> None:
-        catalog = self._model.game_data().list_armor() if self._model else []
         is_shield = slot == _SHIELD_SLOT
-        catalog = [a for a in catalog if a.is_shield == is_shield]
-        by_name = {a.name: a for a in catalog}
+        by_name = self._merged_catalog(is_shield)
         name = pick_from_catalog(self, f"Select {slot}", "Item:", list(by_name))
         if name is None:
             return
-        item = by_name.get(name) or ArmorItem(
-            name=name,
-            type="Shield" if is_shield else "Armor",
-            ac_bonus=0,
-            max_dex_bonus=None,
-            check_penalty=0,
-            arcane_spell_failure=0,
-            weight=0.0,
-            source="",
-        )
+        if name in by_name:
+            item = by_name[name]
+        else:
+            # New custom entry — collect stats via dialog.
+            dlg = _CustomArmorDialog(name, is_shield, self)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            item = dlg.result_item(name)
+            self._add_to_custom_armor(item)
         self._set_item(slot, item)
         self._sync_to_model()
         self._refresh_summary()
+
+    def _add_to_custom_armor(self, item: ArmorItem) -> None:
+        """Persist *item* to :attr:`Character.custom_armor` (in-memory; saved on sync)."""
+        if self._model is None:
+            return
+        existing = self._model.character.custom_armor
+        # Replace any pre-existing entry with the same name.
+        self._model.character.custom_armor = [
+            e for e in existing if e.get("name") != item.name
+        ] + [
+            {
+                "name": item.name,
+                "type": item.type,
+                "ac_bonus": item.ac_bonus,
+                "max_dex_bonus": item.max_dex_bonus,
+                "check_penalty": item.check_penalty,
+                "arcane_spell_failure": item.arcane_spell_failure,
+                "weight": item.weight,
+            }
+        ]
 
     def _clear(self, slot: str) -> None:
         self._set_item(slot, None)
@@ -174,13 +287,6 @@ class ArmorTab(QWidget):
                         "equipped": 1,
                         "slot": slot,
                         "notes": "",
-                        # Persist all stats so custom/free-text entries round-trip
-                        # with their full specifications, not just the name.
-                        "ac_bonus": item.ac_bonus,
-                        "max_dex_bonus": item.max_dex_bonus,
-                        "check_penalty": item.check_penalty,
-                        "arcane_spell_failure": item.arcane_spell_failure,
-                        "item_type": item.type,
                     }
                 )
         return result
@@ -229,22 +335,30 @@ class ArmorTab(QWidget):
     def _sync_from_model(self) -> None:
         body = shield = None
         if self._model is not None:
-            catalog = {a.name: a for a in self._model.game_data().list_armor()}
+            # Merged catalog: game entries + character's custom armor.
+            merged_armor = self._merged_catalog(is_shield=False)
+            merged_shields = self._merged_catalog(is_shield=True)
+            merged_all = {**merged_armor, **merged_shields}
             for entry in self._model.character.equipment:
                 slot = entry.get("slot")
                 item_name = entry.get("item_name", "")
                 if not item_name or slot not in _OWNED_SLOTS:
                     continue
-                item = catalog.get(item_name) or ArmorItem(
-                    name=item_name,
-                    type=entry.get("item_type") or ("Shield" if slot == _SHIELD_SLOT else "Armor"),
-                    ac_bonus=entry.get("ac_bonus") or 0,
-                    max_dex_bonus=entry.get("max_dex_bonus"),
-                    check_penalty=entry.get("check_penalty") or 0,
-                    arcane_spell_failure=entry.get("arcane_spell_failure") or 0,
-                    weight=entry.get("weight") or 0.0,
-                    source="",
-                )
+                is_shield = slot == _SHIELD_SLOT
+                item = merged_all.get(item_name)
+                if item is None:
+                    # Legacy save with inline stats — migrate to custom_armor.
+                    item = ArmorItem(
+                        name=item_name,
+                        type=entry.get("item_type") or ("Shield" if is_shield else "Armor"),
+                        ac_bonus=entry.get("ac_bonus") or 0,
+                        max_dex_bonus=entry.get("max_dex_bonus"),
+                        check_penalty=entry.get("check_penalty") or 0,
+                        arcane_spell_failure=entry.get("arcane_spell_failure") or 0,
+                        weight=entry.get("weight") or 0.0,
+                        source="",
+                    )
+                    self._add_to_custom_armor(item)
                 if slot == _BODY_SLOT:
                     body = item
                 elif slot == _SHIELD_SLOT:

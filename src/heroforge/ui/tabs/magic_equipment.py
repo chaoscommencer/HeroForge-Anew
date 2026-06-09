@@ -173,17 +173,32 @@ class MagicEquipmentTab(QWidget):
         if not self._loading:
             self._sync_to_model()
 
+    def _merged_item_catalog(self, slot: str | None = None) -> list[str]:
+        """Return merged game + character-custom magic item names for *slot*."""
+        game_items = self._model.game_data().list_magic_equipment() if self._model else []
+        all_names = [m.name for m in game_items]
+        if slot:
+            slot_names = [m.name for m in game_items if not m.slot or m.slot == slot]
+            # Fall back to all game items when nothing matches the requested slot.
+            filtered = slot_names if slot_names else all_names
+        else:
+            filtered = all_names
+        names: list[str] = list(filtered)
+        if self._model:
+            custom_names = {e.get("name", "") for e in self._model.character.custom_items}
+            names += [n for n in sorted(custom_names) if n and n not in names]
+        return names
+
     def _assign_slot(self) -> None:
         row = self._slots_table.currentRow()
         if row < 0:
             row = 0
         slot = _SLOTS[row]
-        items = self._model.game_data().list_magic_equipment() if self._model else []
-        options = [m.name for m in items if not m.slot or m.slot == slot]
-        if not options:
-            options = [m.name for m in items]
+        options = self._merged_item_catalog(slot)
         name = pick_from_catalog(self, "Assign Item", f"Item for {slot}:", options)
         if name:
+            if self._model and name not in {m.name for m in self._model.game_data().list_magic_equipment()}:
+                self._register_custom_item(name, slot)
             self._slots_table.setItem(row, 1, QTableWidgetItem(name))
 
     def add_extra(self, name: str) -> bool:
@@ -196,10 +211,22 @@ class MagicEquipmentTab(QWidget):
         return True
 
     def _add_extra(self) -> None:
-        items = self._model.game_data().list_magic_equipment() if self._model else []
-        name = pick_from_catalog(self, "Add Item", "Item:", [m.name for m in items])
+        options = self._merged_item_catalog()
+        name = pick_from_catalog(self, "Add Item", "Item:", options)
         if name:
+            if self._model and name not in {m.name for m in self._model.game_data().list_magic_equipment()}:
+                self._register_custom_item(name, "")
             self.add_extra(name)
+
+    def _register_custom_item(self, name: str, slot: str) -> None:
+        """Add *name* to :attr:`Character.custom_items` if not already present."""
+        if self._model is None:
+            return
+        existing = {e.get("name") for e in self._model.character.custom_items}
+        if name not in existing:
+            self._model.character.custom_items = list(
+                self._model.character.custom_items
+            ) + [{"name": name, "slot": slot, "description": "", "weight": 0.0}]
 
     def _remove_extra(self) -> None:
         for item in self._extra_list.selectedItems():
