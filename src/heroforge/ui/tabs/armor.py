@@ -174,6 +174,13 @@ class ArmorTab(QWidget):
                         "equipped": 1,
                         "slot": slot,
                         "notes": "",
+                        # Persist all stats so custom/free-text entries round-trip
+                        # with their full specifications, not just the name.
+                        "ac_bonus": item.ac_bonus,
+                        "max_dex_bonus": item.max_dex_bonus,
+                        "check_penalty": item.check_penalty,
+                        "arcane_spell_failure": item.arcane_spell_failure,
+                        "item_type": item.type,
                     }
                 )
         return result
@@ -230,11 +237,11 @@ class ArmorTab(QWidget):
                     continue
                 item = catalog.get(item_name) or ArmorItem(
                     name=item_name,
-                    type="Shield" if slot == _SHIELD_SLOT else "Armor",
-                    ac_bonus=0,
-                    max_dex_bonus=None,
-                    check_penalty=0,
-                    arcane_spell_failure=0,
+                    type=entry.get("item_type") or ("Shield" if slot == _SHIELD_SLOT else "Armor"),
+                    ac_bonus=entry.get("ac_bonus") or 0,
+                    max_dex_bonus=entry.get("max_dex_bonus"),
+                    check_penalty=entry.get("check_penalty") or 0,
+                    arcane_spell_failure=entry.get("arcane_spell_failure") or 0,
                     weight=entry.get("weight") or 0.0,
                     source="",
                 )
