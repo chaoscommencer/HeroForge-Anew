@@ -22,6 +22,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from heroforge.ui.tabs._tab_helper import pick_from_catalog
+
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
@@ -119,8 +121,18 @@ class SkillTricksTab(QWidget):
         return True
 
     def _learn(self) -> None:
-        for item in self._avail_list.selectedItems():
-            self.learn(item.text())
+        selected = self._avail_list.selectedItems()
+        if selected:
+            for item in selected:
+                self.learn(item.text())
+        else:
+            options = [
+                self._avail_list.item(i).text()
+                for i in range(self._avail_list.count())
+            ]
+            name = pick_from_catalog(self, "Add Skill Trick", "Skill trick:", options)
+            if name:
+                self.learn(name)
 
     def _forget(self) -> None:
         for item in self._taken_list.selectedItems():
