@@ -1177,6 +1177,12 @@ def seed_weapon_damage(
     finally:
         wb.close()
 
+    if not rows:
+        logger.warning(
+            "No weapon_damage rows extracted from workbook – leaving table untouched"
+        )
+        return
+
     conn.execute("DELETE FROM weapon_damage")
     inserted = 0
     skipped = 0
