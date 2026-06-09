@@ -223,6 +223,7 @@ The following tables map directly from workbook sheets or existing data files. C
 | `graft_abilities` | Graft Abilities sheet | Per-graft ability details |
 | `maneuvers` | Maneuvers & Stances sheet | Discipline, level, type |
 | `weapons` | `WeaponInfo.csv` | Size, damage, crit, range, weight |
+| `weapon_damage` | Class Weapons & Armor sheet | Size-aware damage-by-step matrix (decodes `WeaponInfo.csv` step codes) |
 | `armor` | Armor sheet | AC bonus, check penalty, spell failure |
 | `magic_enhancements` | Enhancements sheet | Weapon/armor enhancement properties |
 | `magic_equipment` | Magic Equipment sheet | Wondrous items, rings, rods, etc. |
