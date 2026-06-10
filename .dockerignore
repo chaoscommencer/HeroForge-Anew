@@ -6,11 +6,12 @@
 #     pyproject.toml back in), or
 #   * files generated inside a running container (e.g. the seeded heroforge.db).
 #
-# The Dockerfile only COPYs pyproject.toml and README.md (src/ is supplied to
-# the build via a BuildKit bind mount, and over the container at runtime via the
-# docker-compose mount, rather than being COPYed in). Everything else is excluded
-# below purely to keep the context small and the image clean — the seed data and
-# workbooks are supplied via read-only bind mounts instead of being baked into
+# The Dockerfile only COPYs pyproject.toml (used in the builder stage to install
+# the third-party dependencies). The application src/ is never copied into the
+# image — it is provided over /app/src at runtime by the docker-compose mount and
+# imported via PYTHONPATH. Everything else is excluded below purely to keep the
+# context small and the image clean — the seed data and workbooks are supplied
+# via read-only bind mounts instead of being baked into
 # the image, and heroforge.db is generated on first launch.
 
 # Version control / CI
