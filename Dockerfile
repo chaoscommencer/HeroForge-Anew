@@ -29,6 +29,10 @@ FROM python:3.12-slim-bookworm AS builder
 WORKDIR /app
 
 # Step 1 — third-party dependencies.
+# Only pyproject.toml is needed to install the third-party dependencies. The
+# app is launched with `python -m heroforge` against PYTHONPATH in the final
+# stage, and the source is provided at runtime by the docker-compose bind mount.
+#
 # Security: --only-binary=:all: forces pip to install prebuilt wheels and refuse
 # to build any downloaded sdist. pip has no npm-style pre/post-install hooks, so
 # the ONLY place third-party code can execute during install is an sdist's build
