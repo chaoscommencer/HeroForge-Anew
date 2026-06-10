@@ -1,0 +1,53 @@
+# .dockerignore — controls the BUILD CONTEXT only.
+#
+# Files listed here are excluded from the context sent to the engine, so a COPY
+# in the Dockerfile cannot pick them up. It has NO effect on:
+#   * bind mounts at runtime (docker-compose.yml mounts data/, the workbooks and
+#     pyproject.toml back in), or
+#   * files generated inside a running container (e.g. the seeded heroforge.db).
+#
+# The Dockerfile only COPYs pyproject.toml (used in the builder stage to install
+# the third-party dependencies). The application src/ is never copied into the
+# image — it is provided over /app/src at runtime by the docker-compose mount and
+# imported via PYTHONPATH. Everything else is excluded below purely to keep the
+# context small and the image clean — the seed data and workbooks are supplied
+# via read-only bind mounts instead of being baked into
+# the image, and heroforge.db is generated on first launch.
+
+# Version control / CI
+.git
+.gitignore
+.gitattributes
+.github
+
+# Reference workbooks and seed data (supplied via read-only bind mounts at
+# runtime, not copied into the image; the workbook is also a large binary)
+*.xlsm
+data/
+
+# Generated database (created by first-launch seeding, never copied/mounted in)
+heroforge.db
+
+# Python caches & build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Tooling / docs not required to run the app
+graphify-out/
+docs/
+tests/
+
+# Container definitions themselves
+.devcontainer/

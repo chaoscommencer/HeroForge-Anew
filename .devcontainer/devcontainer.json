@@ -1,0 +1,73 @@
+// HeroForge-Anew development container for GitHub Codespaces / VS Code Dev
+// Containers. It provides a ready-to-code Python 3.12 environment tailored for
+// PyQt6 development, a lightweight web-accessible Linux desktop for viewing the
+// GUI, and Docker-in-Docker so the separate docker-compose QA stack can be
+// launched from inside the Codespace.
+//
+// Customize freely: tweak the desktop password/ports, swap VS Code extensions,
+// or change the Python version via .devcontainer/Dockerfile.
+{
+  "name": "HeroForge-Anew (PyQt6 Dev)",
+
+  // Build the tailored dev image (Python + Qt runtime libs + X11 utils).
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+
+  "features": {
+    // Lightweight Fluxbox desktop served over noVNC. This is what lets you
+    // *see* and interact with the PyQt window inside a browser tab. The X
+    // server is exposed as DISPLAY=:1 and shared via /tmp/.X11-unix.
+    "ghcr.io/devcontainers/features/desktop-lite:1": {
+      "password": "vscode",
+      "webPort": "6080",
+      "vncPort": "5901"
+    },
+    // Docker-in-Docker so the QA docker-compose stack can be built and run from
+    // within the Codespace. Compose is included; podman-compose can be layered
+    // on top if the rootless workflow is preferred.
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "dockerDashComposeVersion": "v2"
+    }
+  },
+
+  // noVNC desktop (open in browser) and raw VNC.
+  "forwardPorts": [6080, 5901],
+  "portsAttributes": {
+    "6080": {
+      "label": "HeroForge Desktop (noVNC)",
+      "onAutoForward": "openPreview"
+    },
+    "5901": {
+      "label": "HeroForge Desktop (VNC)"
+    }
+  },
+
+  // Point Qt at the desktop-lite X server by default.
+  "containerEnv": {
+    "DISPLAY": ":1"
+  },
+
+  // Install the project (with dev tools) into the container after creation.
+  "postCreateCommand": "pip install -e \".[dev]\"",
+
+  // Run as the unprivileged user shipped with the base image.
+  "remoteUser": "vscode",
+
+  "customizations": {
+    "vscode": {
+      // Recommended extensions live in .vscode/extensions.json so they can be
+      // reviewed and installed manually rather than forced into the container.
+      "settings": {
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  }
+}

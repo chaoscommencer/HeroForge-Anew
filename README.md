@@ -64,6 +64,31 @@ ruff check src/
 black src/ tests/
 ```
 
+### Containerized Development & QA (Codespaces / Docker / Podman)
+
+The project ships an isolated runtime environment so you can develop and QA the
+PyQt6 GUI without installing anything locally:
+
+- **Develop** in a ready-to-code Codespace / Dev Container
+  (`.devcontainer/`) — Python 3.12, PyQt6 system libraries, a web-accessible
+  desktop, and Docker-in-Docker.
+
+  > **Note:** The dev container is currently pinned to Python 3.12
+  > (`mcr.microsoft.com/devcontainers/python:3-3.12-bookworm@sha256:…`). Consider
+  > upgrading to Python 3.14 once it is a generally available devcontainers base
+  > image and the project's dependencies (PyQt6, openpyxl, the dev tooling)
+  > publish 3.14 wheels; bump `requires-python` and the CI matrix to match.
+- **Run the GUI for QA** with a single application image via Compose
+  (`Dockerfile` + `docker-compose.yml`), with the window forwarded to a viewable
+  X server:
+
+  ```bash
+  scripts/run-gui.sh        # build + launch; view at http://localhost:6080
+  ```
+
+  The helper auto-detects Podman (preferred) or Docker. See
+  [`docs/containerized-runtime.md`](docs/containerized-runtime.md) for details.
+
 ### Map the Codebase (Graphify)
 
 The codebase can be mapped into a queryable knowledge graph with
