@@ -89,19 +89,24 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
         $(python -c "import tomllib; print(' '.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))")
 
 # --- Application source -------------------------------------------------------
-# Source changes most often, so copy it last to maximise the cache hits above.
-# It is COPYed (not relied on solely via the runtime bind mount) so the image is
-# self-contained: a bare `docker run` still has the application code, and the
-# editable install below needs the package present at build time to generate its
-# metadata. At QA runtime docker-compose.yml bind-mounts src/ over this layer for
-# live, developer-in-the-loop edits.
+# This QA image is always run via docker-compose.yml (or scripts/run-gui.sh),
+# which bind-mounts the host src/ over /app/src at runtime for live,
+# developer-in-the-loop edits. Baking a COPY of src/ into the image would be
+# redundant — that copy gets shadowed by the runtime bind mount anyway — so src/
+# is NOT copied here.
 #
-# This second pip call installs only our own package, with --no-deps because the
-# third-party dependencies were already installed in the cached layer above (so
-# this never re-resolves or re-downloads them); -e keeps the project rooted at
-# /app so data/ and the auto-seeded heroforge.db resolve relative to it.
-COPY src/ ./src/
-RUN python -m pip install --no-cache-dir --no-deps -e .
+# Instead src/ is supplied to *only* this build step via a BuildKit bind mount.
+# That is just enough for the editable install to record the project metadata
+# and an entry pointing at /app/src; the editable install never copies the
+# sources, it only writes a .pth referencing /app/src (verified: the install
+# resolves at runtime once the Compose bind mount restores /app/src). The mount
+# is read-write because setuptools' editable build writes a transient egg-info
+# into the tree; BuildKit discards those writes (the host src/ is never modified
+# and nothing is baked into the image). --no-deps is used because the
+# third-party dependencies were already installed in the cached layer above, so
+# this step never re-resolves or re-downloads them.
+RUN --mount=type=bind,source=src,target=/app/src,rw \
+    python -m pip install --no-cache-dir --no-deps -e .
 
 RUN chown -R app:app /app
 USER app
