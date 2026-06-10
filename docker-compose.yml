@@ -25,6 +25,10 @@ services:
         # workspace stays writable and the X11 socket is accessible.
         APP_UID: ${APP_UID:-1000}
         APP_GID: ${APP_GID:-1000}
+    # Tag applied to the image built from `build:` above. Without it the image
+    # would get an auto-generated name like `heroforge-anew_app`; naming it
+    # explicitly lets the engine reuse `heroforge-anew:dev` on later runs and
+    # makes it easy to find/inspect/remove (`podman images`, `docker rmi`).
     image: heroforge-anew:dev
     # PID 1 reaping so the Qt process shuts down cleanly on Ctrl-C.
     init: true
@@ -36,11 +40,46 @@ services:
       # Force the X11 (xcb) platform plugin for a real, viewable window.
       QT_QPA_PLATFORM: xcb
     volumes:
-      # Live source for developer-in-the-loop editing; also persists the
-      # auto-seeded heroforge.db on the host between runs.
-      - .:/app:rw
-      # Share the host/devcontainer X11 socket so Qt can draw to the desktop.
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # --- Code under active development (read-write for live edits) ----------
+      - type: bind
+        source: ./src
+        target: /app/src
+      - type: bind
+        source: ./tests
+        target: /app/tests
+      - type: bind
+        source: ./pyproject.toml
+        target: /app/pyproject.toml
+      # --- Seed data and reference workbooks (read-only) ---------------------
+      # These feed the first-launch database seeding; the app must not alter them.
+      - type: bind
+        source: ./data/ClassInfo.xlsx
+        target: /app/data/ClassInfo.xlsx
+        read_only: true
+      - type: bind
+        source: ./data/CreatureInfo.csv
+        target: /app/data/CreatureInfo.csv
+        read_only: true
+      - type: bind
+        source: ./data/Tables.csv
+        target: /app/data/Tables.csv
+        read_only: true
+      - type: bind
+        source: ./data/WeaponInfo.csv
+        target: /app/data/WeaponInfo.csv
+        read_only: true
+      - type: bind
+        source: ./HeroForge Anew 3.5 v7.4.0.1.xlsm
+        target: /app/HeroForge Anew 3.5 v7.4.0.1.xlsm
+        read_only: true
+      - type: bind
+        source: ./Launcher.xlsm
+        target: /app/Launcher.xlsm
+        read_only: true
+      # --- Shared X11 socket so Qt can draw to the host/devcontainer desktop --
+      - type: bind
+        source: /tmp/.X11-unix
+        target: /tmp/.X11-unix
     # Drop all Linux capabilities and forbid privilege escalation: the GUI needs
     # none of them, which keeps this QA container tightly sandboxed.
     cap_drop:

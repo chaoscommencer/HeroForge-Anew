@@ -1,0 +1,12 @@
+{
+  // Recommended (not auto-installed) extensions for HeroForge-Anew development.
+  // Moved here from .devcontainer/devcontainer.json so they can be reviewed and
+  // installed manually rather than forced into every container.
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "charliermarsh.ruff",
+    "ms-python.black-formatter",
+    "ms-python.mypy-type-checker"
+  ]
+}

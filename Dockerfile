@@ -62,15 +62,28 @@ RUN groupadd --gid "${APP_GID}" app \
 
 WORKDIR /app
 
-# --- Python dependencies & application ---------------------------------------
-# Copy only what the install needs first so the dependency layer stays cached
-# across source-only edits. An editable install keeps the project root at /app
-# so the app's data/ directory and auto-seeded heroforge.db resolve correctly.
+# --- Python dependencies ------------------------------------------------------
+# Copy pyproject.toml first and install the third-party runtime dependencies in
+# their own layer. Because this layer only depends on pyproject.toml, editing
+# application source does NOT bust the cache and re-download the large wheels
+# (PyQt6 alone is ~95 MB), which keeps rebuilds fast.
+#
+# --only-binary=:all: forces pip to install prebuilt wheels and never build a
+# downloaded sdist. pip has no npm-style post-install hooks, so the only place
+# third-party code could run during install is an sdist's build backend; this
+# flag removes that, making it the closest equivalent to `npm --ignore-scripts`.
 COPY pyproject.toml README.md ./
-COPY src/ ./src/
-COPY data/ ./data/
 RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir -e .
+    && python -m pip install --no-cache-dir --only-binary=:all: PyQt6>=6.6 openpyxl>=3.1
+
+# --- Application source -------------------------------------------------------
+# Source changes most often, so copy it last to maximise cache hits above. The
+# editable install (--no-deps: dependencies are already installed above) keeps
+# the project root at /app so data/ and the auto-seeded heroforge.db resolve.
+# At QA runtime, docker-compose.yml bind-mounts src/, data/ and the workbooks
+# over this layer for live, developer-in-the-loop editing.
+COPY src/ ./src/
+RUN python -m pip install --no-cache-dir --no-deps -e .
 
 RUN chown -R app:app /app
 USER app

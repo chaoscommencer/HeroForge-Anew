@@ -1,0 +1,32 @@
+{
+  // VS Code tasks for the QA application container. These wrap scripts/run-gui.sh
+  // (which auto-detects podman/docker compose) so the PyQt app can be spun up and
+  // shut down from the Command Palette → "Tasks: Run Task".
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "App Container: Up (build + run GUI)",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/run-gui.sh",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "detail": "Build and launch the PyQt app container; view the GUI at http://localhost:6080."
+    },
+    {
+      "label": "App Container: Down (stop + remove)",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/run-gui.sh",
+      "args": ["down"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "detail": "Stop and remove the QA application container and its network."
+    }
+  ]
+}

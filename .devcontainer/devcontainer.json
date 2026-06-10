@@ -58,13 +58,8 @@
 
   "customizations": {
     "vscode": {
-      "extensions": [
-        "ms-python.python",
-        "ms-python.vscode-pylance",
-        "charliermarsh.ruff",
-        "ms-python.black-formatter",
-        "ms-python.mypy-type-checker"
-      ],
+      // Recommended extensions live in .vscode/extensions.json so they can be
+      // reviewed and installed manually rather than forced into the container.
       "settings": {
         "python.testing.pytestEnabled": true,
         "python.testing.pytestArgs": ["tests"],
