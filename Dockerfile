@@ -57,6 +57,11 @@ RUN apt-get update \
 # bind-mounted workspace and access to the shared X11 socket sane.
 ARG APP_UID=1000
 ARG APP_GID=1000
+# The login shell is given as the absolute path /bin/bash (not /usr/bin/env
+# bash) because useradd --shell writes the value verbatim into /etc/passwd, and
+# login/exec runs it directly with no $PATH lookup — so it must be a real path.
+# (`/usr/bin/env bash` is only meaningful in a script shebang.) The absolute
+# path is both required here and the more deterministic/safer choice.
 RUN groupadd --gid "${APP_GID}" app \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --shell /bin/bash app
 
@@ -68,24 +73,33 @@ WORKDIR /app
 # application source does NOT bust the cache and re-download the large wheels
 # (PyQt6 alone is ~95 MB), which keeps rebuilds fast.
 #
-# --only-binary=:all: forces pip to install prebuilt wheels and never build a
-# downloaded sdist. pip has no npm-style post-install hooks, so the only place
-# third-party code could run during install is an sdist's build backend; this
-# flag removes that, making it the closest equivalent to `npm --ignore-scripts`.
+# Security: --only-binary=:all: forces pip to install prebuilt wheels and refuse
+# to build any downloaded sdist. pip has no npm-style pre/post-install hooks, so
+# the ONLY place third-party code can execute during install is an sdist's build
+# backend (e.g. setup.py). Refusing sdists removes that arbitrary-code-execution
+# surface, making this the closest equivalent to `npm --ignore-scripts`.
 #
-# The dependency list is read straight from pyproject.toml (via stdlib tomllib)
-# so it never has to be duplicated/kept in sync here.
+# The `$(python -c "...")` sub-shell reads project.dependencies out of
+# pyproject.toml (via the stdlib tomllib module) and prints them space-separated,
+# so the exact same dependency list drives this install — it never has to be
+# duplicated or kept in sync here.
 COPY pyproject.toml README.md ./
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir --only-binary=:all: \
         $(python -c "import tomllib; print(' '.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))")
 
 # --- Application source -------------------------------------------------------
-# Source changes most often, so copy it last to maximise cache hits above. The
-# editable install (--no-deps: dependencies are already installed above) keeps
-# the project root at /app so data/ and the auto-seeded heroforge.db resolve.
-# At QA runtime, docker-compose.yml bind-mounts src/, data/ and the workbooks
-# over this layer for live, developer-in-the-loop editing.
+# Source changes most often, so copy it last to maximise the cache hits above.
+# It is COPYed (not relied on solely via the runtime bind mount) so the image is
+# self-contained: a bare `docker run` still has the application code, and the
+# editable install below needs the package present at build time to generate its
+# metadata. At QA runtime docker-compose.yml bind-mounts src/ over this layer for
+# live, developer-in-the-loop edits.
+#
+# This second pip call installs only our own package, with --no-deps because the
+# third-party dependencies were already installed in the cached layer above (so
+# this never re-resolves or re-downloads them); -e keeps the project rooted at
+# /app so data/ and the auto-seeded heroforge.db resolve relative to it.
 COPY src/ ./src/
 RUN python -m pip install --no-cache-dir --no-deps -e .
 
