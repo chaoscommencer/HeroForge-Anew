@@ -12,8 +12,9 @@
 # one exists purely to *run* the application in an isolated, reproducible way.
 #
 # It is a multi-stage build:
-#   * the `builder` stage runs pip (and its build/cache machinery) to resolve and
-#     unpack the third-party wheels into an isolated prefix, then
+#   * the `builder` stage runs pip (and its build/cache machinery) to install the
+#     third-party wheels AND the application's own package into an isolated
+#     prefix, then
 #   * the final stage copies ONLY those installed packages onto a fresh runtime
 #     image.
 # This keeps pip's caches/metadata and the resolver out of the shipped image, so
@@ -21,18 +22,13 @@
 # Python packages — a smaller image and a smaller attack surface.
 
 # =============================================================================
-# Stage 1 — builder: resolve and install third-party dependencies into /install
+# Stage 1 — builder: install third-party deps and the app package into /install
 # =============================================================================
 FROM python:3.12-slim-bookworm AS builder
 
 WORKDIR /app
 
-# Only pyproject.toml is needed to install the third-party dependencies, so it is
-# the sole input to this stage. The application's own source is NOT required at
-# build time: the app is launched with `python -m heroforge` against PYTHONPATH
-# (set in the final stage), and the source is provided at runtime by the
-# docker-compose bind mount — so nothing here needs src/ or README.md.
-#
+# Step 1 — third-party dependencies.
 # Security: --only-binary=:all: forces pip to install prebuilt wheels and refuse
 # to build any downloaded sdist. pip has no npm-style pre/post-install hooks, so
 # the ONLY place third-party code can execute during install is an sdist's build
@@ -48,6 +44,22 @@ COPY pyproject.toml ./
 RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir --only-binary=:all: --prefix=/install \
         $(python -c "import tomllib; print(' '.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))")
+
+# Step 2 — the application's own package.
+# Install heroforge into the same /install prefix so it ships as a proper
+# installed distribution (dist-info metadata + the `heroforge` console script)
+# that is copied into the final image alongside the dependencies — not merely
+# importable via a PYTHONPATH env var. The editable (-e) install records ONLY a
+# .pth pointing at /app/src; it never copies the sources, so the actual code is
+# still supplied at runtime by the docker-compose bind mount over /app/src (a
+# bare run without that mount has no app code, by design).
+#
+# src/ is provided to just this build step via a transient BuildKit bind mount
+# (rw so setuptools can write its build artifacts, which BuildKit then discards —
+# the host src/ is untouched and no source is baked into the image). --no-deps is
+# used because the third-party dependencies were already installed in step 1.
+RUN --mount=type=bind,source=src,target=/app/src,rw \
+    python -m pip install --no-cache-dir --no-deps -e . --prefix=/install
 
 # =============================================================================
 # Stage 2 — final runtime image
@@ -106,11 +118,12 @@ ARG APP_GID=1000
 RUN groupadd --gid "${APP_GID}" app \
     && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --shell /bin/bash app
 
-# --- Third-party Python dependencies -----------------------------------------
-# Copy ONLY the dependencies that were installed into /install in the builder
-# stage onto this fresh image (merging into /usr/local, where this base image's
-# Python looks). pip itself, its caches and the resolver stay behind in the
-# builder and never ship in the runtime image.
+# --- Installed Python packages (deps + the app) ------------------------------
+# Copy ONLY what was installed into /install in the builder stage onto this fresh
+# image (merging into /usr/local, where this base image's Python looks): the
+# third-party dependencies plus the heroforge editable distribution (its .pth and
+# dist-info metadata and the `heroforge` console script). pip itself, its caches
+# and the resolver stay behind in the builder and never ship in the runtime image.
 COPY --from=builder /install /usr/local
 
 # WORKDIR creates /app owned by root; chown it to the unprivileged app user so
@@ -123,12 +136,11 @@ USER app
 
 # QT_X11_NO_MITSHM disables the MIT-SHM X extension, which does not work across
 # the container boundary; PYTHONUNBUFFERED surfaces logs immediately for QA.
-# PYTHONPATH puts the application source (provided at runtime by the
-# docker-compose bind mount over /app/src) on the import path, so
-# `python -m heroforge` resolves without the app ever being installed/baked in.
+# No PYTHONPATH is needed: the editable install copied from the builder writes a
+# .pth that puts /app/src on the import path, so `python -m heroforge` resolves
+# once the docker-compose bind mount populates /app/src at runtime.
 ENV QT_X11_NO_MITSHM=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/src \
     DISPLAY=:1
 
 # CMD (not ENTRYPOINT) is used so this QA image stays easy to poke at: a bare
