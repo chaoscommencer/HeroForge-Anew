@@ -72,9 +72,13 @@ WORKDIR /app
 # downloaded sdist. pip has no npm-style post-install hooks, so the only place
 # third-party code could run during install is an sdist's build backend; this
 # flag removes that, making it the closest equivalent to `npm --ignore-scripts`.
+#
+# The dependency list is read straight from pyproject.toml (via stdlib tomllib)
+# so it never has to be duplicated/kept in sync here.
 COPY pyproject.toml README.md ./
 RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir --only-binary=:all: PyQt6>=6.6 openpyxl>=3.1
+    && python -m pip install --no-cache-dir --only-binary=:all: \
+        $(python -c "import tomllib; print(' '.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))")
 
 # --- Application source -------------------------------------------------------
 # Source changes most often, so copy it last to maximise cache hits above. The

@@ -14,7 +14,7 @@
         "panel": "dedicated",
         "clear": true
       },
-      "detail": "Build and launch the PyQt app container; view the GUI at http://localhost:6080."
+      "detail": "Build and launch the PyQt app container. The GUI draws to the shared X11 socket (DISPLAY :1); in a Codespace that is the desktop-lite desktop, viewable at the forwarded noVNC port 6080."
     },
     {
       "label": "App Container: Down (stop + remove)",
