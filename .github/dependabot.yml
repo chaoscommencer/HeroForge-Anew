@@ -12,6 +12,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
     commit-message:
       prefix: "chore"
     labels:
@@ -24,6 +25,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
     commit-message:
       prefix: "chore"
     labels:
@@ -36,6 +38,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
     commit-message:
       prefix: "chore"
     labels:
@@ -48,6 +51,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
     commit-message:
       prefix: "chore"
     labels:
@@ -60,6 +64,7 @@ updates:
     directory: "/.devcontainer"
     schedule:
       interval: "weekly"
+      day: "monday"
     commit-message:
       prefix: "chore"
     labels:
