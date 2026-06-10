@@ -54,10 +54,13 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 # still supplied at runtime by the docker-compose bind mount over /app/src (a
 # bare run without that mount has no app code, by design).
 #
-# src/ is provided to just this build step via a transient BuildKit bind mount
-# (rw so setuptools can write its build artifacts, which BuildKit then discards —
-# the host src/ is untouched and no source is baked into the image). --no-deps is
-# used because the third-party dependencies were already installed in step 1.
+# src/ is provided to just this build step via a transient BuildKit bind mount.
+# The mount is read-write because setuptools' egg_info step writes a
+# src/heroforge.egg-info directory into the source tree during the editable build
+# (a read-only mount fails with "Cannot update time stamp of directory"). Those
+# writes land only in BuildKit's ephemeral mount, which it discards — the host
+# src/ is untouched and no source is baked into the image. --no-deps is used
+# because the third-party dependencies were already installed in step 1.
 RUN --mount=type=bind,source=src,target=/app/src,rw \
     python -m pip install --no-cache-dir --no-deps -e . --prefix=/install
 
