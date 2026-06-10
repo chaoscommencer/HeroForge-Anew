@@ -1,0 +1,49 @@
+# docker-compose definition for QA "developer-in-the-loop" testing of the
+# HeroForge-Anew PyQt6 desktop application.
+#
+# It builds the singular Dockerfile in this directory and runs the GUI against a
+# forwarded X server. Inside a Codespace/devcontainer that X server is provided
+# by the desktop-lite feature (DISPLAY :1, viewable at http://localhost:6080),
+# and the stack is launched from within the container thanks to the
+# docker-in-docker feature.
+#
+# Engine compatibility: this file is plain Compose and works with either
+#   docker compose -f docker-compose.yml up --build
+#   podman-compose -f docker-compose.yml up --build   (preferred, rootless)
+# The scripts/run-gui.sh helper auto-detects whichever engine is available and
+# wires up DISPLAY / UID / GID for you.
+
+name: heroforge-anew
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Align the in-container user with the host user so the bind-mounted
+        # workspace stays writable and the X11 socket is accessible.
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+    image: heroforge-anew:dev
+    # PID 1 reaping so the Qt process shuts down cleanly on Ctrl-C.
+    init: true
+    environment:
+      # Display forwarded from the host/devcontainer. desktop-lite uses :1.
+      DISPLAY: ${DISPLAY:-:1}
+      # MIT-SHM does not work across the container boundary.
+      QT_X11_NO_MITSHM: "1"
+      # Force the X11 (xcb) platform plugin for a real, viewable window.
+      QT_QPA_PLATFORM: xcb
+    volumes:
+      # Live source for developer-in-the-loop editing; also persists the
+      # auto-seeded heroforge.db on the host between runs.
+      - .:/app:rw
+      # Share the host/devcontainer X11 socket so Qt can draw to the desktop.
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    # Drop all Linux capabilities and forbid privilege escalation: the GUI needs
+    # none of them, which keeps this QA container tightly sandboxed.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

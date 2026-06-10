@@ -1,0 +1,38 @@
+# Keep the build context small and the image clean. Most of these are either
+# large binary artifacts, regenerable caches, or unrelated to running the app.
+
+# Version control / CI
+.git
+.gitignore
+.gitattributes
+.github
+
+# Reference workbooks (large binaries; not needed by the Python app)
+*.xlsm
+
+# Generated database (auto-seeded on first launch inside the container)
+heroforge.db
+
+# Python caches & build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Tooling / docs not required to run the app
+graphify-out/
+docs/
+tests/
+
+# Container definitions themselves
+.devcontainer/
