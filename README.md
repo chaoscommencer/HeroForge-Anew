@@ -72,6 +72,12 @@ PyQt6 GUI without installing anything locally:
 - **Develop** in a ready-to-code Codespace / Dev Container
   (`.devcontainer/`) — Python 3.12, PyQt6 system libraries, a web-accessible
   desktop, and Docker-in-Docker.
+
+  > **Note:** The dev container is currently pinned to Python 3.12
+  > (`mcr.microsoft.com/devcontainers/python:3-3.12-bookworm@sha256:…`). Consider
+  > upgrading to Python 3.14 once it is a generally available devcontainers base
+  > image and the project's dependencies (PyQt6, openpyxl, the dev tooling)
+  > publish 3.14 wheels; bump `requires-python` and the CI matrix to match.
 - **Run the GUI for QA** with a single application image via Compose
   (`Dockerfile` + `docker-compose.yml`), with the window forwarded to a viewable
   X server:

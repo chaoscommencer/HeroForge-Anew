@@ -12,7 +12,12 @@
 #   * `pytest` can import PyQt6 for real (instead of skipping the widget tests),
 #   * `xhost` is available to grant the QA container access to the X server.
 
-FROM mcr.microsoft.com/devcontainers/python:1-3.12-bookworm
+# Pinned to a specific digest for reproducible, tamper-evident builds. The
+# human-readable tag (3-3.12-bookworm) is kept alongside the digest for clarity;
+# the @sha256 is what Docker actually resolves. Available tags/digests are listed
+# at https://mcr.microsoft.com/en-us/artifact/mar/devcontainers/python/tags —
+# update both the tag and the digest together when bumping the base image.
+FROM mcr.microsoft.com/devcontainers/python:3-3.12-bookworm@sha256:4ace5266fed54e0e440d7b5142008684e305e5d456c8136f1bae5742139a95dc
 
 RUN apt-get update \
     && export DEBIAN_FRONTEND=noninteractive \
