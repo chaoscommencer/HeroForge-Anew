@@ -113,7 +113,12 @@ RUN groupadd --gid "${APP_GID}" app \
 # builder and never ship in the runtime image.
 COPY --from=builder /install /usr/local
 
+# WORKDIR creates /app owned by root; chown it to the unprivileged app user so
+# the application can write heroforge.db there on first launch. The database is
+# seeded at runtime into the project root, which is /app inside the container
+# (see src/heroforge/app.py); without this the non-root user could not create it.
 WORKDIR /app
+RUN chown app:app /app
 USER app
 
 # QT_X11_NO_MITSHM disables the MIT-SHM X extension, which does not work across
