@@ -366,7 +366,7 @@ class MainWindow(QMainWindow):
     def __init__(self, game_db_path: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle("HeroForge Anew – D&D 3.5 Character Builder")
-        self.resize(1200, 800)
+        self.resize(800, 960)
 
         # Read-only game data ("ROM"): seeded reference data shared by every
         # tab.  It is injected into the per-character model rather than owned by
