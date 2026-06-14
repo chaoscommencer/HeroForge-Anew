@@ -139,13 +139,12 @@ services:
       PYTHONPYCACHEPREFIX: /home/app/.cache/pycache
     volumes:
       # --- Code under active development (read-only: the app only imports it) -
+      # Only the runtime package and its project metadata are mounted; the test
+      # suite is a development/CI concern and is deliberately kept out of the
+      # running QA container to shrink its attack surface.
       - type: bind
         source: ./src
         target: /app/src
-        read_only: true
-      - type: bind
-        source: ./tests
-        target: /app/tests
         read_only: true
       - type: bind
         source: ./pyproject.toml
