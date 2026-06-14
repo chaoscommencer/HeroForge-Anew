@@ -27,6 +27,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Path of the git-ignored file that backs the Compose `vnc_password` secret. The
+# password is mounted into the display sidecar at /run/secrets/vnc_password from
+# here (see docker-compose.yml), rather than injected as an environment
+# variable, so it never lands in the container environment.
+SECRET_FILE="secrets/vnc_password"
+
 # --- VNC password helpers ----------------------------------------------------
 # The noVNC desktop is gated by VNC_PASSWORD. x11vnc's classic VNC auth only
 # honours the first 8 characters, so a longer secret buys nothing here; generate
@@ -83,6 +89,26 @@ ensure_vnc_password() {
     fi
 }
 
+# Materialize the file-based Compose secret from the VNC_PASSWORD recorded in
+# .env. docker-compose.yml mounts this file at /run/secrets/vnc_password in the
+# display sidecar; a file-based secret (rather than an env var) keeps the
+# password out of the container environment, and a *file* source specifically is
+# required because the display service runs with a read-only root filesystem.
+#
+# The file is written 0600 (owner-only) under the git-ignored secrets/ directory.
+# When .env carries no password the file is created empty so plain compose
+# subcommands (config/down/stop) still resolve the secret reference; the
+# entrypoint then refuses to start a passwordless desktop at run time.
+write_vnc_secret_file() {
+    local pw=""
+    if [[ -f .env ]]; then
+        pw="$(sed -n 's/^VNC_PASSWORD=//p' .env | tail -n1)"
+    fi
+    mkdir -p "$(dirname "$SECRET_FILE")"
+    ( umask 077; printf '%s' "$pw" >"$SECRET_FILE" )
+    chmod 600 "$SECRET_FILE"
+}
+
 # Align the in-container user with the current user for socket/file permissions.
 export APP_UID="$(id -u)"
 export APP_GID="$(id -g)"
@@ -118,16 +144,21 @@ else
 fi
 
 # Subcommands like "down" / "logs" are passed straight through; otherwise default
-# to bringing the stack up with a build.
+# to bringing the stack up with a build. Even these need the secret file to exist
+# so Compose can resolve the `vnc_password` secret reference while parsing the
+# file, so materialize it (from whatever .env currently holds) first.
 if [[ "${1:-}" =~ ^(down|logs|ps|stop|build|config)$ ]]; then
+    write_vnc_secret_file
     echo "Using: ${COMPOSE[*]} -f docker-compose.yml $*"
     exec "${COMPOSE[@]}" -f docker-compose.yml "$@"
 fi
 
 # Ensure .env carries a usable, strong VNC password before launching the stack
 # (generating one when missing/placeholder, or whenever --generate-password is
-# given). Compose auto-loads .env, so the display sidecar picks it up from there.
+# given), then write it into the git-ignored secret file that Compose mounts
+# into the display sidecar at /run/secrets/vnc_password.
 ensure_vnc_password "$GENERATE_PASSWORD"
+write_vnc_secret_file
 
 echo "Using: ${COMPOSE[*]}  (UID=$APP_UID, GID=$APP_GID)"
 echo "View the GUI at http://localhost:6080 (use your VNC_PASSWORD from .env)."

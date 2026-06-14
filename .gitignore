@@ -229,6 +229,11 @@ heroforge.db
 .env
 !.env.example
 
+# Runtime-materialized Compose secrets (e.g. the VNC password file that
+# scripts/run-gui.sh writes from .env and mounts at /run/secrets). These carry
+# secrets and must never be committed.
+/secrets/
+
 # Python caches
 __pycache__/
 *.pyc

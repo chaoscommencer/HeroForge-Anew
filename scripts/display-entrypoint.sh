@@ -12,8 +12,10 @@
 #
 # The companion `app` container draws into the same :99 display via the shared
 # socket volume. Human access to the desktop is gated by a REQUIRED VNC password
-# sourced from the git-ignored .env file (see .env.example); this script refuses
-# to start a passwordless desktop.
+# delivered as a Compose secret (a file mounted at /run/secrets/vnc_password) so
+# it never appears in this container's environment; for a plain `docker run`
+# without the secret it falls back to a VNC_PASSWORD environment variable. Either
+# way this script refuses to start a passwordless desktop.
 
 set -euo pipefail
 
@@ -21,6 +23,17 @@ set -euo pipefail
 : "${SCREEN_GEOMETRY:=1920x1080}"
 : "${NOVNC_PORT:=6080}"
 : "${VNC_PORT:=5900}"
+
+# Resolve the VNC password from the Compose secret file if present, otherwise
+# from the VNC_PASSWORD environment variable (plain `docker run` fallback). The
+# secret file is the preferred source because it keeps the password out of the
+# container environment.
+vnc_secret_file="${VNC_PASSWORD_FILE:-/run/secrets/vnc_password}"
+if [[ -r "${vnc_secret_file}" ]]; then
+    # Strip a single trailing newline if the secret file has one; leave any
+    # other characters (including internal whitespace) untouched.
+    VNC_PASSWORD="$(<"${vnc_secret_file}")"
+fi
 
 if [[ -z "${VNC_PASSWORD:-}" ]]; then
     echo "error: VNC_PASSWORD is not set — refusing to start a passwordless desktop." >&2

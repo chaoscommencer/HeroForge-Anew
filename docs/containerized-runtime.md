@@ -61,11 +61,18 @@ The active password is always written back to `.env` for you to read. (VNC's
 classic auth only honours the first **8 characters**, so the generated secret is
 exactly 8 alphanumeric characters.)
 
-To set it yourself instead, edit `.env` by hand:
+The script then writes that password into a git-ignored `secrets/vnc_password`
+file, which Compose mounts into the display sidecar as a **secret** at
+`/run/secrets/vnc_password` instead of injecting it as an environment variable.
+This keeps the password out of the container environment (so it does not appear
+in `docker inspect` or `/proc/<pid>/environ`).
+
+To set it yourself instead, edit `.env` by hand and materialize the secret file:
 
 ```bash
 cp .env.example .env
 # then edit .env and set a strong VNC_PASSWORD
+mkdir -p secrets && printf '%s' "$VNC_PASSWORD" > secrets/vnc_password
 ```
 
 Then open the forwarded **port 6080** (noVNC) and enter your `VNC_PASSWORD` — the
@@ -86,6 +93,7 @@ provisions a `VNC_PASSWORD` automatically when one is not already present.
 
 ```bash
 cp .env.example .env   # set a strong VNC_PASSWORD (once)
+mkdir -p secrets && printf '%s' "$VNC_PASSWORD" > secrets/vnc_password
 export APP_UID=$(id -u) APP_GID=$(id -g)
 
 # Podman (preferred)
@@ -128,7 +136,7 @@ locations are explicit mounts:
   otherwise mount root-owned and lock out the non-root user.
 
 The application source is bind-mounted **read-only** into the `app` container
-(`./src`, `./tests`, `./pyproject.toml`, and the seed data/workbooks under
+(`./src`, `./pyproject.toml`, and the seed data/workbooks under
 `./data`), so edits are picked up on the next launch but the running container
 cannot modify the repo.
 
@@ -155,9 +163,14 @@ cannot modify the repo.
   from the editor container (and its repo/credentials), unlike the previous
   desktop-lite-in-devcontainer setup.
 - noVNC is published on **loopback only** (`127.0.0.1:6080`) and gated by a
-  **required** `VNC_PASSWORD` sourced from the git-ignored `.env` file; the stack
-  refuses to start without it (and rejects the `change-me` placeholder).
-  `scripts/run-gui.sh` generates a strong password automatically — see section 2.
+  **required** VNC password. The password is set in the git-ignored `.env` file
+  but delivered to the display sidecar as a **Compose secret** (a file mounted at
+  `/run/secrets/vnc_password`, sourced from a git-ignored `secrets/vnc_password`
+  file that `scripts/run-gui.sh` materializes from `.env`) rather than an
+  environment variable, so it never appears in the container environment
+  (`docker inspect` / `/proc/<pid>/environ`). The stack refuses to start without
+  a password (and rejects the `change-me` placeholder). `scripts/run-gui.sh`
+  generates a strong password automatically — see section 2.
 - Both base images are **pinned by digest** (not just a mutable tag) in
   `Dockerfile` and `Dockerfile.display`, making builds reproducible and resistant
   to tag re-pointing / supply-chain tampering. Third-party Python wheels are

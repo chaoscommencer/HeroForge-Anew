@@ -14,9 +14,13 @@
 # or workspace bind mounts, rather than next to the editor/credentials — which
 # is why the devcontainer's desktop-lite feature is no longer used.
 #
-# Human access to the desktop is gated by a REQUIRED VNC password. Compose loads
+# Human access to the desktop is gated by a REQUIRED VNC password. Compose reads
 # it from a git-ignored .env file in the project root (copy .env.example to .env
-# and set VNC_PASSWORD); the `:?` below makes Compose refuse to start if unset.
+# and set VNC_PASSWORD) and hands it to the display sidecar as a Compose *secret*
+# — a file mounted at /run/secrets/vnc_password — rather than an environment
+# variable, so the password never appears in the container's environment (and
+# thus not in `docker inspect` or /proc/<pid>/environ). The entrypoint refuses to
+# start a passwordless desktop.
 #
 # Engine compatibility: this file is plain Compose and works with either
 #   docker compose -f docker-compose.yml up --build
@@ -44,8 +48,12 @@ services:
       DISPLAY: ":99"
       # Virtual desktop resolution (WIDTHxHEIGHT); overridable via .env.
       SCREEN_GEOMETRY: ${SCREEN_GEOMETRY:-1920x1080}
-      # REQUIRED: noVNC access password. Compose errors out if it is unset.
-      VNC_PASSWORD: ${VNC_PASSWORD:?VNC_PASSWORD must be set — copy .env.example to .env and set it}
+    # REQUIRED: noVNC access password, delivered as a file-based secret mounted
+    # at /run/secrets/vnc_password (see the top-level `secrets:` block). Keeping
+    # it out of `environment:` means it is absent from the container's env, so it
+    # cannot leak via `docker inspect` or /proc/<pid>/environ.
+    secrets:
+      - vnc_password
     ports:
       # Publish noVNC on the loopback interface only, so it is reachable solely
       # through the devcontainer's own VS Code port forwarding (not the LAN).
@@ -219,6 +227,19 @@ services:
       nofile:
         soft: 1024
         hard: 2048
+
+# REQUIRED noVNC access password, supplied to the display sidecar as a file
+# mounted at /run/secrets/vnc_password instead of an environment variable, so the
+# password stays out of the container environment (and out of `docker inspect` /
+# /proc/<pid>/environ). The source file (secrets/vnc_password, git-ignored) is
+# materialized from the VNC_PASSWORD in .env by scripts/run-gui.sh on each
+# launch; a file-based secret is required here because the display service runs
+# with a read-only root filesystem (Compose cannot inject an env-based secret
+# into a read-only service). To run the stack by hand, create the file first:
+#   mkdir -p secrets && printf '%s' "$VNC_PASSWORD" > secrets/vnc_password
+secrets:
+  vnc_password:
+    file: ./secrets/vnc_password
 
 # Named volume carrying the X11 unix socket between the two containers. It is
 # initialized from the display image's /tmp/.X11-unix (mode 1777), so both the
