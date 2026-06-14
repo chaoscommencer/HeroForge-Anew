@@ -12,7 +12,7 @@
 # Usage:
 #   scripts/run-gui.sh             # build (if needed) and run the GUI
 #   scripts/run-gui.sh --build     # force a rebuild
-#   scripts/run-gui.sh down        # tear the stack down
+#   scripts/run-gui.sh down        # tear the whole stack down (app + display)
 #
 # Any extra arguments are forwarded to the underlying compose command.
 

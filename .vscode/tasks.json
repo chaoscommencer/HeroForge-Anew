@@ -1,11 +1,12 @@
 {
-  // VS Code tasks for the QA application container. These wrap scripts/run-gui.sh
-  // (which auto-detects podman/docker compose) so the PyQt app can be spun up and
-  // shut down from the Command Palette → "Tasks: Run Task".
+  // VS Code tasks for the QA Compose stack. These wrap scripts/run-gui.sh
+  // (which auto-detects podman/docker compose) so BOTH containers — the PyQt
+  // 'app' and the 'display' (Xvfb + noVNC) sidecar — can be brought up and torn
+  // down together from the Command Palette → "Tasks: Run Task".
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "App Container: Up (build + run GUI)",
+      "label": "QA Stack: Up (app + noVNC display)",
       "type": "shell",
       "command": "${workspaceFolder}/scripts/run-gui.sh",
       "problemMatcher": [],
@@ -14,19 +15,19 @@
         "panel": "dedicated",
         "clear": true
       },
-      "detail": "Build and launch the PyQt app container. The GUI draws to the shared X11 socket (DISPLAY :1); in a Codespace that is the desktop-lite desktop, viewable at the forwarded noVNC port 6080."
+      "detail": "Build and launch both QA containers: the Qt 'app' and the 'display' (Xvfb + noVNC) sidecar. The GUI draws to the shared X11 socket and is viewable at the forwarded noVNC port 6080 (gated by VNC_PASSWORD)."
     },
     {
-      "label": "App Container: Down (stop + remove)",
+      "label": "QA Stack: Down (stop + remove both)",
       "type": "shell",
       "command": "${workspaceFolder}/scripts/run-gui.sh",
-      "args": ["down"],
+      "args": ["down", "--remove-orphans", "--volumes"],
       "problemMatcher": [],
       "presentation": {
         "reveal": "always",
         "panel": "dedicated"
       },
-      "detail": "Stop and remove the QA application container and its network."
+      "detail": "Stop and remove BOTH QA containers (app + noVNC display), their network, and the shared X11 socket volume."
     }
   ]
 }
