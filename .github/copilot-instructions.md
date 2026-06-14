@@ -51,17 +51,28 @@ src/
 
 ## Codebase Navigation with Graphify (do this first)
 
-This repository is mapped into a queryable **knowledge graph** by
+This repository can be mapped into a queryable **knowledge graph** by
 [graphify](https://github.com/safishamsi/graphify) (PyPI package `graphifyy`,
-CLI `graphify`). The tool is pre-installed and the graph is pre-built at
-`graphify-out/graph.json` by `.github/workflows/copilot-setup-steps.yml`. Code is
-extracted locally with tree-sitter — no API key or network access is needed to
-build or query the graph.
+CLI `graphify`). `graphifyy` is listed in the `dev` optional-dependencies in
+`pyproject.toml`, so `pip install -e ".[dev]"` makes the `graphify` CLI
+available. Code is extracted locally with tree-sitter — no API key or network
+access is needed to build or query the graph.
+
+**Availability differs by environment:**
+
+- In the GitHub Copilot **coding agent** environment, the graph is pre-built at
+  `graphify-out/graph.json` by `.github/workflows/copilot-setup-steps.yml`.
+- In the **local dev container** (Copilot Chat in VS Code), the graph is *not*
+  built automatically. Create it on demand if it is missing: verify the CLI is
+  present (`command -v graphify`; if absent, `pip install -e ".[dev]"`), then run
+  `graphify update .` once to generate `graphify-out/graph.json` before querying.
 
 **Query the graph before grepping or opening files.** A single `graphify query`
 returns the relevant functions, classes, files, and their relationships in a
 compact form, so you spend far fewer tokens than reading source files one by one.
 
+- Build the graph on demand if `graphify-out/graph.json` does not yet exist:
+  `graphify update .`
 - Understand structure or find where logic lives:
   `graphify query "how are saving throws calculated"`
 - Trace a relationship between two concepts:
