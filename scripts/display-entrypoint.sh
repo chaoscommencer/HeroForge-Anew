@@ -52,6 +52,24 @@ if ! xdpyinfo -display "${DISPLAY}" >/dev/null 2>&1; then
     exit 1
 fi
 
+# Stop fluxbox from popping up a blocking "I can't find an app to set the
+# wallpaper with" xmessage dialog. That dialog is fbsetbg: the default fluxbox
+# style runs it (via the style's `rootCommand`) to paint a wallpaper, and it
+# fails because no image setter (Esetroot/feh/etc.) is installed in the slim
+# image. Config overrides (init/overlay rootCommand) lose to the style's own
+# rootCommand, so instead shadow the fbsetbg BINARY: fluxbox resolves it via
+# PATH, so a wrapper earlier in PATH that just paints a solid colour with
+# fbsetroot (bundled with fluxbox) runs in its place and never shows the dialog.
+shim_dir="${HOME}/.local/bin"
+mkdir -p "${shim_dir}"
+cat >"${shim_dir}/fbsetbg" <<'EOF'
+#!/bin/sh
+# Shim: ignore wallpaper args and paint a plain solid background instead.
+exec fbsetroot -solid black
+EOF
+chmod +x "${shim_dir}/fbsetbg"
+export PATH="${shim_dir}:${PATH}"
+
 # Minimal window manager so the Qt window gets decorations and focus.
 fluxbox >/dev/null 2>&1 &
 
