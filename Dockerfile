@@ -3,9 +3,11 @@
 # Singular runtime image for the HeroForge-Anew PyQt6 desktop application.
 #
 # This image is built and launched via docker-compose.yml (or its podman
-# equivalent) for QA "developer-in-the-loop" testing. The GUI is rendered on an
-# X server forwarded from the host/devcontainer (see docker-compose.yml and the
-# desktop-lite feature in .devcontainer/devcontainer.json).
+# equivalent) for QA "developer-in-the-loop" testing. This container runs ONLY
+# the Qt application; it draws into the virtual X server hosted by the separate
+# `display` sidecar (see Dockerfile.display) over a shared /tmp/.X11-unix socket
+# volume, and that sidecar serves the viewable desktop over noVNC. No host X
+# server is involved.
 #
 # It is intentionally separate from the development container defined under
 # .devcontainer/ — that one is for editing/linting/testing the code, while this
@@ -143,12 +145,14 @@ USER app
 
 # QT_X11_NO_MITSHM disables the MIT-SHM X extension, which does not work across
 # the container boundary; PYTHONUNBUFFERED surfaces logs immediately for QA.
+# DISPLAY :99 targets the virtual X server in the `display` sidecar, reached via
+# the shared /tmp/.X11-unix socket volume defined in docker-compose.yml.
 # No PYTHONPATH is needed: the editable install copied from the builder writes a
 # .pth that puts /app/src on the import path, so `python -m heroforge` resolves
 # once the docker-compose bind mount populates /app/src at runtime.
 ENV QT_X11_NO_MITSHM=1 \
     PYTHONUNBUFFERED=1 \
-    DISPLAY=:1
+    DISPLAY=:99
 
 # CMD (not ENTRYPOINT) is used so this QA image stays easy to poke at: a bare
 # `docker run heroforge-anew:dev <cmd>` overrides it to drop into a shell or run

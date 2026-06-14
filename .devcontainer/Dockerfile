@@ -7,10 +7,10 @@
 # type-checking and running the (offscreen-capable) test suite — and is distinct
 # from the root Dockerfile, which exists to *run* the GUI for QA.
 #
-# It layers the Qt runtime libraries and a couple of X11 client utilities on top
-# of the official devcontainers Python image so that:
-#   * `pytest` can import PyQt6 for real (instead of skipping the widget tests),
-#   * `xhost` is available to grant the QA container access to the X server.
+# It layers the Qt runtime libraries on top of the official devcontainers Python
+# image so that `pytest` can import PyQt6 for real (instead of skipping the
+# widget tests). The viewable QA desktop now lives entirely in the Compose
+# `display` sidecar, so no X11 client utilities (xhost) are needed here.
 
 # Pinned to a specific digest for reproducible, tamper-evident builds. The
 # human-readable tag (3-3.12-bookworm) is kept alongside the digest for clarity;
@@ -52,7 +52,5 @@ RUN apt-get update \
         libxrender1 \
         libsm6 \
         libice6 \
-        x11-utils \
-        x11-xserver-utils \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

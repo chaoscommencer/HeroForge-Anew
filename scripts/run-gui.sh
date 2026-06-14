@@ -4,10 +4,10 @@
 # "developer-in-the-loop" testing.
 #
 # It auto-detects a container engine (podman is preferred per project policy,
-# falling back to docker), grants the local X server access, exports the
-# host UID/GID and DISPLAY, and brings up the docker-compose stack. Inside a
-# Codespace/devcontainer the GUI renders on the desktop-lite desktop, viewable
-# at http://localhost:6080 (password: vscode).
+# falling back to docker), exports the host UID/GID, and brings up the
+# docker-compose stack. The viewable desktop is hosted entirely inside the
+# `display` sidecar (Xvfb + noVNC); no host X server is involved. The GUI is
+# viewable at http://localhost:6080 (gated by the VNC password from .env).
 #
 # Usage:
 #   scripts/run-gui.sh             # build (if needed) and run the GUI
@@ -20,8 +20,6 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Display forwarded from the host/devcontainer (desktop-lite uses :1).
-export DISPLAY="${DISPLAY:-:1}"
 # Align the in-container user with the current user for socket/file permissions.
 export APP_UID="$(id -u)"
 export APP_GID="$(id -g)"
@@ -43,19 +41,24 @@ else
     exit 1
 fi
 
-# Best-effort: allow local container clients to talk to the X server. Failures
-# are non-fatal (e.g. when xhost is absent or access control is already off).
-if command -v xhost >/dev/null 2>&1; then
-    xhost +local: >/dev/null 2>&1 || true
-fi
-
 # Subcommands like "down" / "logs" are passed straight through; otherwise default
 # to bringing the stack up with a build.
 if [[ "${1:-}" =~ ^(down|logs|ps|stop|build|config)$ ]]; then
-    echo "Using: ${COMPOSE[*]} -f docker-compose.yml $*  (DISPLAY=$DISPLAY)"
+    echo "Using: ${COMPOSE[*]} -f docker-compose.yml $*"
     exec "${COMPOSE[@]}" -f docker-compose.yml "$@"
 fi
 
-echo "Using: ${COMPOSE[*]}  (DISPLAY=$DISPLAY, UID=$APP_UID, GID=$APP_GID)"
-echo "View the GUI at http://localhost:6080 (password: vscode)."
+# The display sidecar requires a VNC password to gate noVNC access. Compose
+# auto-loads it from a git-ignored .env file; fail early with guidance if it is
+# defined in neither the environment nor .env.
+if [[ -z "${VNC_PASSWORD:-}" ]] && ! { [[ -f .env ]] && grep -q '^VNC_PASSWORD=' .env; }; then
+    echo "error: VNC_PASSWORD is not set." >&2
+    echo "       Copy .env.example to .env and set a strong VNC_PASSWORD:" >&2
+    echo "         cp .env.example .env   # then edit .env" >&2
+    echo "       It gates the noVNC desktop at http://localhost:6080." >&2
+    exit 1
+fi
+
+echo "Using: ${COMPOSE[*]}  (UID=$APP_UID, GID=$APP_GID)"
+echo "View the GUI at http://localhost:6080 (use your VNC_PASSWORD from .env)."
 exec "${COMPOSE[@]}" -f docker-compose.yml up --build "$@"

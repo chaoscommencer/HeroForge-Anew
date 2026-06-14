@@ -223,6 +223,12 @@ pip-log.txt
 # because it is a binary artifact that can be regenerated at any time)
 heroforge.db
 
+# Local environment file holding the QA stack's VNC_PASSWORD (and optional
+# overrides). It carries a secret and must never be committed; the tracked
+# .env.example documents the expected keys.
+.env
+!.env.example
+
 # Python caches
 __pycache__/
 *.pyc

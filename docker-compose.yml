@@ -1,21 +1,75 @@
 # docker-compose definition for QA "developer-in-the-loop" testing of the
 # HeroForge-Anew PyQt6 desktop application.
 #
-# It builds the singular Dockerfile in this directory and runs the GUI against a
-# forwarded X server. Inside a Codespace/devcontainer that X server is provided
-# by the desktop-lite feature (DISPLAY :1, viewable at http://localhost:6080),
-# and the stack is launched from within the container thanks to the
-# docker-in-docker feature.
+# It builds two cooperating images and renders the GUI WITHOUT any host X server:
+#
+#   * display — Dockerfile.display: a virtual X server (Xvfb) plus a window
+#     manager, VNC server and the noVNC web client. It hosts the viewable
+#     desktop and is the only service that publishes a port (noVNC on 6080).
+#   * app — Dockerfile: the Qt application itself. It draws into the display
+#     sidecar's X server over a shared /tmp/.X11-unix socket volume and carries
+#     no published ports of its own.
+#
+# This keeps the viewable desktop in a container that has no application source
+# or workspace bind mounts, rather than next to the editor/credentials — which
+# is why the devcontainer's desktop-lite feature is no longer used.
+#
+# Human access to the desktop is gated by a REQUIRED VNC password. Compose loads
+# it from a git-ignored .env file in the project root (copy .env.example to .env
+# and set VNC_PASSWORD); the `:?` below makes Compose refuse to start if unset.
 #
 # Engine compatibility: this file is plain Compose and works with either
 #   docker compose -f docker-compose.yml up --build
 #   podman-compose -f docker-compose.yml up --build   (preferred, rootless)
 # The scripts/run-gui.sh helper auto-detects whichever engine is available and
-# wires up DISPLAY / UID / GID for you.
+# wires up UID/GID for you.
 
 name: heroforge-anew
 
 services:
+  # --- Viewable desktop stack (Xvfb + fluxbox + x11vnc + noVNC) ---------------
+  display:
+    build:
+      context: .
+      dockerfile: Dockerfile.display
+      args:
+        # Align the in-container user with the host user so the shared X11
+        # socket volume stays accessible to the app container's process too.
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+    image: heroforge-anew-display:dev
+    # PID 1 reaping so Xvfb/x11vnc/websockify shut down cleanly on Ctrl-C.
+    init: true
+    environment:
+      DISPLAY: ":99"
+      # Virtual desktop resolution (WIDTHxHEIGHT); overridable via .env.
+      SCREEN_GEOMETRY: ${SCREEN_GEOMETRY:-1920x1080}
+      # REQUIRED: noVNC access password. Compose errors out if it is unset.
+      VNC_PASSWORD: ${VNC_PASSWORD:?VNC_PASSWORD must be set — copy .env.example to .env and set it}
+    ports:
+      # Publish noVNC on the loopback interface only, so it is reachable solely
+      # through the devcontainer's own VS Code port forwarding (not the LAN).
+      - "127.0.0.1:6080:6080"
+    volumes:
+      # Shared X11 socket so the app container can draw to this X server.
+      - type: volume
+        source: x11-socket
+        target: /tmp/.X11-unix
+    # The app service waits on this: the desktop is "healthy" once Xvfb answers.
+    healthcheck:
+      test: ["CMD", "xdpyinfo", "-display", ":99"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    # Drop all Linux capabilities and forbid privilege escalation: the display
+    # stack needs none of them, keeping this QA container tightly sandboxed.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # --- The Qt application (draws into the display sidecar) --------------------
   app:
     build:
       context: .
@@ -32,9 +86,13 @@ services:
     image: heroforge-anew:dev
     # PID 1 reaping so the Qt process shuts down cleanly on Ctrl-C.
     init: true
+    # Start only once the virtual X server is accepting connections.
+    depends_on:
+      display:
+        condition: service_healthy
     environment:
-      # Display forwarded from the host/devcontainer. desktop-lite uses :1.
-      DISPLAY: ${DISPLAY:-:1}
+      # Target the virtual X server hosted by the display sidecar.
+      DISPLAY: ":99"
       # MIT-SHM does not work across the container boundary.
       QT_X11_NO_MITSHM: "1"
       # Force the X11 (xcb) platform plugin for a real, viewable window.
@@ -76,9 +134,9 @@ services:
         source: ./Launcher.xlsm
         target: /app/Launcher.xlsm
         read_only: true
-      # --- Shared X11 socket so Qt can draw to the host/devcontainer desktop --
-      - type: bind
-        source: /tmp/.X11-unix
+      # --- Shared X11 socket so Qt can draw to the display sidecar ------------
+      - type: volume
+        source: x11-socket
         target: /tmp/.X11-unix
     # Drop all Linux capabilities and forbid privilege escalation: the GUI needs
     # none of them, which keeps this QA container tightly sandboxed.
@@ -86,3 +144,9 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+
+# Named volume carrying the X11 unix socket between the two containers. It is
+# initialized from the display image's /tmp/.X11-unix (mode 1777), so both the
+# non-root Xvfb and the non-root Qt process can use the socket.
+volumes:
+  x11-socket:
