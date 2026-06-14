@@ -7,6 +7,7 @@ central data bus between tabs via Qt signals.
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -25,6 +26,7 @@ from heroforge.db.character_repo import (
     save_character_to_file,
 )
 from heroforge.db.data_access import GameDataRepository
+from heroforge.env_paths import dir_from_env
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
 from heroforge.logic.familiar import (
     STANDARD_FAMILIAR_BONUSES,
@@ -69,6 +71,35 @@ from heroforge.ui.tabs.spells import SpellsTab
 from heroforge.ui.tabs.stats_and_character_details import StatsAndCharacterDetailsTab
 from heroforge.ui.tabs.table_tent import TableTentTab
 from heroforge.ui.tabs.traits_and_flaws import TraitsAndFlawsTab
+
+logger = logging.getLogger(__name__)
+
+
+def _default_save_dir() -> str:
+    """Return the directory the Open/Save dialogs should default to.
+
+    Mirrors :func:`heroforge.app._data_home`: when ``HEROFORGE_DATA_DIR`` is set
+    (as it is in the containerised QA stack, pointing at the writable
+    ``/app/userdata`` volume) character files default there, so saves land on a
+    persistent, writable mount rather than the read-only container filesystem.
+    An empty string lets Qt fall back to the platform default when unset or when
+    the override is malformed / not creatable.
+    """
+    data_home = dir_from_env("HEROFORGE_DATA_DIR", None)
+    if data_home is None:
+        return ""
+    try:
+        data_home.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        logger.warning(
+            "Could not create the data directory %s from HEROFORGE_DATA_DIR; "
+            "falling back to the platform default save location.",
+            data_home,
+            exc_info=True,
+        )
+        return ""
+    return str(data_home)
+
 
 # ---------------------------------------------------------------------------
 # CharacterModel – central data bus
@@ -498,7 +529,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Open Character",
-            "",
+            _default_save_dir(),
             "HeroForge Character (*.hfc);;"
             "Legacy HeroForge Save (*.hfg);;"
             "All files (*)",
@@ -534,7 +565,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Character As",
-            "",
+            _default_save_dir(),
             "HeroForge Character (*.hfc);;All files (*)",
         )
         if path:

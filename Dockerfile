@@ -26,7 +26,10 @@
 # =============================================================================
 # Stage 1 — builder: install third-party deps and the app package into /install
 # =============================================================================
-FROM python:3.12-slim-bookworm AS builder
+# Base image pinned by digest (not just the mutable :3.12-slim-bookworm tag) so
+# the build is reproducible and resistant to tag re-pointing / supply-chain
+# tampering. Bump the digest deliberately to pick up upstream security updates.
+FROM python:3.12-slim-bookworm@sha256:76d4b7b6305788c6b4c6a19d6a22a3921bf802e9af4d5e1e5bd771208dba74bf AS builder
 
 WORKDIR /app
 
@@ -73,7 +76,8 @@ RUN --mount=type=bind,source=src,target=/app/src,rw \
 # =============================================================================
 # Stage 2 — final runtime image
 # =============================================================================
-FROM python:3.12-slim-bookworm
+# Same digest-pinned base as the builder stage (see the note above).
+FROM python:3.12-slim-bookworm@sha256:76d4b7b6305788c6b4c6a19d6a22a3921bf802e9af4d5e1e5bd771208dba74bf
 
 # --- System libraries required by PyQt6 / Qt at runtime ----------------------
 # Qt links against a number of shared X11 / OpenGL / XCB / font libraries even
@@ -136,11 +140,17 @@ RUN groupadd --gid "${APP_GID}" app \
 COPY --from=builder /install /usr/local
 
 # WORKDIR creates /app owned by root; chown it to the unprivileged app user so
-# the application can write heroforge.db there on first launch. The database is
-# seeded at runtime into the project root, which is /app inside the container
-# (see src/heroforge/app.py); without this the non-root user could not create it.
+# the application can write into it. The seeded game database and character
+# saves live under /app/userdata (HEROFORGE_DATA_DIR, see src/heroforge/app.py),
+# which docker-compose backs with the persistent `heroforge-data` named volume.
+# Creating that directory here owned by app:app matters: a named volume inherits
+# the ownership/permissions of the image directory it covers on first use, so
+# without this the volume would mount root-owned and the non-root app user could
+# not create the database file in it.
 WORKDIR /app
-RUN chown app:app /app
+RUN chown app:app /app \
+    && mkdir -p /app/userdata \
+    && chown app:app /app/userdata
 USER app
 
 # QT_X11_NO_MITSHM disables the MIT-SHM X extension, which does not work across

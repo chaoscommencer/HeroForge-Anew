@@ -2,7 +2,8 @@
 #
 # Entrypoint for the HeroForge-Anew display sidecar (see Dockerfile.display).
 #
-# It sequences the viewable desktop stack and then hands PID 1 to websockify:
+# It sequences the viewable desktop stack and then runs websockify in the
+# foreground, tearing the whole stack down on shutdown via a signal trap:
 #
 #   Xvfb (:99, shared /tmp/.X11-unix socket)
 #     -> fluxbox          (window manager)
@@ -27,12 +28,44 @@ if [[ -z "${VNC_PASSWORD:-}" ]]; then
     exit 1
 fi
 
-# Terminate the background X/WM/VNC processes when this script exits so the
-# container shuts down cleanly on Ctrl-C / `compose down`.
-cleanup() {
+if [[ "${VNC_PASSWORD}" == "change-me" ]]; then
+    echo "error: VNC_PASSWORD is still the placeholder 'change-me' — refusing to start." >&2
+    echo "       Set a strong VNC_PASSWORD in .env (or run scripts/run-gui.sh," >&2
+    echo "       which generates one automatically)." >&2
+    exit 1
+fi
+
+# Validate caller-supplied geometry before interpolating it into the Xvfb
+# command line, so a malformed value cannot inject extra arguments.
+if [[ ! "${SCREEN_GEOMETRY}" =~ ^[0-9]{3,4}x[0-9]{3,4}$ ]]; then
+    echo "error: SCREEN_GEOMETRY='${SCREEN_GEOMETRY}' is invalid (expected WIDTHxHEIGHT, e.g. 1920x1080)." >&2
+    exit 1
+fi
+
+# Terminate the background X/WM/VNC processes when this script is asked to stop
+# (Ctrl-C / `compose down` sends SIGTERM to this script via the `init` reaper).
+#
+# websockify serves each connected noVNC browser client in a multiprocessing
+# worker. If its main process receives SIGTERM while a client is attached it
+# terminates that worker with SIGTERM too, and websockify's own handler then
+# raises an (uncaught) exception inside the worker — a benign but alarming
+# traceback on shutdown. We avoid it by SIGKILLing the whole websockify process
+# tree first (SIGKILL cannot be trapped, so no handler runs and nothing is
+# printed), then stopping the remaining background jobs.
+shutdown() {
+    trap - EXIT INT TERM
+    # Silence the shell's own teardown chatter (e.g. the "Killed" job-control
+    # notice for the SIGKILLed websockify job below); real runtime errors were
+    # already emitted while the services were running.
+    exec 2>/dev/null
+    if [[ -n "${websockify_pid:-}" ]]; then
+        pkill -KILL -P "${websockify_pid}" >/dev/null 2>&1 || true
+        kill -KILL "${websockify_pid}" >/dev/null 2>&1 || true
+    fi
     pkill -P $$ >/dev/null 2>&1 || true
+    exit 0
 }
-trap cleanup EXIT INT TERM
+trap shutdown EXIT INT TERM
 
 # Virtual framebuffer X server on the shared socket. -ac disables host-based
 # access control (safe: the server only listens on the in-container unix socket,
@@ -52,25 +85,11 @@ if ! xdpyinfo -display "${DISPLAY}" >/dev/null 2>&1; then
     exit 1
 fi
 
-# Stop fluxbox from popping up a blocking "I can't find an app to set the
-# wallpaper with" xmessage dialog. That dialog is fbsetbg: the default fluxbox
-# style runs it (via the style's `rootCommand`) to paint a wallpaper, and it
-# fails because no image setter (Esetroot/feh/etc.) is installed in the slim
-# image. Config overrides (init/overlay rootCommand) lose to the style's own
-# rootCommand, so instead shadow the fbsetbg BINARY: fluxbox resolves it via
-# PATH, so a wrapper earlier in PATH that just paints a solid colour with
-# fbsetroot (bundled with fluxbox) runs in its place and never shows the dialog.
-shim_dir="${HOME}/.local/bin"
-mkdir -p "${shim_dir}"
-cat >"${shim_dir}/fbsetbg" <<'EOF'
-#!/bin/sh
-# Shim: ignore wallpaper args and paint a plain solid background instead.
-exec fbsetroot -solid black
-EOF
-chmod +x "${shim_dir}/fbsetbg"
-export PATH="${shim_dir}:${PATH}"
-
-# Minimal window manager so the Qt window gets decorations and focus.
+# Minimal window manager so the Qt window gets decorations and focus. fluxbox
+# would otherwise spawn a blocking "I can't find an app to set the wallpaper
+# with" xmessage dialog at startup (the slim image has no wallpaper setter); the
+# fbsetbg binary is replaced with a solid-colour shim at image build time (see
+# Dockerfile.display), so no dialog appears and no runtime workaround is needed.
 fluxbox >/dev/null 2>&1 &
 
 # Store the VNC password in a private file, then export the display over VNC
@@ -81,6 +100,10 @@ x11vnc -storepasswd "${VNC_PASSWORD}" "${vnc_pass_file}" >/dev/null 2>&1
 x11vnc -display "${DISPLAY}" -rfbauth "${vnc_pass_file}" \
     -localhost -rfbport "${VNC_PORT}" -forever -shared -noxdamage -quiet &
 
-# Serve the noVNC web client and bridge its WebSocket traffic to x11vnc. This is
-# the foreground process (PID 1 via `init`) and the only published port.
-exec websockify --web=/usr/share/novnc "${NOVNC_PORT}" "localhost:${VNC_PORT}"
+# Serve the noVNC web client and bridge its WebSocket traffic to x11vnc. Run it
+# in the background (rather than `exec`) so the shutdown trap above stays
+# installed and can tear the process tree down cleanly; `wait` blocks here until
+# websockify exits or a signal fires the trap.
+websockify --web=/usr/share/novnc "${NOVNC_PORT}" "localhost:${VNC_PORT}" &
+websockify_pid=$!
+wait "${websockify_pid}"
