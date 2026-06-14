@@ -14,6 +14,8 @@ import logging
 import sys
 from pathlib import Path
 
+from heroforge.logging_config import configure_logging
+
 logger = logging.getLogger(__name__)
 
 # Project root is the directory that contains src/ (…/src/heroforge/app.py).
@@ -43,7 +45,7 @@ def _ensure_database() -> None:
 
 def main() -> None:
     """Launch the HeroForge-Anew Qt application."""
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
     _ensure_database()
 
     from PyQt6.QtWidgets import QApplication

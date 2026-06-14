@@ -97,6 +97,10 @@ services:
       QT_X11_NO_MITSHM: "1"
       # Force the X11 (xcb) platform plugin for a real, viewable window.
       QT_QPA_PLATFORM: xcb
+      # Application log level (DEBUG/INFO/WARNING/ERROR). Defaults to INFO; set
+      # LOG_LEVEL=DEBUG in .env to surface the per-row detail behind seeding
+      # warnings (e.g. "skipped N source rows due to insert errors").
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       # --- Code under active development (read-write for live edits) ----------
       - type: bind

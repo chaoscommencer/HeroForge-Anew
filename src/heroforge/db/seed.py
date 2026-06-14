@@ -24,6 +24,7 @@ from pathlib import Path
 import openpyxl
 
 from heroforge.db.schema import initialize_database
+from heroforge.logging_config import configure_logging
 from heroforge.logic.familiar import STANDARD_FAMILIAR_BONUSES
 
 logger = logging.getLogger(__name__)
@@ -1972,7 +1973,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """CLI entry point."""
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    configure_logging(fmt="%(levelname)s %(message)s")
     args = _build_parser().parse_args()
     seed_all(db_path=args.db, data_dir=args.data_dir, workbook_path=args.workbook)
 
