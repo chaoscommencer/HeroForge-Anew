@@ -76,6 +76,13 @@
         "python.testing.pytestEnabled": true,
         "python.testing.pytestArgs": ["tests"],
         "[python]": {
+          // NOTE: This formatter setting doesn't work without the matching
+          // `ms-python.black-formatter` extension installed, but it is
+          // included here to be picked up by the Codespaces "Set Up Codespace"
+          // command when it copies devcontainer.json into the new Codespace.
+          // The extension is recommended in .vscode/extensions.json, but not
+          // required, so this setting won't break anything if the extension
+          // isn't installed.
           "editor.defaultFormatter": "ms-python.black-formatter",
           "editor.formatOnSave": true
         }
