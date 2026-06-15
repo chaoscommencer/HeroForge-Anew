@@ -55,25 +55,35 @@ FROM base AS builder
 WORKDIR /app
 
 # Step 1 — third-party dependencies.
-# Only pyproject.toml is needed to install the third-party dependencies. The
-# app is launched with `python -m heroforge` against PYTHONPATH in the final
-# stage, and the source is provided at runtime by the docker-compose bind mount.
+# These are installed from requirements-lock.txt, a fully-resolved, hash-pinned
+# lockfile generated from pyproject.toml's project.dependencies (the exact
+# command is recorded in the lockfile header). pyproject.toml is still copied
+# here because step 2 below installs the app itself with `-e .`, which reads it.
 #
-# Security: --only-binary=:all: forces pip to install prebuilt wheels and refuse
-# to build any downloaded sdist. pip has no npm-style pre/post-install hooks, so
-# the ONLY place third-party code can execute during install is an sdist's build
-# backend (e.g. setup.py). Refusing sdists removes that arbitrary-code-execution
-# surface, making this the closest equivalent to `npm --ignore-scripts`.
+# Security — supply-chain integrity:
+#   * --require-hashes makes pip refuse to install unless every downloaded
+#     wheel's sha256 matches a hash recorded in the lockfile. This pins the whole
+#     transitive dependency tree to exact, verified artifacts (a tampered or
+#     re-pointed PyPI file fails the build), consistent with the digest-pinned
+#     base image. --require-hashes is all-or-nothing, so the lockfile carries a
+#     hash for every requirement including the transitive ones.
+#   * --only-binary=:all: forces pip to install prebuilt wheels and refuse to
+#     build any downloaded sdist. pip has no npm-style pre/post-install hooks, so
+#     the ONLY place third-party code can execute during install is an sdist's
+#     build backend (e.g. setup.py). Refusing sdists removes that arbitrary-code-
+#     execution surface, making this the closest equivalent to `npm
+#     --ignore-scripts`.
 #
-# The `$(python -c "...")` sub-shell reads project.dependencies out of
-# pyproject.toml (via the stdlib tomllib module) and prints them space-separated,
-# so the exact same dependency list drives this install — it never has to be
-# duplicated or kept in sync here. They are installed under --prefix=/install so
-# the whole dependency tree can be copied into the final stage in one layer.
-COPY pyproject.toml ./
+# Regenerate the lockfile after changing dependencies in pyproject.toml:
+#   pip-compile --generate-hashes --no-emit-index-url \
+#       --output-file requirements-lock.txt pyproject.toml
+#
+# Installed under --prefix=/install so the whole dependency tree can be copied
+# into the final stage in one layer.
+COPY pyproject.toml requirements-lock.txt ./
 RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir --only-binary=:all: --prefix=/install \
-        $(python -c "import tomllib; print(' '.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))")
+    && python -m pip install --no-cache-dir --only-binary=:all: --require-hashes \
+        --prefix=/install -r requirements-lock.txt
 
 # Step 2 — the application's own package.
 # Install heroforge into the same /install prefix so it ships as a proper
