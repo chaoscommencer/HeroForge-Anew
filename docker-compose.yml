@@ -204,6 +204,32 @@ services:
       - type: volume
         source: heroforge-data
         target: /app/userdata
+    # Liveness probe: confirm the Qt application process is still running. The
+    # app has network_mode: none and no extra tooling, so this is a pure-Python
+    # /proc scan (Python is always present; no curl/pgrep/x11-utils needed) that
+    # works under the read-only rootfs and cap_drop: ALL. It looks for a process
+    # whose null-delimited cmdline contains the exact token "heroforge" — i.e.
+    # the `python -m heroforge` GUI — and reports healthy when found. The probe's
+    # own `python -c <script>` process does NOT match: its script is a single
+    # cmdline token, never equal to the bare "heroforge" token. A generous
+    # start_period covers first-launch openpyxl DB seeding before failures count.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import pathlib, sys, contextlib
+          for proc in pathlib.Path("/proc").glob("[0-9]*"):
+              with contextlib.suppress(OSError):
+                  args = (proc / "cmdline").read_bytes().split(b"\x00")
+                  if b"heroforge" in args:
+                      sys.exit(0)
+          sys.exit(1)
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     # Drop all Linux capabilities and forbid privilege escalation: the GUI needs
     # none of them, which keeps this QA container tightly sandboxed.
     cap_drop:
