@@ -22,6 +22,15 @@
 #     inherited healthchecks are simply turned off under Podman and left intact
 #     under Docker (which uses no systemd timers and honours the gate).
 #
+#   * podman-compose puts every service in a shared Podman *pod* by default. The
+#     two containers here communicate only through the shared X11 socket volume,
+#     and the app runs with `network_mode: none`, so the pod's shared network
+#     namespace provides nothing. The `x-podman: in_pod: false` extension below
+#     skips the pod, which also keeps `down` output to the real, named resources
+#     (containers, volumes, network) instead of additionally printing a bare,
+#     unnamed pod ID for the removed pod. Docker has no pod concept and is
+#     unaffected.
+#
 # Everything else — including `init: true`, the CPU/memory/PID limits, the
 # secret, cap_drop, read_only, tmpfs, network_mode and volumes — is inherited
 # UNCHANGED from docker-compose.yml. In particular this override deliberately
@@ -52,6 +61,14 @@
 #     controllers are delegated to the rootless user (the default runc aborts).
 #     crun simply skips the inherited CPU/memory/PID limits it cannot enforce,
 #     so those limits are left in place (enforced under Docker, no-ops here).
+
+# Create the containers WITHOUT a shared Podman pod (see the pod bullet above):
+# the app is network_mode:none and the containers share only the X11 socket
+# volume, so the pod adds an unused infra container and netns — and a bare pod
+# ID line to `down` output. This podman-compose extension is the file-level
+# equivalent of passing `--in-pod=false` on the command line.
+x-podman:
+  in_pod: false
 
 services:
   display:

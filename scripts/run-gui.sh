@@ -205,6 +205,24 @@ fi
 # persistent heroforge-data and x11-socket volumes); these are forwarded as-is.
 if [[ "${1:-}" =~ ^(down|logs|ps|stop|build|config)$ ]]; then
     write_vnc_secret_file
+    # `down` emits one line per resource it removes, straight from the compose
+    # engine. Each container appears twice (once when stopped, once when
+    # removed) and volumes/network follow — clarify that up front so the
+    # repeated names are not mistaken for an error. (With the Podman override's
+    # `in_pod: false` there is no pod line; under the default pod an extra bare
+    # pod ID would also be printed.)
+    #
+    # Scan every argument for the `down` subcommand rather than assuming it is
+    # $1: although the guard above currently matches on $1, the subcommand is
+    # not guaranteed to stay positional (e.g. a future global flag could precede
+    # it), so detect it by value.
+    for arg in "$@"; do
+        if [[ "$arg" == "down" ]]; then
+            echo "Tearing down the QA stack: each container is listed twice (stopped, then removed),"
+            echo "followed by any volumes (with --volumes) and the network."
+            break
+        fi
+    done
     echo "Using: ${COMPOSE[*]} ${COMPOSE_FILES[*]} $*"
     exec "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" "$@"
 fi
