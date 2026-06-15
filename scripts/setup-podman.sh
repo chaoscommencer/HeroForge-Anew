@@ -46,6 +46,11 @@ print_check() {
     else
         echo "podman-compose: not installed"
     fi
+    if command -v crun >/dev/null 2>&1; then
+        echo "crun:           $(crun --version 2>/dev/null | head -n1 || echo present)"
+    else
+        echo "crun:           not installed"
+    fi
     if grep -q "^${TARGET_USER}:" /etc/subuid 2>/dev/null; then
         echo "subuid/subgid:  configured for ${TARGET_USER}"
     else
@@ -61,19 +66,34 @@ fi
 # --- 1. Install Podman and the rootless prerequisites ------------------------
 # uidmap provides newuidmap/newgidmap (setuid helpers rootless Podman needs);
 # fuse-overlayfs is the nested-friendly storage driver; slirp4netns gives
-# rootless user-mode networking.
+# rootless user-mode networking; crun is the OCI runtime that degrades
+# gracefully when no cgroup controllers are delegated (see section 4) — without
+# it, runc aborts container start with "rootless needs no limits ... permission
+# denied ... /sys/fs/cgroup/...".
 if ! command -v podman >/dev/null 2>&1; then
-    echo "Installing podman, uidmap, fuse-overlayfs, slirp4netns ..."
+    echo "Installing podman, uidmap, fuse-overlayfs, slirp4netns, crun ..."
     sudo apt-get update
     sudo DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
         podman \
         uidmap \
         fuse-overlayfs \
-        slirp4netns
+        slirp4netns \
+        crun
     sudo apt-get clean
     sudo rm -rf /var/lib/apt/lists/*
 else
     echo "podman already installed — skipping apt install."
+fi
+
+# crun may be missing even when podman is already present (e.g. an older setup
+# that only installed runc). Ensure it is available, since the crun runtime
+# config in section 4 depends on it.
+if ! command -v crun >/dev/null 2>&1; then
+    echo "Installing crun (OCI runtime for cgroup-less rootless start) ..."
+    sudo apt-get update
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y crun
+    sudo apt-get clean
+    sudo rm -rf /var/lib/apt/lists/*
 fi
 
 # --- 2. Ensure subordinate UID/GID ranges for the remote user ----------------
@@ -107,7 +127,34 @@ else
     echo "Leaving existing storage config alone (or fuse-overlayfs absent)."
 fi
 
-# --- 4. Install podman-compose ----------------------------------------------
+# --- 4. Select crun as the OCI runtime ---------------------------------------
+# Nested rootless Podman in this dev container cannot create per-container cgroup
+# v2 subtrees: /sys/fs/cgroup is root-owned and not delegated to the remote user.
+# With the default `runc`, starting any container then fails with:
+#   "rootless needs no limits + no cgrouppath when no permission is granted for
+#    cgroups: mkdir /sys/fs/cgroup/<id>: permission denied".
+# crun handles this case gracefully (it starts the container and silently skips
+# the cgroup-backed CPU/memory/PID limits it cannot apply instead of aborting),
+# so point Podman's engine at it. Written to the per-user containers.conf only
+# when crun is installed and the user has no existing [engine].runtime setting,
+# so a customised config is never clobbered. Because crun tolerates them, the
+# stack's resource limits are inherited unchanged from docker-compose.yml under
+# Podman (see docker-compose.podman.yml header point 3); they are enforced under
+# Docker and simply not enforced under rootless Podman here.
+CONTAINERS_CONF="${HOME}/.config/containers/containers.conf"
+if command -v crun >/dev/null 2>&1 \
+    && ! grep -qsE '^\s*runtime\s*=' "${CONTAINERS_CONF}" 2>/dev/null; then
+    echo "Writing ${CONTAINERS_CONF} ([engine].runtime = crun) ..."
+    mkdir -p "$(dirname "${CONTAINERS_CONF}")"
+    cat >> "${CONTAINERS_CONF}" <<'EOF'
+[engine]
+runtime = "crun"
+EOF
+else
+    echo "Leaving existing OCI runtime config alone (or crun absent)."
+fi
+
+# --- 5. Install podman-compose ----------------------------------------------
 # Prefer pipx (isolated) when available, else a user-site pip install. This
 # keeps podman-compose off the system Python.
 if ! command -v podman-compose >/dev/null 2>&1; then
@@ -122,7 +169,7 @@ else
     echo "podman-compose already installed — skipping."
 fi
 
-# --- 5. Smoke test -----------------------------------------------------------
+# --- 6. Smoke test -----------------------------------------------------------
 echo
 echo "Verifying rootless Podman can run ..."
 if podman info >/dev/null 2>&1; then

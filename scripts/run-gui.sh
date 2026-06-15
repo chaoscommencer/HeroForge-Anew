@@ -149,6 +149,18 @@ else
     exit 1
 fi
 
+# Assemble the list of Compose files. docker-compose.yml is the hardened base
+# used by every engine. When the engine is Podman, layer docker-compose.podman.yml
+# on top: it disables `init: true` (bookworm's podman 4.3.1 has no catatonit
+# init binary) and the healthcheck-based dependency gate (podman-compose < 4.4
+# cannot evaluate `condition: service_healthy`), substituting a wait-for-X-socket
+# command so the app still starts only once the display is ready. Docker keeps
+# the original, stricter configuration untouched.
+COMPOSE_FILES=(-f docker-compose.yml)
+if [[ "${COMPOSE[0]}" == podman* ]]; then
+    COMPOSE_FILES+=(-f docker-compose.podman.yml)
+fi
+
 # Subcommands like "down" / "logs" are passed straight through; otherwise default
 # to bringing the stack up with a build. Even these need the secret file to exist
 # so Compose can resolve the `vnc_password` secret reference while parsing the
@@ -159,8 +171,8 @@ fi
 # persistent heroforge-data and x11-socket volumes); these are forwarded as-is.
 if [[ "${1:-}" =~ ^(down|logs|ps|stop|build|config)$ ]]; then
     write_vnc_secret_file
-    echo "Using: ${COMPOSE[*]} -f docker-compose.yml $*"
-    exec "${COMPOSE[@]}" -f docker-compose.yml "$@"
+    echo "Using: ${COMPOSE[*]} ${COMPOSE_FILES[*]} $*"
+    exec "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" "$@"
 fi
 
 # Ensure .env carries a usable, strong VNC password before launching the stack
@@ -172,4 +184,4 @@ write_vnc_secret_file
 
 echo "Using: ${COMPOSE[*]}  (UID=$APP_UID, GID=$APP_GID)"
 echo "View the GUI at http://localhost:6080 (use your VNC_PASSWORD from .env)."
-exec "${COMPOSE[@]}" -f docker-compose.yml up --build "$@"
+exec "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up --build "$@"

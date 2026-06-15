@@ -1,0 +1,107 @@
+# Podman-only Compose override for the HeroForge-Anew QA stack.
+#
+# scripts/run-gui.sh layers this file on top of docker-compose.yml (via a second
+# `-f`) ONLY when the detected engine is Podman. It exists to paper over two
+# incompatibilities in the Podman that Debian bookworm ships (4.3.1), which the
+# devcontainer's scripts/setup-podman.sh installs:
+#
+#   1. `init: true` makes Podman look for a container-init binary at
+#      /usr/libexec/podman/catatonit. bookworm packages neither bundle catatonit
+#      with podman nor offer a standalone `catatonit` package, so the launch dies
+#      with "container-init binary not found on the host". Docker ships its own
+#      init (tini) and is unaffected, so rather than dropping `init: true` from
+#      the shared file we disable it here for Podman alone.
+#
+#   2. podman-compose on podman < 4.4 cannot evaluate
+#      `depends_on: condition: service_healthy`; it prints
+#      "Ignored ... condition check due to podman ... doesn't support healthy!"
+#      and starts the app WITHOUT waiting for the display to be ready. Disabling
+#      the now-useless healthcheck silences the warning, and the app's start-up
+#      is instead gated by a small shell loop (below) that waits for the shared
+#      X11 socket to appear before launching the Qt GUI — restoring the ordering
+#      guarantee the health gate provided on Docker.
+#
+# It also adapts the stack to ROOTLESS Podman nested in the docker-in-docker dev
+# container, which Docker does not need:
+#
+#   3. Rootless Podman nested in this docker-in-docker dev container cannot
+#      enforce the CPU/memory/PID ceilings from docker-compose.yml: the cgroup v2
+#      root (/sys/fs/cgroup) is root-owned and not delegated to the unprivileged
+#      user, so no per-container cgroup can be created. The crun OCI runtime
+#      (configured by scripts/setup-podman.sh) copes by starting the container
+#      and silently skipping the unenforceable limits, whereas the default runc
+#      aborts ("rootless needs no limits ... permission denied ...
+#      /sys/fs/cgroup/..."). Because crun already tolerates them, the limits are
+#      simply inherited from docker-compose.yml and left unenforced under Podman
+#      — no per-service override is needed, and if cgroup delegation ever becomes
+#      available crun will start enforcing them automatically. Docker, with full
+#      cgroup access, enforces them as written.
+#
+#   4. `userns_mode: keep-id` maps the host user (UID 1000) to the SAME UID
+#      inside the container, i.e. the image's non-root `app` user. Without it,
+#      rootless Podman remaps `app` to a high subordinate UID, so the bind-
+#      mounted, 0600 `vnc_password` secret (owned by the host user) appears
+#      owned by someone else and the entrypoint cannot read it — the desktop
+#      then refuses to start ("VNC_PASSWORD is not set"). keep-id aligns the IDs
+#      so the secret, the shared X11 socket and the source bind mounts are all
+#      owned by `app` inside the container, WITHOUT loosening any file mode.
+#
+#   5. By default podman-compose puts every service in a shared Podman *pod*,
+#      but Podman rejects a per-container `--userns` on a pod member
+#      ("--userns and --pod cannot be set together"), which would defeat the
+#      keep-id mapping from point 4. The `x-podman: in_pod: false` extension
+#      below tells podman-compose to create the containers WITHOUT a pod, so
+#      keep-id is honoured. The two containers still share the X11 socket via
+#      the named volume and the app reaches the display by DISPLAY=:99, so no
+#      pod-level shared namespace is needed.
+#
+# Everything else (cap_drop, read_only, tmpfs, network_mode, secrets, volumes)
+# is inherited unchanged from docker-compose.yml.
+
+# Create the containers without a shared pod (see point 5) so the per-service
+# `userns_mode: keep-id` is accepted. This podman-compose extension is the
+# file-level equivalent of passing `--in-pod=false` on the command line.
+x-podman:
+  in_pod: false
+
+services:
+  display:
+    # catatonit is unavailable on bookworm's podman 4.3.1 (see header).
+    init: false
+    # Map host UID -> the in-container `app` user so the 0600 vnc_password secret
+    # (and the shared X11 socket) are readable without weakening permissions.
+    userns_mode: keep-id
+    # The health gate is ignored by podman-compose < 4.4 anyway; disabling it
+    # removes the noisy warning. App start-up ordering is handled by the app's
+    # wait-for-socket command override below instead.
+    healthcheck:
+      disable: true
+    # NOTE: the CPU/memory/PID limits from docker-compose.yml are intentionally
+    # NOT overridden here. crun tolerates them and just skips enforcement when
+    # the cgroup root is not delegated to the rootless user (see header point 3).
+
+  app:
+    init: false
+    # Map host UID -> the in-container `app` user (see the display service and
+    # the header): keeps the bind-mounted source/data and the shared X11 socket
+    # owned by `app` inside the container under rootless Podman.
+    userns_mode: keep-id
+    # podman-compose < 4.4 cannot honour `condition: service_healthy`, so reduce
+    # the dependency to plain start ordering (display launches first) and gate
+    # the real readiness in the command below.
+    depends_on:
+      - display
+    # Replace the image's default CMD (`python -m heroforge`) with a tiny wait
+    # loop: block until the display sidecar has created the shared X11 socket
+    # for :99 (/tmp/.X11-unix/X99), then exec the GUI. This substitutes for the
+    # service_healthy gate that podman-compose drops on this Podman version, so
+    # Qt never tries to connect to an X server that is not up yet. `exec` hands
+    # PID 1 to Python so signals/shutdown still propagate cleanly without `init`.
+    command:
+      - /bin/sh
+      - -c
+      - 'while [ ! -e /tmp/.X11-unix/X99 ]; do sleep 0.5; done; exec python -m heroforge'
+    # As with the display service, the cgroup-backed CPU/memory/PID limits from
+    # docker-compose.yml are inherited unchanged: crun skips them gracefully
+    # under rootless Podman (see header point 3) and Docker enforces them.
+
