@@ -24,7 +24,10 @@ Reopen in Container**). The container defined in
   devcontainers Python 3.12 image plus the Qt/X11 system libraries PyQt6 needs;
 - adds the **docker-in-docker** feature, so the QA Compose stack can be built and
   run from inside the Codespace;
-- runs `pip install -e ".[dev]"` on creation and runs as the non-root `vscode`
+- on creation runs the hash-pinned dependency install (`requirements-pip.txt` →
+  `requirements-dev.txt` → the editable project, matching CI) and then
+  `scripts/setup-podman.sh` (which provisions rootless Podman + podman-compose;
+  it is optional, so a failure only warns), and runs as the non-root `vscode`
   user.
 
 The editor container does **not** run a desktop of its own; the QA stack's
@@ -257,43 +260,96 @@ stack rather than engineered around:
   security updates) and cannot be committed to the repo. Confirm they are enabled
   there; the in-repo `dependabot.yml` does not and cannot turn them on.
 
-### Optional host-level hardening: `userns-remap`
+### Optional hardening: `userns-remap`
 
-For extra defense in depth on a **shared host**, enable the Docker daemon's
-**user-namespace remapping**. With it on, the container's UID/GID (here UID 1000,
-the non-root `app` user) is mapped to an **unprivileged subordinate UID** on the
-host, so even a process that somehow broke out of the container would not map to
-a privileged host user. It complements the per-container `cap_drop: ALL`,
+For extra defense in depth, enable the Docker daemon's **user-namespace
+remapping**. With it on, the container's UID/GID (here UID 1000, the non-root
+`app` user) is mapped to an **unprivileged subordinate UID** on the daemon side,
+so even a process that somehow broke out of a container would not map to a
+privileged user. It complements the per-container `cap_drop: ALL`,
 `no-new-privileges` and read-only-rootfs settings already in
 `docker-compose.yml`.
 
-This is a **host daemon-level** setting and **cannot be enforced from this
-repository** — it is not a per-Compose option. A host administrator enables it in
-`/etc/docker/daemon.json`:
+This is a **daemon-level** setting, not a per-Compose option, so which daemon you
+apply it to matters:
 
-```json
-{
-  "userns-remap": "default"
-}
-```
+- **The inner docker-in-docker daemon (enforceable from here).** The QA stack
+  runs against the *inner* `dockerd` that the docker-in-docker feature starts
+  inside this dev container — a daemon you fully own. Enable remapping on it with
+  the helper script:
 
-then restarts the daemon (`sudo systemctl restart docker`). `"default"` makes
-Docker create and use a `dockremap` user/subordinate-ID range automatically.
+  ```bash
+  scripts/enable-userns-remap.sh           # enable, then restart the inner daemon
+  scripts/enable-userns-remap.sh --status  # check current state, change nothing
+  ```
+
+  It idempotently merges `"userns-remap": "default"` into
+  `/etc/docker/daemon.json` and restarts the daemon; `"default"` makes Docker
+  create and use a `dockremap` subordinate-ID range automatically. Re-running it
+  is a no-op once remapping is on. A fresh `scripts/run-gui.sh` then launches the
+  `app`/`display` containers remapped.
+
+- **The real host daemon (cannot be enforced from this repository).** In
+  Codespaces you do not control the outer host daemon, and the dev container is
+  itself a privileged docker-in-docker host on that machine — so remapping the
+  *inner* containers does **not** harden the outer DinD boundary against the real
+  host. The full host-protection benefit of `userns-remap` is realised only when
+  a host administrator sets it on the **real** host's `/etc/docker/daemon.json`
+  (same key) and restarts that daemon. That is a host-administration step,
+  documented here for completeness.
 
 **Caveats:**
 
 - **Volume ownership is remapped.** Files in named volumes (e.g.
-  `heroforge-data`) and on bind mounts are owned by the *remapped* host UID, not
-  the literal UID 1000. The images already create `/app/userdata` owned by the
+  `heroforge-data`) and on bind mounts are owned by the *remapped* UID, not the
+  literal UID 1000. The images already create `/app/userdata` owned by the
   in-container `app` user, so the volume inherits the correct mapped ownership on
-  first use; pre-existing host paths bind-mounted in may need `chown` to the
-  subordinate range.
-- **It is global to the daemon.** Every container on that daemon runs remapped,
-  which can interfere with other workloads that expect literal host UIDs — hence
-  it is a deliberate host-administration choice, documented here rather than
-  baked into the stack.
+  first use; pre-existing paths bind-mounted in may need `chown` to the
+  subordinate range. Containers/volumes created **before** enabling remapping
+  keep their old ownership — start a fresh QA run after enabling it.
+- **It is global to the daemon.** Every container on that daemon runs remapped
+  (the QA stack, the graphify builder, image builds), which can interfere with
+  workloads that expect literal UIDs — hence it is opt-in via the script rather
+  than baked into the stack.
 - **Rootless Podman achieves a similar end** without daemon configuration, since
-  it already runs containers under the invoking user's subordinate-ID range;
-  `scripts/run-gui.sh` prefers Podman when present.
+  it already runs containers under the invoking user's subordinate-ID range; see
+  *Running the QA stack with Podman* below.
+
+### Running the QA stack with Podman
+
+`scripts/run-gui.sh` prefers **Podman** over Docker when it is present
+(`podman-compose` → `podman compose` → `docker compose` → `docker-compose`), so
+running the QA stack rootless needs no flags once Podman is installed. The dev
+container provisions it automatically: the `postCreateCommand` in
+[`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json) runs
+[`scripts/setup-podman.sh`](../scripts/setup-podman.sh) after the dependency
+install (non-fatally — a failure only warns, since Docker remains available).
+
+You can also run it (or re-run it — it is idempotent) by hand:
+
+```bash
+scripts/setup-podman.sh          # install + configure rootless Podman
+scripts/setup-podman.sh --check  # report state, change nothing
+```
+
+Rootless Podman *nested* inside the docker-in-docker dev container needs a few
+prerequisites that the script installs and configures:
+
+- **`uidmap`** — the `newuidmap`/`newgidmap` setuid helpers Podman uses to map
+  container UIDs onto the user's delegated range.
+- **Subordinate UID/GID ranges** for the remote user in `/etc/subuid` and
+  `/etc/subgid` (the base image usually seeds these for `vscode`; the script
+  adds them if missing).
+- **`fuse-overlayfs`** — a nested container typically cannot use the kernel
+  `overlay` storage driver, so the script points Podman at fuse-overlayfs via
+  `~/.config/containers/storage.conf`. Without `/dev/fuse` Podman falls back to
+  the slow `vfs` driver.
+- **`slirp4netns`** — rootless user-mode networking.
+- **`podman-compose`** — installed via `pipx` when available, else `pip --user`.
+
+**Caveat:** this is rootless Podman nested inside a *privileged* docker-in-docker
+dev container — workable for QA, but expect occasional storage/cgroup friction.
+On a real host (no DinD layer) rootless Podman is cleaner, since there is no
+nesting and it already maps to the invoking user's subordinate-ID range.
 
 
