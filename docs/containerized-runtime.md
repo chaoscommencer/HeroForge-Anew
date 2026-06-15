@@ -257,3 +257,43 @@ stack rather than engineered around:
   security updates) and cannot be committed to the repo. Confirm they are enabled
   there; the in-repo `dependabot.yml` does not and cannot turn them on.
 
+### Optional host-level hardening: `userns-remap`
+
+For extra defense in depth on a **shared host**, enable the Docker daemon's
+**user-namespace remapping**. With it on, the container's UID/GID (here UID 1000,
+the non-root `app` user) is mapped to an **unprivileged subordinate UID** on the
+host, so even a process that somehow broke out of the container would not map to
+a privileged host user. It complements the per-container `cap_drop: ALL`,
+`no-new-privileges` and read-only-rootfs settings already in
+`docker-compose.yml`.
+
+This is a **host daemon-level** setting and **cannot be enforced from this
+repository** — it is not a per-Compose option. A host administrator enables it in
+`/etc/docker/daemon.json`:
+
+```json
+{
+  "userns-remap": "default"
+}
+```
+
+then restarts the daemon (`sudo systemctl restart docker`). `"default"` makes
+Docker create and use a `dockremap` user/subordinate-ID range automatically.
+
+**Caveats:**
+
+- **Volume ownership is remapped.** Files in named volumes (e.g.
+  `heroforge-data`) and on bind mounts are owned by the *remapped* host UID, not
+  the literal UID 1000. The images already create `/app/userdata` owned by the
+  in-container `app` user, so the volume inherits the correct mapped ownership on
+  first use; pre-existing host paths bind-mounted in may need `chown` to the
+  subordinate range.
+- **It is global to the daemon.** Every container on that daemon runs remapped,
+  which can interfere with other workloads that expect literal host UIDs — hence
+  it is a deliberate host-administration choice, documented here rather than
+  baked into the stack.
+- **Rootless Podman achieves a similar end** without daemon configuration, since
+  it already runs containers under the invoking user's subordinate-ID range;
+  `scripts/run-gui.sh` prefers Podman when present.
+
+
