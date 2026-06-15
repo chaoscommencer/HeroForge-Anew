@@ -18,8 +18,10 @@
 
   "features": {
     // Docker-in-Docker so the QA docker-compose stack can be built and run from
-    // within the Codespace. Compose is included; podman-compose can be layered
-    // on top if the rootless workflow is preferred.
+    // within the Codespace. Compose is included. A rootless Podman alternative
+    // (podman + podman-compose) is provisioned by the postCreateCommand below
+    // via scripts/setup-podman.sh; scripts/run-gui.sh prefers Podman when it is
+    // present.
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
       "version": "latest",
       "dockerDashComposeVersion": "v2"
@@ -47,8 +49,21 @@
     }
   },
 
-  // Install the project (with dev tools) into the container after creation.
-  "postCreateCommand": "pip install -e \".[dev]\"",
+  // Install the project after creation, then provision rootless Podman.
+  //
+  // The pip installs are hash-pinned throughout to match CI
+  // (.github/workflows/ci.yml and copilot-setup-steps.yml): a verified pip from
+  // requirements-pip.txt, the dev environment from requirements-dev.txt, then
+  // the project itself (--no-deps -e ., the only un-hashable piece since it is a
+  // local editable checkout). --user installs into ~/.local; --only-binary=:all:
+  // refuses sdists so no build backend runs arbitrary code at install time.
+  //
+  // scripts/setup-podman.sh (rootless Podman + podman-compose; idempotent) is
+  // OPTIONAL, so it is wrapped to be non-fatal: a failure prints a warning and
+  // container creation still succeeds. Optional host-style hardening
+  // (userns-remap on the inner Docker daemon) is a separate, manual opt-in: run
+  // scripts/enable-userns-remap.sh.
+  "postCreateCommand": "python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-pip.txt && python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-dev.txt && python -m pip install --no-cache-dir --user --only-binary=:all: --no-deps -e . && { scripts/setup-podman.sh || echo 'warning: scripts/setup-podman.sh failed (optional); QA stack can still run via docker compose. Continuing.'; }",
 
   // Run as the unprivileged user shipped with the base image.
   "remoteUser": "vscode",
