@@ -58,6 +58,16 @@ RUN printf '%s\n' \
         > /usr/bin/fbsetbg \
     && chmod 0755 /usr/bin/fbsetbg
 
+# The Debian novnc package ships no index.html in its web root, so hitting the
+# bare http://localhost:6080/ yields a bare directory listing instead of the
+# client. Drop a tiny redirect stub so the root URL forwards straight to the
+# noVNC client with autoconnect, and visitors never see the listing.
+RUN printf '%s\n' \
+        '<!doctype html>' \
+        '<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true">' \
+        > /usr/share/novnc/index.html \
+    && chmod 0644 /usr/share/novnc/index.html
+
 # --- Unprivileged user -------------------------------------------------------
 # UID/GID are build args so they can be aligned with the host/devcontainer and
 # the `app` container, keeping ownership of the shared X11 socket consistent.
