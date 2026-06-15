@@ -43,28 +43,11 @@ docker compose down
 | 5a | `1a289a0` | Generate a hash-pinned lockfile (`requirements-lock.txt`) from the `pyproject.toml` runtime deps via `pip-compile --generate-hashes`, and install it in the `Dockerfile.heroforge-app` builder stage with `--require-hashes` (retaining `--only-binary=:all:`). pip now refuses any wheel whose sha256 is not in the lockfile. NO SBOM (overkill for this single-tenant QA stack); Dependabot already covers pip/docker/actions/devcontainers. |
 | 5b | `b198a99` | Add an `audit` job to `.github/workflows/ci.yml` running `pip-audit` against `requirements-lock.txt` (CVEs in the exact shipped versions), independent of the lint/format/test job. A Trivy image scan (OS-level CVEs) remains an optional future addition. |
 | 5b+ | `a141e23` | Harden the `audit` job: install a hash-checked pip from `requirements-pip.txt`, then `pip-audit` from a new hash-pinned `requirements-pip-audit.txt` (generated from `requirements-pip-audit.in`), joined with `&&`; the scan now loops over every `requirements*.txt` (runtime lockfile + CI tooling pins), so the auditing tool chain is audited too. |
+| 6 | `2bce4fd` | Document the seccomp/AppArmor posture in `docs/containerized-runtime.md`: the stack relies on the engine's **default** seccomp + `docker-default` AppArmor profiles (plus `cap_drop: ALL` and `no-new-privileges`); a custom profile is out of scope (high-maintenance, host-loaded, not portable in a devcontainer). Docs-only. |
 
 ---
 
 ## Remaining steps
-
-### Step 6 — Document seccomp/AppArmor posture (docs-only)
-
-**Decision: document only**, do not author a custom profile.
-
-A custom seccomp profile would mean authoring a JSON syscall allowlist (traced
-via `strace`/`oci-seccomp-bpf-hook`), attached via
-`security_opt: [seccomp:./security/seccomp.json]` — brittle and prone to breaking
-on Qt updates. AppArmor profiles are loaded into the **host** kernel and
-referenced by name, so they are not portable inside a devcontainer.
-
-- Document reliance on Docker's **default** seccomp profile (already active) plus
-  `cap_drop: ALL` and `no-new-privileges`. Note that a custom profile is possible
-  but out of scope as high-maintenance for single-tenant QA.
-
-**Commit:** `docs(security): document seccomp/AppArmor posture`
-
----
 
 ### Step 7 — Add a healthcheck to the `app` service
 
@@ -124,5 +107,5 @@ not linger in the repository.
 
 ## Status
 
-- Steps 1–5 complete and committed (see table above).
-- **Next: Step 6** (document seccomp/AppArmor posture, docs-only) — awaiting go-ahead.
+- Steps 1–6 complete and committed (see table above).
+- **Next: Step 7** (add a healthcheck to the `app` service) — awaiting go-ahead.
