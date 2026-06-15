@@ -80,8 +80,17 @@ WORKDIR /app
 #
 # Installed under --prefix=/install so the whole dependency tree can be copied
 # into the final stage in one layer.
-COPY pyproject.toml requirements-lock.txt ./
-RUN python -m pip install --no-cache-dir --upgrade pip \
+#
+# The pip bootstrap itself is hash-pinned too: instead of `pip install --upgrade
+# pip` (which fetches whatever pip is newest, unverified), it installs the exact
+# pip recorded in requirements-pip.txt with --require-hashes. --user places that
+# pinned pip in the build user's site (here root's, /root/.local), where
+# `python -m pip` prefers it for the subsequent deps install; it is never copied
+# into the final image (only /install is), which is fine since the runtime image
+# never runs pip. --only-binary=:all: refuses sdists (no build backend executes).
+# This mirrors the bootstrap in Dockerfile.graphify.
+COPY pyproject.toml requirements-pip.txt requirements-lock.txt ./
+RUN python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-pip.txt \
     && python -m pip install --no-cache-dir --only-binary=:all: --require-hashes \
         --prefix=/install -r requirements-lock.txt
 

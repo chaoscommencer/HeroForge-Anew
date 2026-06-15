@@ -24,9 +24,17 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
+        # Hash-pinned throughout: a verified pip from requirements-pip.txt, the
+        # dev environment from requirements-dev.txt, then the project itself
+        # (--no-deps -e ., the only un-hashable piece since it is an editable
+        # local checkout). --user installs into the runner's user site (~/.local).
+        # --only-binary=:all: refuses sdists so no package's build backend can
+        # execute arbitrary code at install time (the editable -e . build is a
+        # local checkout, not a downloaded sdist, so it is unaffected).
         run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-pip.txt
+          python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-dev.txt
+          python -m pip install --no-cache-dir --user --only-binary=:all: --no-deps -e .
 
       - name: Lint with Ruff
         run: ruff check src/
@@ -65,8 +73,8 @@ jobs:
       #       --output-file requirements-pip-audit.txt requirements-pip-audit.in
       - name: Install pinned pip and pip-audit
         run: |
-          python -m pip install --require-hashes -r requirements-pip.txt \
-            && python -m pip install --require-hashes -r requirements-pip-audit.txt
+          python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-pip.txt \
+            && python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-pip-audit.txt
 
       - name: Audit all pinned requirements for known CVEs
         run: |

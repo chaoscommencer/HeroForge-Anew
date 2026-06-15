@@ -32,8 +32,14 @@ cd HeroForge-Anew
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 
-# Install the package with development dependencies
-pip install -e ".[dev]"
+# Install the development dependencies (hash-pinned), then the package itself.
+# requirements-dev.txt is a fully-resolved, hash-verified lockfile of the [dev]
+# extra; the editable project install is separate because a local checkout
+# carries no hash and pip's --require-hashes is all-or-nothing.
+# --only-binary=:all: refuses sdists so no package's build backend runs at
+# install time (the editable -e . is a local build, so it is unaffected).
+pip install --only-binary=:all: --require-hashes -r requirements-dev.txt
+pip install --only-binary=:all: --no-deps -e .
 ```
 
 ### Run the Application
@@ -103,7 +109,7 @@ and cheaper on tokens. Code is extracted locally with tree-sitter, so no API key
 is required.
 
 ```bash
-pip install graphifyy
+pip install --only-binary=:all: --require-hashes -r requirements-graphifyy.txt
 
 # Build / refresh the graph at graphify-out/ (no LLM needed)
 graphify update .
