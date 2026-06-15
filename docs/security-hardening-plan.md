@@ -39,39 +39,11 @@ docker compose down
 | 1 | `cd0eaa7` | Mount `/tmp` and `/home/app` tmpfs `noexec,nosuid,nodev` on both services (converted `/home/app` to short-form `tmpfs:` with `mode=1707`). |
 | 2 | `1d48f17` | Drop the `./tests` bind mount from the runtime `app` service. |
 | 3 | `49e245b` | Deliver the VNC password as a Compose **file-based** secret (`/run/secrets/vnc_password`) instead of a `VNC_PASSWORD` env var. `scripts/run-gui.sh` materializes `secrets/vnc_password` (0600, git-ignored) from `.env`. |
+| 4 | `50ac168` | Replace `Xvfb -ac` with `xauth` MIT-MAGIC-COOKIE-1 auth. The display entrypoint generates a cookie into the shared `x11-socket` volume (`/tmp/.X11-unix/.Xauthority`, 0600) and re-registers it as a FamilyWild (`ffff`) entry so the single cookie authenticates from either container's hostname over the shared socket. `XAUTHORITY` set on both services; `xauth` added to the display image. |
 
 ---
 
 ## Remaining steps
-
-### Step 4 — Authenticate X11 with a magic cookie instead of `-ac`
-
-**Decision: Option A (xauth magic cookie).**
-
-Replace the `Xvfb ... -ac` flag (which disables all host-based X access control)
-with `xauth` magic-cookie authentication, so only processes holding the cookie
-can connect to the `:99` display.
-
-- `scripts/display-entrypoint.sh`: generate a cookie (`mcookie` →
-  `xauth -f "$XAUTHORITY" add :99 . <cookie>`) **before** x11vnc and the app
-  connect; drop `-ac` from the `Xvfb` line.
-- The cookie file must live on a path **both containers** can read. `/home/app`
-  is a *per-container* tmpfs (NOT shared), so it cannot be used. Use the shared
-  `x11-socket` volume directory (or a new small shared volume) for the cookie.
-- Both containers run as UID 1000 (same `useradd` in both Dockerfiles), so a
-  0600 cookie owned by `app` is readable from both.
-- Set `XAUTHORITY` in both services' `environment:` pointing at the shared cookie
-  file.
-- **Gotcha:** the cookie must exist before any client connects; sequence the
-  entrypoint so generation happens before x11vnc starts, and the app's
-  `depends_on: service_healthy` already gates it behind the display.
-
-**Verify:** app window still renders over noVNC; `xauth list` shows the cookie;
-connecting without it is refused. Both services exit 0.
-
-**Commit:** `feat(security): authenticate X11 with a magic cookie instead of -ac`
-
----
 
 ### Step 5 — Supply-chain integrity (lockfile + CI scan)
 
@@ -174,4 +146,4 @@ not linger in the repository.
 ## Status
 
 - Steps 1–3 complete and committed (see table above).
-- **Next: Step 4** (X11 magic-cookie auth) — awaiting go-ahead.
+- **Next: Step 5** (supply-chain integrity: lockfile + CI scan) — awaiting go-ahead.
