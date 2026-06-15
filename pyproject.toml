@@ -8,7 +8,7 @@ version = "8.0.0"
 description = "HeroForge Anew – D&D 3.5 character builder (Python/PyQt6 edition)"
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "MIT" }
+license = { text = "GPL-3.0-or-later" }
 dependencies = [
     "PyQt6>=6.6",
     "openpyxl>=3.1",
