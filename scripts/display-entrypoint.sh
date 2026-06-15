@@ -80,11 +80,40 @@ shutdown() {
 }
 trap shutdown EXIT INT TERM
 
-# Virtual framebuffer X server on the shared socket. -ac disables host-based
-# access control (safe: the server only listens on the in-container unix socket,
-# -nolisten tcp keeps it off the network, and noVNC access is password-gated),
-# which lets the differently-owned `app` process connect without an X cookie.
-Xvfb "${DISPLAY}" -screen 0 "${SCREEN_GEOMETRY}x24" -ac -nolisten tcp &
+# X11 access control via an MIT-MAGIC-COOKIE-1, replacing the old `-ac` flag
+# (which disabled host-based access control entirely, letting ANY client on the
+# socket connect). Only clients presenting this cookie may now talk to :99.
+#
+# The cookie file lives on the shared x11-socket volume (/tmp/.X11-unix) so the
+# separately-built `app` container can read it too; both services set XAUTHORITY
+# to this path (see docker-compose.yml). It is created 0600 and owned by the app
+# user (UID 1000 in both images), so only that user can read the secret.
+#
+# FamilyWild ("ffff") registration is the key cross-container detail: a plain
+# `xauth add :99` keys the entry to THIS container's hostname, which would NOT
+# match the app container's libXau lookup (it has a different hostname). Rewrite
+# the entry's address family to FamilyWild so the one cookie authenticates from
+# either container over the shared socket.
+#
+# The nlist and nmerge steps are serialized through a shell variable rather than
+# a single `nlist | sed | nmerge` pipeline: a pipeline runs both xauth processes
+# concurrently against the SAME authority file, and the second to grab the file
+# lock blocks the first, which then fails with "timeout in locking authority
+# file". Capturing nlist's output first lets each xauth invocation take and
+# release the lock in turn.
+export XAUTHORITY="/tmp/.X11-unix/.Xauthority"
+: > "${XAUTHORITY}"
+chmod 600 "${XAUTHORITY}"
+# mcookie (util-linux) is preferred; fall back to /dev/urandom so cookie
+# generation never depends on a single optional binary.
+cookie="$(mcookie 2>/dev/null || head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+xauth -f "${XAUTHORITY}" add "${DISPLAY}" . "${cookie}" >/dev/null 2>&1
+wild_entry="$(xauth -f "${XAUTHORITY}" nlist "${DISPLAY}" | sed -e 's/^..../ffff/')"
+printf '%s\n' "${wild_entry}" | xauth -f "${XAUTHORITY}" nmerge - >/dev/null 2>&1
+
+# Virtual framebuffer X server on the shared socket, authenticated by the cookie
+# above (-auth) and kept off the network (-nolisten tcp).
+Xvfb "${DISPLAY}" -screen 0 "${SCREEN_GEOMETRY}x24" -auth "${XAUTHORITY}" -nolisten tcp &
 
 # Wait for the X server to accept connections before starting clients.
 for _ in $(seq 1 50); do

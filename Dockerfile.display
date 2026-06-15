@@ -26,6 +26,8 @@ FROM debian:bookworm-slim@sha256:96e378d7e6531ac9a15ad505478fcc2e69f371b10f5cdf8
 # novnc      : the browser-based VNC client (HTML/JS served as static files)
 # websockify : bridges noVNC's WebSocket traffic to x11vnc's TCP socket
 # x11-utils  : provides xdpyinfo, used to probe X-server readiness / healthcheck
+# xauth      : creates the X11 magic-cookie auth file (MIT-MAGIC-COOKIE-1) that
+#              replaces Xvfb's old -ac "allow any client" mode
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         xvfb \
@@ -34,6 +36,7 @@ RUN apt-get update \
         novnc \
         websockify \
         x11-utils \
+        xauth \
         procps \
         ca-certificates \
     && apt-get clean \

@@ -48,6 +48,12 @@ services:
       DISPLAY: ":99"
       # Virtual desktop resolution (WIDTHxHEIGHT); overridable via .env.
       SCREEN_GEOMETRY: ${SCREEN_GEOMETRY:-1920x1080}
+      # X11 magic-cookie auth file on the shared x11-socket volume. The
+      # entrypoint generates the cookie here and Xvfb authenticates against it
+      # (replacing the old -ac "allow any client" mode); the app container reads
+      # the same file to connect. Setting it here also lets the xdpyinfo
+      # healthcheck below present the cookie.
+      XAUTHORITY: /tmp/.X11-unix/.Xauthority
     # REQUIRED: noVNC access password, delivered as a file-based secret mounted
     # at /run/secrets/vnc_password (see the top-level `secrets:` block). Keeping
     # it out of `environment:` means it is absent from the container's env, so it
@@ -128,6 +134,10 @@ services:
     environment:
       # Target the virtual X server hosted by the display sidecar.
       DISPLAY: ":99"
+      # X11 magic-cookie auth file on the shared x11-socket volume, written by
+      # the display sidecar's entrypoint. The Qt client reads it (via libXau) to
+      # authenticate to :99 now that host-based access control (-ac) is gone.
+      XAUTHORITY: /tmp/.X11-unix/.Xauthority
       # MIT-SHM does not work across the container boundary.
       QT_X11_NO_MITSHM: "1"
       # Force the X11 (xcb) platform plugin for a real, viewable window.
