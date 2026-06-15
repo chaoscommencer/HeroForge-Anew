@@ -86,7 +86,8 @@ trap shutdown EXIT INT TERM
 #
 # The cookie file lives on the shared x11-socket volume (/tmp/.X11-unix) so the
 # separately-built `app` container can read it too; both services set XAUTHORITY
-# to this path (see docker-compose.yml). It is created 0600 and owned by the app
+# to this path (see docker-compose.yml). It is created 0600 while the cookie is
+# written, then tightened to 0400 (read-only) once final, and is owned by the app
 # user (UID 1000 in both images), so only that user can read the secret.
 #
 # FamilyWild ("ffff") registration is the key cross-container detail: a plain
@@ -103,6 +104,10 @@ trap shutdown EXIT INT TERM
 # release the lock in turn.
 export XAUTHORITY="/tmp/.X11-unix/.Xauthority"
 : > "${XAUTHORITY}"
+# 0600 while the cookie is being written: xauth `add` and `nmerge` below both
+# REWRITE the authority file in place, so the owner needs write permission here
+# (0400 would make those xauth invocations fail). The file is tightened to 0400
+# once all writes are done — see below.
 chmod 600 "${XAUTHORITY}"
 # mcookie (util-linux) is preferred; fall back to /dev/urandom so cookie
 # generation never depends on a single optional binary.
@@ -110,6 +115,10 @@ cookie="$(mcookie 2>/dev/null || head -c 16 /dev/urandom | od -An -tx1 | tr -d '
 xauth -f "${XAUTHORITY}" add "${DISPLAY}" . "${cookie}" >/dev/null 2>&1
 wild_entry="$(xauth -f "${XAUTHORITY}" nlist "${DISPLAY}" | sed -e 's/^..../ffff/')"
 printf '%s\n' "${wild_entry}" | xauth -f "${XAUTHORITY}" nmerge - >/dev/null 2>&1
+# The cookie is now final and nothing rewrites it again: Xvfb only *reads* it via
+# -auth and the app container only reads it too. Drop write permission (0400) so
+# a later compromised process running as this user cannot tamper with the cookie.
+chmod 400 "${XAUTHORITY}"
 
 # Virtual framebuffer X server on the shared socket, authenticated by the cookie
 # above (-auth) and kept off the network (-nolisten tcp).
