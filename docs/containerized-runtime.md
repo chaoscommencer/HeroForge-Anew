@@ -5,7 +5,7 @@ HeroForge-Anew ships two complementary, **isolated** container setups:
 | Purpose | Lives in | What it is |
 | --- | --- | --- |
 | **Develop** the code | `.devcontainer/` | A Codespaces / Dev Containers definition with Python 3.12, PyQt6 runtime libraries, and Docker-in-Docker. |
-| **Run** the GUI for QA | `Dockerfile` + `Dockerfile.display` + `docker-compose.yml` | A two-container Compose stack: a `display` sidecar that hosts the viewable desktop (Xvfb + noVNC) and an `app` container that runs the Qt application. |
+| **Run** the GUI for QA | `Dockerfile.heroforge-app` + `Dockerfile.display` + `docker-compose.yml` | A two-container Compose stack: a `display` sidecar that hosts the viewable desktop (Xvfb + noVNC) and an `app` container that runs the Qt application. |
 
 The two are deliberately separate: the dev container is where you edit, lint and
 test; the Compose stack is a clean, reproducible way to *run* the desktop app for
@@ -172,7 +172,7 @@ cannot modify the repo.
   a password (and rejects the `change-me` placeholder). `scripts/run-gui.sh`
   generates a strong password automatically — see section 2.
 - Both base images are **pinned by digest** (not just a mutable tag) in
-  `Dockerfile` and `Dockerfile.display`, making builds reproducible and resistant
+  `Dockerfile.heroforge-app` and `Dockerfile.display`, making builds reproducible and resistant
   to tag re-pointing / supply-chain tampering. Third-party Python wheels are
   installed with `--only-binary=:all:` to avoid executing sdist build code.
 - Docker-in-Docker requires a privileged dev container; if you prefer a

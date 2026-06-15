@@ -5,7 +5,7 @@
 # This is the image GitHub Codespaces / VS Code Dev Containers build from
 # devcontainer.json. It is for *developing* the project — editing, linting,
 # type-checking and running the (offscreen-capable) test suite — and is distinct
-# from the root Dockerfile, which exists to *run* the GUI for QA.
+# from the root Dockerfile.heroforge-app, which exists to *run* the GUI for QA.
 #
 # It layers the Qt runtime libraries on top of the official devcontainers Python
 # image so that `pytest` can import PyQt6 for real (instead of skipping the

@@ -78,8 +78,9 @@ PyQt6 GUI without installing anything locally:
   > upgrading to Python 3.14 once it is a generally available devcontainers base
   > image and the project's dependencies (PyQt6, openpyxl, the dev tooling)
   > publish 3.14 wheels; bump `requires-python` and the CI matrix to match.
-- **Run the GUI for QA** with a two-container Compose stack (`Dockerfile` +
-  `Dockerfile.display` + `docker-compose.yml`): an `app` container running the
+- **Run the GUI for QA** with a two-container Compose stack
+  (`Dockerfile.heroforge-app` + `Dockerfile.display` + `docker-compose.yml`): an
+  `app` container running the
   Qt application plus a `display` sidecar that hosts the viewable desktop
   (Xvfb + noVNC). The desktop is gated by a required `VNC_PASSWORD` you set in a
   git-ignored `.env` file:

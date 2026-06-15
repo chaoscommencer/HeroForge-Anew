@@ -14,6 +14,8 @@
 # one exists purely to *run* the application in an isolated, reproducible way.
 #
 # It is a multi-stage build:
+#   * the `base` stage pins the digest-locked python image once and carries the
+#     OCI image labels, so every later stage derives from a single shared base,
 #   * the `builder` stage runs pip (and its build/cache machinery) to install the
 #     third-party wheels AND the application's own package into an isolated
 #     prefix, then
@@ -24,12 +26,31 @@
 # Python packages — a smaller image and a smaller attack surface.
 
 # =============================================================================
-# Stage 1 — builder: install third-party deps and the app package into /install
+# Stage 1 — base: shared digest-pinned image + image labels
 # =============================================================================
 # Base image pinned by digest (not just the mutable :3.12-slim-bookworm tag) so
 # the build is reproducible and resistant to tag re-pointing / supply-chain
 # tampering. Bump the digest deliberately to pick up upstream security updates.
-FROM python:3.12-slim-bookworm@sha256:76d4b7b6305788c6b4c6a19d6a22a3921bf802e9af4d5e1e5bd771208dba74bf AS builder
+# Pinning it ONCE here and having every other stage derive `FROM base` keeps the
+# digest in a single place, so a bump can never drift between the builder and the
+# final runtime stage.
+FROM python:3.12-slim-bookworm@sha256:76d4b7b6305788c6b4c6a19d6a22a3921bf802e9af4d5e1e5bd771208dba74bf AS base
+
+# Standard OCI image labels applied on the base layer. Docker images inherit
+# their parent's labels through FROM, so declaring them ONCE here means both the
+# builder stage and the final tagged runtime image (each `FROM base`) carry them
+# — `docker inspect`/`podman inspect` surfaces them on the shipped image without
+# repeating the LABEL block per stage.
+LABEL org.opencontainers.image.title="HeroForge-Anew" \
+      org.opencontainers.image.description="HeroForge Anew – D&D 3.5 character builder (Python/PyQt6 edition); QA runtime image driven by docker-compose.yml." \
+      org.opencontainers.image.source="https://github.com/Heliomance/HeroForge-Anew" \
+      org.opencontainers.image.licenses="GPL-3.0-or-later" \
+      org.opencontainers.image.base.name="docker.io/library/python:3.12-slim-bookworm"
+
+# =============================================================================
+# Stage 2 — builder: install third-party deps and the app package into /install
+# =============================================================================
+FROM base AS builder
 
 WORKDIR /app
 
@@ -74,10 +95,11 @@ RUN --mount=type=bind,source=src,target=/app/src,rw \
     python -m pip install --no-cache-dir --no-deps -e . --prefix=/install
 
 # =============================================================================
-# Stage 2 — final runtime image
+# Stage 3 — final runtime image
 # =============================================================================
-# Same digest-pinned base as the builder stage (see the note above).
-FROM python:3.12-slim-bookworm@sha256:76d4b7b6305788c6b4c6a19d6a22a3921bf802e9af4d5e1e5bd771208dba74bf
+# Same digest-pinned base as the builder stage (via the shared `base` stage), so
+# the runtime layer inherits the pinned digest and the OCI labels declared above.
+FROM base
 
 # --- System libraries required by PyQt6 / Qt at runtime ----------------------
 # Qt links against a number of shared X11 / OpenGL / XCB / font libraries even

@@ -53,7 +53,7 @@ devcontainers — no Dependabot change needed.
 
 - **5a:** Generate a hash-pinned lockfile from the `pyproject.toml` deps
   (`pip-compile --generate-hashes` from pip-tools, or `uv`); install it in the
-  `Dockerfile` builder stage with `--require-hashes`. Keep dev extras out of the
+  `Dockerfile.heroforge-app` builder stage with `--require-hashes`. Keep dev extras out of the
   runtime image.
 - **5b:** Add a CI step in `.github/workflows/ci.yml` running `pip-audit`
   (CVEs in resolved deps) as the primary scan. Optional: a Trivy image scan for

@@ -6,9 +6,9 @@
 #   * display — Dockerfile.display: a virtual X server (Xvfb) plus a window
 #     manager, VNC server and the noVNC web client. It hosts the viewable
 #     desktop and is the only service that publishes a port (noVNC on 6080).
-#   * app — Dockerfile: the Qt application itself. It draws into the display
-#     sidecar's X server over a shared /tmp/.X11-unix socket volume and carries
-#     no published ports of its own.
+#   * app — Dockerfile.heroforge-app: the Qt application itself. It draws into
+#     the display sidecar's X server over a shared /tmp/.X11-unix socket volume
+#     and carries no published ports of its own.
 #
 # This keeps the viewable desktop in a container that has no application source
 # or workspace bind mounts, rather than next to the editor/credentials — which
@@ -114,7 +114,7 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.heroforge-app
       args:
         # Align the in-container user with the host user so the bind-mounted
         # workspace stays writable and the X11 socket is accessible.
