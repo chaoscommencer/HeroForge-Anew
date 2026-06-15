@@ -46,23 +46,11 @@ docker compose down
 | 6 | `2bce4fd` | Document the seccomp/AppArmor posture in `docs/containerized-runtime.md`: the stack relies on the engine's **default** seccomp + `docker-default` AppArmor profiles (plus `cap_drop: ALL` and `no-new-privileges`); a custom profile is out of scope (high-maintenance, host-loaded, not portable in a devcontainer). Docs-only. |
 | 7 | `36735d3` | Add a `healthcheck:` to the `app` service in `docker-compose.yml`: a dependency-free pure-Python `/proc` scan (the app has `network_mode: none` and no extra tooling) that exits 0 once a `python -m heroforge` process is found, with a 30s `start_period` to cover first-launch DB seeding. Verified `health=healthy` live. |
 | 8 | `fe9d9c0` | Serve noVNC over TLS: `display-entrypoint.sh` generates a self-signed loopback cert+key (CN=localhost, RSA-2048, key 0600) into the `/home/app` tmpfs and launches websockify with `--cert/--key/--ssl-only` (wss:// only; plaintext refused); `openssl` added to `Dockerfile.display`. Forwarded port 6080 marked `protocol: https` in `devcontainer.json` + a live `remote.portsAttributes` mirror in `.vscode/settings.json` so the VS Code forwarder speaks TLS to the backend (plain HTTP otherwise → 502); `onAutoForward` switched to `notify`. Task URLs updated to `https://wss://`; TLS setup and benign websockify log lines documented in `docs/containerized-runtime.md`. |
+| 9 | _pending_ | Document the knowingly accepted residual risks in `docs/containerized-runtime.md` under a new **Residual / accepted risks** subsection: VNC's DES-based password is capped at 8 significant characters (protocol-inherent), and Dependabot **security alerts** are a repository-settings toggle (*Settings → Code security and analysis*), not something `.github/dependabot.yml` can enable. Docs-only. |
 
 ---
 
 ## Remaining steps
-
-### Step 9 — Document residual/accepted risks (docs-only)
-
-In `docs/containerized-runtime.md`, record the knowingly accepted residual risks:
-
-- VNC's DES-based password is capped at 8 significant characters
-  (protocol-inherent).
-- Dependabot **security alerts** are a repository-settings toggle, not something
-  in `.github/dependabot.yml`.
-
-**Commit:** `docs(security): record accepted residual risks`
-
----
 
 ### Step 10 — Document `userns-remap` (docs-only)
 
@@ -94,5 +82,5 @@ not linger in the repository.
 
 ## Status
 
-- Steps 1–8 complete and committed (see table above).
-- **Next: Step 9** (document residual/accepted risks) — awaiting go-ahead.
+- Steps 1–9 complete (Step 9 commit pending; see table above).
+- **Next: Step 10** (document `userns-remap` host-level hardening option) — awaiting go-ahead.

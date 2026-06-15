@@ -236,3 +236,24 @@ cannot modify the repo.
 - Docker-in-Docker requires a privileged dev container; if you prefer a
   stricter, rootless model, run the Compose stack with **Podman**
   (`podman-compose`), which the helper script selects automatically when present.
+
+### Residual / accepted risks
+
+Some limitations are known and **knowingly accepted** for this single-tenant QA
+stack rather than engineered around:
+
+- **VNC password is capped at 8 significant characters.** The classic VNC
+  authentication scheme (RFB) hashes the password with DES, which only consumes
+  the first **8 characters** — anything beyond them is ignored. This is inherent
+  to the protocol, not a configuration choice, so `scripts/run-gui.sh` generates
+  exactly 8 random alphanumeric characters (a longer secret would buy nothing).
+  The exposure is already narrowed by publishing noVNC on **loopback only** and
+  serving it **over TLS** (see above), so the password is never the sole control
+  and never crosses the wire in cleartext.
+- **Dependabot security alerts are a repository-settings toggle, not a repo
+  file.** `.github/dependabot.yml` configures **version-update** PRs only.
+  Vulnerability **security alerts/updates** are enabled separately under the
+  repository's *Settings → Code security and analysis* (Dependabot alerts +
+  security updates) and cannot be committed to the repo. Confirm they are enabled
+  there; the in-repo `dependabot.yml` does not and cannot turn them on.
+
