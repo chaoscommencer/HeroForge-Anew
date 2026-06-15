@@ -42,6 +42,7 @@ docker compose down
 | 4 | `50ac168` | Replace `Xvfb -ac` with `xauth` MIT-MAGIC-COOKIE-1 auth. The display entrypoint generates a cookie into the shared `x11-socket` volume (`/tmp/.X11-unix/.Xauthority`, 0600) and re-registers it as a FamilyWild (`ffff`) entry so the single cookie authenticates from either container's hostname over the shared socket. `XAUTHORITY` set on both services; `xauth` added to the display image. |
 | 5a | `1a289a0` | Generate a hash-pinned lockfile (`requirements-lock.txt`) from the `pyproject.toml` runtime deps via `pip-compile --generate-hashes`, and install it in the `Dockerfile.heroforge-app` builder stage with `--require-hashes` (retaining `--only-binary=:all:`). pip now refuses any wheel whose sha256 is not in the lockfile. NO SBOM (overkill for this single-tenant QA stack); Dependabot already covers pip/docker/actions/devcontainers. |
 | 5b | `b198a99` | Add an `audit` job to `.github/workflows/ci.yml` running `pip-audit` against `requirements-lock.txt` (CVEs in the exact shipped versions), independent of the lint/format/test job. A Trivy image scan (OS-level CVEs) remains an optional future addition. |
+| 5b+ | `a141e23` | Harden the `audit` job: install a hash-checked pip from `requirements-pip.txt`, then `pip-audit` from a new hash-pinned `requirements-pip-audit.txt` (generated from `requirements-pip-audit.in`), joined with `&&`; the scan now loops over every `requirements*.txt` (runtime lockfile + CI tooling pins), so the auditing tool chain is audited too. |
 
 ---
 
