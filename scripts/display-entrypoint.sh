@@ -151,10 +151,23 @@ x11vnc -storepasswd "${VNC_PASSWORD}" "${vnc_pass_file}" >/dev/null 2>&1
 x11vnc -display "${DISPLAY}" -rfbauth "${vnc_pass_file}" \
     -localhost -rfbport "${VNC_PORT}" -forever -shared -noxdamage -quiet &
 
-# Serve the noVNC web client and bridge its WebSocket traffic to x11vnc. Run it
-# in the background (rather than `exec`) so the shutdown trap above stays
+# Generate a self-signed certificate and key for TLS encryption of the noVNC
+# WebSocket. The cert is loopback-only (CN=localhost), so self-signed is
+# appropriate here. The key is written 0600 (readable only by this user).
+cert_file="${HOME}/novnc-cert.pem"
+key_file="${HOME}/novnc-key.pem"
+openssl req -x509 -newkey rsa:2048 -nodes \
+    -keyout "${key_file}" -out "${cert_file}" \
+    -days 3650 -subj '/CN=localhost' >/dev/null 2>&1
+chmod 0600 "${cert_file}" "${key_file}"
+
+# Serve the noVNC web client and bridge its WebSocket traffic to x11vnc over TLS.
+# Run it in the background (rather than `exec`) so the shutdown trap above stays
 # installed and can tear the process tree down cleanly; `wait` blocks here until
 # websockify exits or a signal fires the trap.
-websockify --web=/usr/share/novnc "${NOVNC_PORT}" "localhost:${VNC_PORT}" &
+# The --cert, --key, and --ssl-only flags ensure WebSocket connections are
+# encrypted (wss:// only); plaintext ws:// is refused.
+websockify --web=/usr/share/novnc --cert="${cert_file}" --key="${key_file}" --ssl-only \
+    "${NOVNC_PORT}" "localhost:${VNC_PORT}" &
 websockify_pid=$!
 wait "${websockify_pid}"

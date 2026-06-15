@@ -119,6 +119,42 @@ fluxbox starts. fluxbox calls `fbsetbg` by absolute path, so the binary itself i
 replaced at build time with a tiny shim that paints a solid background
 (`fbsetroot -solid black`) — the desktop comes up clean and unattended.
 
+### TLS on the noVNC WebSocket
+
+websockify is launched with `--cert`, `--key` and `--ssl-only`, so it serves
+**only** `https://` / `wss://` and refuses plaintext `http://` / `ws://`. The
+entrypoint generates a **self-signed** certificate (`CN=localhost`, RSA-2048)
+into the in-RAM `/home/app` tmpfs at startup, with the private key written
+`0600`. Self-signed is appropriate because the endpoint is reached only over
+loopback (the VS Code port-forwarding proxy on `127.0.0.1:6080`); the
+laptop→Codespace hop is already TLS via the VS Code tunnel, and this closes the
+remaining in-host plaintext segment.
+
+Because the certificate is self-signed, the **browser shows a one-time security
+warning** on first connect — accept it to proceed. VS Code's port-forwarding
+proxy must also be told the backend speaks TLS: the `6080` entry in
+[`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json) (and the
+live `remote.portsAttributes` mirror in [`.vscode/settings.json`](../.vscode/settings.json))
+sets `"protocol": "https"`. Without it the proxy connects over plain HTTP,
+websockify rejects it (`non-SSL connection received but disallowed`), and the
+browser sees a **502**.
+
+#### Benign log lines
+
+With TLS enforced, a few `display` log lines are **expected and harmless**:
+
+- `handler exception: [SSL: UNEXPECTED_EOF_WHILE_READING] unexpected eof while
+  reading` — OpenSSL 3.0 (Debian bookworm) raises this when a TLS peer drops the
+  TCP connection without a clean `close_notify` alert. Browsers and the
+  port-forwarding proxy routinely abandon idle/pooled/probe connections this
+  way; the active VNC session is unaffected.
+- `code 404, message File not found` — the noVNC client probes for optional
+  static assets (e.g. a favicon) that the Debian `novnc` package's web root does
+  not ship. The very next log lines —
+  `SSL/TLS (wss://) WebSocket connection`, `Path: '/websockify'`,
+  `connecting to: localhost:5900` — are the **successful** encrypted WebSocket
+  upgrade, i.e. the desktop is connecting normally.
+
 ### Persistence and writable paths
 
 Both containers run with a **read-only root filesystem**; the only writable
@@ -179,6 +215,11 @@ cannot modify the repo.
   application source and no workspace bind mounts** — a noVNC session is isolated
   from the editor container (and its repo/credentials), unlike the previous
   desktop-lite-in-devcontainer setup.
+- noVNC is served **only over TLS** (`wss://`): websockify runs with
+  `--cert --key --ssl-only` and a self-signed loopback certificate, so the
+  in-host segment between the VS Code port-forwarding proxy and websockify is
+  encrypted and plaintext `ws://`/`http://` is refused (see *TLS on the noVNC
+  WebSocket* above).
 - noVNC is published on **loopback only** (`127.0.0.1:6080`) and gated by a
   **required** VNC password. The password is set in the git-ignored `.env` file
   but delivered to the display sidecar as a **Compose secret** (a file mounted at

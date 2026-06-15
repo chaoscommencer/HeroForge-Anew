@@ -37,6 +37,7 @@ RUN apt-get update \
         websockify \
         x11-utils \
         xauth \
+        openssl \
         procps \
         ca-certificates \
     && apt-get clean \

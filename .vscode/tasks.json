@@ -32,14 +32,14 @@
     {
       "label": "QA Stack: Open noVNC in browser tab (autoconnect)",
       "type": "shell",
-      "command": "\"$BROWSER\" \"http://localhost:${input:novncPort}/vnc.html?autoconnect=true\"",
+      "command": "\"$BROWSER\" \"https://localhost:${input:novncPort}/vnc.html?autoconnect=true&mode=wss\"",
       "problemMatcher": [],
       "presentation": {
         "reveal": "silent",
         "panel": "shared",
         "close": true
       },
-      "detail": "Open the noVNC client in the host's default browser (via the dev container's $BROWSER helper) with autoconnect enabled. Bring the QA stack up first; you'll still be prompted for VNC_PASSWORD."
+      "detail": "Open the noVNC client in the host's default browser (via the dev container's $BROWSER helper) with autoconnect enabled. The noVNC service uses a self-signed certificate, so you'll be prompted to accept a security warning in your browser. Bring the QA stack up first; you'll still be prompted for VNC_PASSWORD."
     },
     {
       "label": "QA Stack: Preview noVNC in VS Code Simple Browser (autoconnect)",
@@ -92,7 +92,7 @@
       "id": "openNovncPreview",
       "type": "command",
       "command": "simpleBrowser.show",
-      "args": "https://{env:CODESPACE_NAME}-{input:novncPort}.app.github.dev/vnc.html?autoconnect=true"
+      "args": "https://{env:CODESPACE_NAME}-{input:novncPort}.app.github.dev/vnc.html?autoconnect=true&mode=wss"
     }
   ]
 }

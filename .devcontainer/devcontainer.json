@@ -32,7 +32,18 @@
   "portsAttributes": {
     "6080": {
       "label": "HeroForge GUI (noVNC via Compose)",
-      "onAutoForward": "silent"
+      // When VS Code auto-detects the sidecar listening on 6080, show a toast
+      // notification ("application running on port 6080 is available") rather
+      // than silently forwarding it — a visible cue that the QA desktop is ready
+      // to open. Other options: "silent" (forward, no popup), "openBrowser" /
+      // "openPreview" (auto-open), "ignore" (do not forward).
+      "onAutoForward": "notify",
+      // The display sidecar's websockify is now TLS-only (--ssl-only). VS Code's
+      // port-forwarding proxy defaults to connecting to the backend over plain
+      // HTTP, which websockify rejects ("non-SSL connection received but
+      // disallowed"), surfacing as a 502 in the browser. Declaring the port as
+      // HTTPS makes the forwarder connect over TLS so the handshake succeeds.
+      "protocol": "https"
     }
   },
 
