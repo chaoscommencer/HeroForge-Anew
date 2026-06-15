@@ -21,6 +21,12 @@
 # --generate-password to force a fresh password even if a real one is already
 # set. The active password is always stored in .env for you to read.
 #
+# For a complete teardown, append --remove-orphans (and --volumes to also drop
+# the persistent data/X11 volumes), e.g. `scripts/run-gui.sh down
+# --remove-orphans --volumes`. --remove-orphans also removes containers for
+# services that were renamed/removed from docker-compose.yml since the stack was
+# last started, which a bare `down` would otherwise leave behind.
+#
 # Any extra arguments are forwarded to the underlying compose command.
 
 set -euo pipefail
@@ -147,6 +153,10 @@ fi
 # to bringing the stack up with a build. Even these need the secret file to exist
 # so Compose can resolve the `vnc_password` secret reference while parsing the
 # file, so materialize it (from whatever .env currently holds) first.
+#
+# Tip: for a thorough `down`, add --remove-orphans (sweeps up containers for
+# services no longer defined in docker-compose.yml) and --volumes (also drops the
+# persistent heroforge-data and x11-socket volumes); these are forwarded as-is.
 if [[ "${1:-}" =~ ^(down|logs|ps|stop|build|config)$ ]]; then
     write_vnc_secret_file
     echo "Using: ${COMPOSE[*]} -f docker-compose.yml $*"
