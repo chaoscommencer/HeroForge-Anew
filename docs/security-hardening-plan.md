@@ -45,37 +45,11 @@ docker compose down
 | 5b+ | `a141e23` | Harden the `audit` job: install a hash-checked pip from `requirements-pip.txt`, then `pip-audit` from a new hash-pinned `requirements-pip-audit.txt` (generated from `requirements-pip-audit.in`), joined with `&&`; the scan now loops over every `requirements*.txt` (runtime lockfile + CI tooling pins), so the auditing tool chain is audited too. |
 | 6 | `2bce4fd` | Document the seccomp/AppArmor posture in `docs/containerized-runtime.md`: the stack relies on the engine's **default** seccomp + `docker-default` AppArmor profiles (plus `cap_drop: ALL` and `no-new-privileges`); a custom profile is out of scope (high-maintenance, host-loaded, not portable in a devcontainer). Docs-only. |
 | 7 | `36735d3` | Add a `healthcheck:` to the `app` service in `docker-compose.yml`: a dependency-free pure-Python `/proc` scan (the app has `network_mode: none` and no extra tooling) that exits 0 once a `python -m heroforge` process is found, with a 30s `start_period` to cover first-launch DB seeding. Verified `health=healthy` live. |
+| 8 | `fe9d9c0` | Serve noVNC over TLS: `display-entrypoint.sh` generates a self-signed loopback cert+key (CN=localhost, RSA-2048, key 0600) into the `/home/app` tmpfs and launches websockify with `--cert/--key/--ssl-only` (wss:// only; plaintext refused); `openssl` added to `Dockerfile.display`. Forwarded port 6080 marked `protocol: https` in `devcontainer.json` + a live `remote.portsAttributes` mirror in `.vscode/settings.json` so the VS Code forwarder speaks TLS to the backend (plain HTTP otherwise → 502); `onAutoForward` switched to `notify`. Task URLs updated to `https://wss://`; TLS setup and benign websockify log lines documented in `docs/containerized-runtime.md`. |
 
 ---
 
 ## Remaining steps
-
-### Step 8 — Encrypt the noVNC WebSocket with a self-signed cert
-
-**Decision: implement (Option A).** Terminate TLS at `websockify` so the browser
-connects over `wss://` instead of plaintext `ws://`, closing the local-loopback
-sniffing gap (the laptop→Codespace hop is already TLS via the VS Code tunnel; this
-covers the in-host segment too).
-
-- In `scripts/display-entrypoint.sh`, generate a **self-signed** cert+key at
-  startup (loopback-only, so self-signed is appropriate) into the writable
-  `/home/app` tmpfs — e.g. `openssl req -x509 -newkey rsa:2048 -nodes -keyout
-  ... -out ... -days N -subj '/CN=localhost'` — with the key written `0600`.
-  Add `openssl` to `Dockerfile.display` if not already present.
-- Launch websockify with `--cert=<pem> --key=<pem> --ssl-only` so it serves
-  HTTPS/`wss://` only.
-- Update the noVNC open URLs to `https://`/`wss://` where applicable
-  (`.vscode/tasks.json`, any docs) and note the expected first-connect
-  self-signed-cert browser warning.
-
-**Verify:** `docker compose config -q`; `up`; confirm the desktop loads over
-`https://…:6080/vnc.html` (accepting the self-signed cert) and that websockify
-refuses plain `http://`/`ws://`; both services exit 0 on `down` with no
-tracebacks.
-
-**Commit:** `feat(display): serve noVNC over TLS with a self-signed cert`
-
----
 
 ### Step 9 — Document residual/accepted risks (docs-only)
 
@@ -120,5 +94,5 @@ not linger in the repository.
 
 ## Status
 
-- Steps 1–7 complete and committed (see table above).
-- **Next: Step 8** (encrypt the noVNC WebSocket with a self-signed cert) — awaiting go-ahead.
+- Steps 1–8 complete and committed (see table above).
+- **Next: Step 9** (document residual/accepted risks) — awaiting go-ahead.
