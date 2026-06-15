@@ -40,34 +40,12 @@ docker compose down
 | 2 | `1d48f17` | Drop the `./tests` bind mount from the runtime `app` service. |
 | 3 | `49e245b` | Deliver the VNC password as a Compose **file-based** secret (`/run/secrets/vnc_password`) instead of a `VNC_PASSWORD` env var. `scripts/run-gui.sh` materializes `secrets/vnc_password` (0600, git-ignored) from `.env`. |
 | 4 | `50ac168` | Replace `Xvfb -ac` with `xauth` MIT-MAGIC-COOKIE-1 auth. The display entrypoint generates a cookie into the shared `x11-socket` volume (`/tmp/.X11-unix/.Xauthority`, 0600) and re-registers it as a FamilyWild (`ffff`) entry so the single cookie authenticates from either container's hostname over the shared socket. `XAUTHORITY` set on both services; `xauth` added to the display image. |
+| 5a | `1a289a0` | Generate a hash-pinned lockfile (`requirements-lock.txt`) from the `pyproject.toml` runtime deps via `pip-compile --generate-hashes`, and install it in the `Dockerfile.heroforge-app` builder stage with `--require-hashes` (retaining `--only-binary=:all:`). pip now refuses any wheel whose sha256 is not in the lockfile. NO SBOM (overkill for this single-tenant QA stack); Dependabot already covers pip/docker/actions/devcontainers. |
+| 5b | `b198a99` | Add an `audit` job to `.github/workflows/ci.yml` running `pip-audit` against `requirements-lock.txt` (CVEs in the exact shipped versions), independent of the lint/format/test job. A Trivy image scan (OS-level CVEs) remains an optional future addition. |
 
 ---
 
 ## Remaining steps
-
-### Step 5 — Supply-chain integrity (lockfile + CI scan)
-
-**Decision: hash-pinned lockfile + CI vulnerability scan. NO SBOM** (overkill for
-this single-tenant QA stack). Dependabot already covers pip, docker, actions, and
-devcontainers — no Dependabot change needed.
-
-- **5a:** Generate a hash-pinned lockfile from the `pyproject.toml` deps
-  (`pip-compile --generate-hashes` from pip-tools, or `uv`); install it in the
-  `Dockerfile.heroforge-app` builder stage with `--require-hashes`. Keep dev extras out of the
-  runtime image.
-- **5b:** Add a CI step in `.github/workflows/ci.yml` running `pip-audit`
-  (CVEs in resolved deps) as the primary scan. Optional: a Trivy image scan for
-  OS-level CVEs in the Debian base + Qt libs. (CI today runs only ruff/black/
-  pytest — no security scan yet.)
-- May be split into separate `5a` (build) and `5b` (ci) commits.
-
-**Verify:** image still builds with `--require-hashes`; pytest unaffected; CI
-green.
-
-**Commits:** `build(security): hash-pin dependencies with --require-hashes` and
-`ci(security): add pip-audit (and optional Trivy) scanning`
-
----
 
 ### Step 6 — Document seccomp/AppArmor posture (docs-only)
 
@@ -145,5 +123,5 @@ not linger in the repository.
 
 ## Status
 
-- Steps 1–3 complete and committed (see table above).
-- **Next: Step 5** (supply-chain integrity: lockfile + CI scan) — awaiting go-ahead.
+- Steps 1–5 complete and committed (see table above).
+- **Next: Step 6** (document seccomp/AppArmor posture, docs-only) — awaiting go-ahead.
