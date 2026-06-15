@@ -50,11 +50,37 @@ docker compose down
 
 ## Remaining steps
 
-### Step 8 — Document residual/accepted risks (docs-only)
+### Step 8 — Encrypt the noVNC WebSocket with a self-signed cert
+
+**Decision: implement (Option A).** Terminate TLS at `websockify` so the browser
+connects over `wss://` instead of plaintext `ws://`, closing the local-loopback
+sniffing gap (the laptop→Codespace hop is already TLS via the VS Code tunnel; this
+covers the in-host segment too).
+
+- In `scripts/display-entrypoint.sh`, generate a **self-signed** cert+key at
+  startup (loopback-only, so self-signed is appropriate) into the writable
+  `/home/app` tmpfs — e.g. `openssl req -x509 -newkey rsa:2048 -nodes -keyout
+  ... -out ... -days N -subj '/CN=localhost'` — with the key written `0600`.
+  Add `openssl` to `Dockerfile.display` if not already present.
+- Launch websockify with `--cert=<pem> --key=<pem> --ssl-only` so it serves
+  HTTPS/`wss://` only.
+- Update the noVNC open URLs to `https://`/`wss://` where applicable
+  (`.vscode/tasks.json`, any docs) and note the expected first-connect
+  self-signed-cert browser warning.
+
+**Verify:** `docker compose config -q`; `up`; confirm the desktop loads over
+`https://…:6080/vnc.html` (accepting the self-signed cert) and that websockify
+refuses plain `http://`/`ws://`; both services exit 0 on `down` with no
+tracebacks.
+
+**Commit:** `feat(display): serve noVNC over TLS with a self-signed cert`
+
+---
+
+### Step 9 — Document residual/accepted risks (docs-only)
 
 In `docs/containerized-runtime.md`, record the knowingly accepted residual risks:
 
-- `ws://` plaintext on the loopback hop (the VS Code tunnel itself is TLS).
 - VNC's DES-based password is capped at 8 significant characters
   (protocol-inherent).
 - Dependabot **security alerts** are a repository-settings toggle, not something
@@ -64,7 +90,7 @@ In `docs/containerized-runtime.md`, record the knowingly accepted residual risks
 
 ---
 
-### Step 9 — Document `userns-remap` (docs-only)
+### Step 10 — Document `userns-remap` (docs-only)
 
 In `docs/containerized-runtime.md`, document `userns-remap` as a **host
 daemon-level** hardening option:
@@ -79,9 +105,9 @@ daemon-level** hardening option:
 
 ---
 
-### Step 10 — Remove this plan document (cleanup)
+### Step 11 — Remove this plan document (cleanup)
 
-Once Steps 4–9 are all implemented and committed, this file has served its
+Once Steps 4–10 are all implemented and committed, this file has served its
 purpose. Delete `docs/security-hardening-plan.md` so the tracking scaffold does
 not linger in the repository.
 
@@ -95,4 +121,4 @@ not linger in the repository.
 ## Status
 
 - Steps 1–7 complete and committed (see table above).
-- **Next: Step 8** (document residual/accepted risks, docs-only) — awaiting go-ahead.
+- **Next: Step 8** (encrypt the noVNC WebSocket with a self-signed cert) — awaiting go-ahead.
