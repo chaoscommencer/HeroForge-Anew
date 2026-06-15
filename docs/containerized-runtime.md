@@ -146,6 +146,23 @@ cannot modify the repo.
 
 - Both containers run as **non-root** users, with **all Linux capabilities
   dropped** (`cap_drop: ALL`) and **`no-new-privileges`** set.
+- **Syscall and MAC filtering** rely on the container engine's built-in
+  defaults rather than a bespoke profile. Docker/Podman apply their **default
+  seccomp profile** to every container unless told otherwise — it blocks ~44 of
+  the most dangerous/obsolete syscalls (e.g. `keyctl`, `ptrace` of other
+  processes, `mount`, `reboot`, kernel-module and `bpf` operations) while
+  leaving the broad set a normal application needs. Combined with `cap_drop:
+  ALL` and `no-new-privileges`, that default profile is what sandboxes these QA
+  containers at the kernel boundary. A **custom** seccomp profile (an explicit
+  JSON syscall allowlist attached via `security_opt: [seccomp:./security/seccomp.json]`)
+  is deliberately **out of scope**: it would have to be traced with
+  `strace`/`oci-seccomp-bpf-hook` and re-tuned on every Qt/Xorg update, which is
+  high-maintenance and breakage-prone for a single-tenant QA stack with limited
+  upside over the default. **AppArmor** (or SELinux) likewise applies the engine's
+  default `docker-default` profile when the host enforces it; a custom AppArmor
+  profile must be loaded into the **host** kernel and referenced by name, so it
+  is not portable inside a devcontainer and cannot be enforced from this repo —
+  it is a host-administration step, not a per-Compose setting.
 - Both containers use a **read-only root filesystem**; only the explicit
   `heroforge-data` volume and in-RAM `tmpfs` mounts are writable (see *Persistence
   and writable paths* above). A compromised process cannot tamper with the image
