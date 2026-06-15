@@ -93,6 +93,13 @@ ensure_vnc_password() {
     else
         echo "Using existing VNC_PASSWORD from .env."
     fi
+
+    # .env holds the VNC password in plaintext, so keep it owner-only (it is
+    # commonly created world-readable/writable by the default umask or a copied
+    # .env.example). This does not weaken anything that depended on a looser
+    # mode; nothing reads .env but this script and the compose front-end, both
+    # run as the dev user.
+    chmod 600 .env
 }
 
 # Materialize the file-based Compose secret from the VNC_PASSWORD recorded in
@@ -105,14 +112,40 @@ ensure_vnc_password() {
 # When .env carries no password the file is created empty so plain compose
 # subcommands (config/down/stop) still resolve the secret reference; the
 # entrypoint then refuses to start a passwordless desktop at run time.
+#
+# Under rootless Podman the file is additionally re-owned (still 0600) to the
+# subordinate UID that backs the container's non-root `app` user, so `app` can
+# read it WITHOUT the security-weakening `userns_mode: keep-id` (see
+# docker-compose.podman.yml). Docker maps the container user 1:1 to the host dev
+# user and reads the 0600 file as its owner, so it needs no remap.
 write_vnc_secret_file() {
     local pw=""
     if [[ -f .env ]]; then
         pw="$(sed -n 's/^VNC_PASSWORD=//p' .env | tail -n1)"
     fi
     mkdir -p "$(dirname "$SECRET_FILE")"
+    # Remove any prior copy first: a previous Podman run may have left the file
+    # owned by a subordinate UID (via the unshare-chown below), which this
+    # process (the unprivileged dev user) cannot truncate in place but can
+    # unlink, because it owns the parent secrets/ directory.
+    rm -f "$SECRET_FILE"
     ( umask 077; printf '%s' "$pw" >"$SECRET_FILE" )
     chmod 600 "$SECRET_FILE"
+
+    # Rootless Podman maps the container's `app` user (APP_UID) to a high
+    # subordinate UID on the host, so a host-dev-owned 0600 secret appears owned
+    # by another user inside the container and is unreadable. The old fix,
+    # `userns_mode: keep-id`, mapped `app` straight onto the host dev user and so
+    # collapsed the rootless escape isolation that is the main reason we prefer
+    # Podman. Instead, re-own the secret to that subuid: `podman unshare` enters
+    # the rootless user namespace (where the dev user is root and APP_UID maps to
+    # the subuid), so chowning to APP_UID there sets the host file's owner to the
+    # subuid. The file stays mode 0600 — now owned by a high subuid, hence
+    # unreadable to other *host* users as well — yet appears `app`-owned and
+    # readable inside the container.
+    if [[ "${COMPOSE[0]}" == podman* ]]; then
+        podman unshare chown "$APP_UID:$APP_GID" "$SECRET_FILE"
+    fi
 }
 
 # Align the in-container user with the current user for socket/file permissions.
@@ -151,11 +184,12 @@ fi
 
 # Assemble the list of Compose files. docker-compose.yml is the hardened base
 # used by every engine. When the engine is Podman, layer docker-compose.podman.yml
-# on top: it disables `init: true` (bookworm's podman 4.3.1 has no catatonit
-# init binary) and the healthcheck-based dependency gate (podman-compose < 4.4
-# cannot evaluate `condition: service_healthy`), substituting a wait-for-X-socket
-# command so the app still starts only once the display is ready. Docker keeps
-# the original, stricter configuration untouched.
+# on top: it only disables the healthcheck-based dependency gate (podman-compose
+# < 4.4 cannot evaluate `condition: service_healthy`) and substitutes a
+# wait-for-X-socket command so the app still starts once the display is ready.
+# It deliberately does NOT relax the user namespace, init, or resource limits;
+# those are inherited unchanged, with catatonit (init) and crun (runtime)
+# supplied by scripts/setup-podman.sh. Docker keeps the base configuration as-is.
 COMPOSE_FILES=(-f docker-compose.yml)
 if [[ "${COMPOSE[0]}" == podman* ]]; then
     COMPOSE_FILES+=(-f docker-compose.podman.yml)

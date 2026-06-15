@@ -51,6 +51,11 @@ print_check() {
     else
         echo "crun:           not installed"
     fi
+    if command -v catatonit >/dev/null 2>&1; then
+        echo "catatonit:      $(command -v catatonit)"
+    else
+        echo "catatonit:      not installed"
+    fi
     if grep -q "^${TARGET_USER}:" /etc/subuid 2>/dev/null; then
         echo "subuid/subgid:  configured for ${TARGET_USER}"
     else
@@ -69,32 +74,39 @@ fi
 # rootless user-mode networking; crun is the OCI runtime that degrades
 # gracefully when no cgroup controllers are delegated (see section 4) — without
 # it, runc aborts container start with "rootless needs no limits ... permission
-# denied ... /sys/fs/cgroup/...".
+# denied ... /sys/fs/cgroup/..."; catatonit is the container-init binary that
+# `init: true` (used by the QA compose stack) needs — bookworm installs it at
+# /usr/libexec/podman/catatonit, Podman's default init_path, so PID-1 reaping
+# works without disabling init.
 if ! command -v podman >/dev/null 2>&1; then
-    echo "Installing podman, uidmap, fuse-overlayfs, slirp4netns, crun ..."
+    echo "Installing podman, uidmap, fuse-overlayfs, slirp4netns, crun, catatonit ..."
     sudo apt-get update
     sudo DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
         podman \
         uidmap \
         fuse-overlayfs \
         slirp4netns \
-        crun
+        crun \
+        catatonit
     sudo apt-get clean
     sudo rm -rf /var/lib/apt/lists/*
 else
     echo "podman already installed — skipping apt install."
 fi
 
-# crun may be missing even when podman is already present (e.g. an older setup
-# that only installed runc). Ensure it is available, since the crun runtime
-# config in section 4 depends on it.
-if ! command -v crun >/dev/null 2>&1; then
-    echo "Installing crun (OCI runtime for cgroup-less rootless start) ..."
-    sudo apt-get update
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y crun
-    sudo apt-get clean
-    sudo rm -rf /var/lib/apt/lists/*
-fi
+# crun and catatonit may be missing even when podman is already present (e.g. an
+# older setup that only installed runc, or one that disabled init). Ensure both
+# are available: the crun runtime config in section 4 depends on crun, and
+# `init: true` in the compose stack depends on catatonit.
+for pkg in crun catatonit; do
+    if ! command -v "${pkg}" >/dev/null 2>&1; then
+        echo "Installing ${pkg} ..."
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y "${pkg}"
+        sudo apt-get clean
+        sudo rm -rf /var/lib/apt/lists/*
+    fi
+done
 
 # --- 2. Ensure subordinate UID/GID ranges for the remote user ----------------
 # Rootless Podman maps container UIDs onto this delegated range. The
