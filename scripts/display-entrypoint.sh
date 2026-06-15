@@ -148,8 +148,50 @@ fluxbox >/dev/null 2>&1 &
 vnc_pass_file="${HOME}/.vnc/passwd"
 mkdir -p "$(dirname "${vnc_pass_file}")"
 x11vnc -storepasswd "${VNC_PASSWORD}" "${vnc_pass_file}" >/dev/null 2>&1
+# Export the Xvfb display over VNC. Flags, in order:
+#   -display "${DISPLAY}"      attach to the Xvfb screen (:99) the rest of the
+#                              stack draws into.
+#   -rfbauth "${vnc_pass_file}"  require the stored VNC password to connect.
+#   -localhost                 bind the listener to 127.0.0.1 only, so the sole
+#                              client is the in-container websockify bridge; the
+#                              VNC port is never exposed outside the container.
+#   -rfbport "${VNC_PORT}"     listen on the fixed VNC port (no auto-probe), so
+#                              websockify can target it deterministically.
+#   -forever                   keep serving after the first client disconnects
+#                              (default exits), so reconnects work for the life
+#                              of the container.
+#   -noshared                  one viewer at a time: when a new client connects,
+#                              the existing session is dropped rather than the two
+#                              coexisting. This enforces the single-tenant intent
+#                              of the QA stack — at most one active VNC session.
+#                              Rationale / footnote: the alternative -shared lets
+#                              multiple viewers see the desktop at once and pairs
+#                              conventionally with -forever to smooth over the
+#                              brief window where a noVNC tab reconnects (e.g.
+#                              after the SSL UNEXPECTED_EOF churn) and a new
+#                              WebSocket opens before the old session has fully
+#                              torn down. We deliberately choose -noshared for
+#                              security/clarity instead; the trade-off is that a
+#                              very fast tab-refresh may occasionally need a beat
+#                              or a retry while the previous session is evicted.
+#                              If reconnect flicker ever becomes a problem, that
+#                              race — not a real fault — is the thing to revisit.
+#   -noxdamage                 ignore the X DAMAGE extension and poll for screen
+#                              changes instead; DAMAGE is unreliable under Xvfb
+#                              and can drop repaint regions, leaving stale tiles.
+#   -nodpms                    do not touch the X DPMS (Display Power Management
+#                              Signaling) extension. DPMS blanks/standbys/suspends
+#                              a *physical* monitor to save power. Xvfb is a
+#                              virtual framebuffer with no real display attached
+#                              and does not implement DPMS, so x11vnc's default
+#                              attempt to probe/disable screen power-saving prints
+#                              a harmless "Xlib: extension \"DPMS\" missing on
+#                              display \":99\"." warning. There is no monitor to
+#                              power-manage in a headless container, so we skip
+#                              DPMS entirely and suppress that benign-but-noisy line.
+#   -quiet                     trim routine per-connection chatter from the log.
 x11vnc -display "${DISPLAY}" -rfbauth "${vnc_pass_file}" \
-    -localhost -rfbport "${VNC_PORT}" -forever -shared -noxdamage -quiet &
+    -localhost -rfbport "${VNC_PORT}" -forever -noshared -noxdamage -nodpms -quiet &
 
 # Generate a self-signed certificate and key for TLS encryption of the noVNC
 # WebSocket. The cert is loopback-only (CN=localhost), so self-signed is
