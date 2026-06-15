@@ -44,24 +44,11 @@ docker compose down
 | 5b | `b198a99` | Add an `audit` job to `.github/workflows/ci.yml` running `pip-audit` against `requirements-lock.txt` (CVEs in the exact shipped versions), independent of the lint/format/test job. A Trivy image scan (OS-level CVEs) remains an optional future addition. |
 | 5b+ | `a141e23` | Harden the `audit` job: install a hash-checked pip from `requirements-pip.txt`, then `pip-audit` from a new hash-pinned `requirements-pip-audit.txt` (generated from `requirements-pip-audit.in`), joined with `&&`; the scan now loops over every `requirements*.txt` (runtime lockfile + CI tooling pins), so the auditing tool chain is audited too. |
 | 6 | `2bce4fd` | Document the seccomp/AppArmor posture in `docs/containerized-runtime.md`: the stack relies on the engine's **default** seccomp + `docker-default` AppArmor profiles (plus `cap_drop: ALL` and `no-new-privileges`); a custom profile is out of scope (high-maintenance, host-loaded, not portable in a devcontainer). Docs-only. |
+| 7 | `36735d3` | Add a `healthcheck:` to the `app` service in `docker-compose.yml`: a dependency-free pure-Python `/proc` scan (the app has `network_mode: none` and no extra tooling) that exits 0 once a `python -m heroforge` process is found, with a 30s `start_period` to cover first-launch DB seeding. Verified `health=healthy` live. |
 
 ---
 
 ## Remaining steps
-
-### Step 7 — Add a healthcheck to the `app` service
-
-Availability (not strictly security, but requested). Add a `healthcheck:` to the
-`app` service in `docker-compose.yml` (e.g. a liveness check for the Python
-process, or a lightweight probe). The `display` service already has one
-(`xdpyinfo`).
-
-**Verify:** `docker compose config -q`; `up`; `docker inspect` shows the app
-`health=healthy`.
-
-**Commit:** `feat(compose): add healthcheck to the app service`
-
----
 
 ### Step 8 — Document residual/accepted risks (docs-only)
 
@@ -107,5 +94,5 @@ not linger in the repository.
 
 ## Status
 
-- Steps 1–6 complete and committed (see table above).
-- **Next: Step 7** (add a healthcheck to the `app` service) — awaiting go-ahead.
+- Steps 1–7 complete and committed (see table above).
+- **Next: Step 8** (document residual/accepted risks, docs-only) — awaiting go-ahead.
