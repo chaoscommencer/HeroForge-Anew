@@ -1,6 +1,10 @@
-# Hash-pinned bootstrap pip for Dockerfile.graphify (the throwaway, network-
-# isolated graphify builder image). This single artifact bootstraps everything
-# else in the python-builder stage, so it is cryptographically verified.
+# Hash-pinned bootstrap pip. This single artifact bootstraps every other pip
+# install that follows it, so it is cryptographically verified first. Two
+# consumers share this pin:
+#   * Dockerfile.graphify's python-builder stage (the throwaway, network-isolated
+#     graphify builder image), and
+#   * the `audit` job in .github/workflows/ci.yml, which pins pip from here before
+#     installing pip-audit from requirements-pip-audit.txt.
 #
 # `pip install --require-hashes -r requirements-pip.txt` refuses to install unless
 # downloaded wheel's sha256 matches the value below — the published PyPI digest

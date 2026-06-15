@@ -37,12 +37,12 @@ jobs:
       - name: Run tests
         run: pytest tests/ -v --tb=short
 
-  # Supply-chain security scan: audit the resolved runtime dependencies for
-  # known CVEs. It runs against requirements-lock.txt — the same hash-pinned
-  # lockfile that Dockerfile.heroforge-app installs with --require-hashes — so
-  # the exact versions that ship in the runtime image are what gets checked.
-  # Kept as its own job so a dependency CVE is reported independently of the
-  # lint/format/test results.
+  # Supply-chain security scan: audit the pinned dependencies for known CVEs.
+  # It scans every requirements*.txt file — requirements-lock.txt (the hash-
+  # pinned runtime tree that Dockerfile.heroforge-app installs with
+  # --require-hashes, so the exact shipped versions are checked) plus the
+  # requirements-pip*.txt CI tooling pins themselves. Kept as its own job so a
+  # dependency CVE is reported independently of the lint/format/test results.
   audit:
     runs-on: ubuntu-latest
     permissions:
@@ -56,8 +56,22 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install pip-audit
-        run: python -m pip install --upgrade pip pip-audit
+      # Pin pip itself to a verified, hash-checked version first (so the tool
+      # doing the auditing is reproducible), then install pip-audit from its own
+      # hash-pinned lockfile. Both installs are --require-hashes; the pinned pip
+      # already satisfies pip-audit's own pip requirement, so the second install
+      # needs no hash for pip. Regenerate requirements-pip-audit.txt with:
+      #   pip-compile --generate-hashes --no-emit-index-url \
+      #       --output-file requirements-pip-audit.txt requirements-pip-audit.in
+      - name: Install pinned pip and pip-audit
+        run: |
+          python -m pip install --require-hashes -r requirements-pip.txt \
+            && python -m pip install --require-hashes -r requirements-pip-audit.txt
 
-      - name: Audit runtime dependencies for known CVEs
-        run: pip-audit -r requirements-lock.txt
+      - name: Audit all pinned requirements for known CVEs
+        run: |
+          for req in requirements*.txt; do
+            echo "::group::pip-audit ${req}"
+            pip-audit -r "${req}"
+            echo "::endgroup::"
+          done
