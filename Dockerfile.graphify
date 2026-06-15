@@ -18,8 +18,8 @@
 #
 # It is a four-stage build (every network-touching step lives in a *-builder
 # stage; the final runner stage only ever COPYs and installs offline):
-#   1. base            — the shared, digest-pinned image + prune label that the
-#                        other three stages derive from (label inherited via FROM).
+#   1. base            — the shared, digest-pinned image + OCI/prune labels that
+#                        the other three stages derive from (labels inherited via FROM).
 #   2. python-builder  — installs graphifyy into an isolated pipx venv at
 #                        /opt/pipx, as a non-root user against the image's Python.
 #                        Network.
@@ -47,11 +47,11 @@ ARG EPHEMERAL_LABEL_NAME
 ARG EPHEMERAL_LABEL_VALUE
 
 # =============================================================================
-# Stage 1 — base: shared digest-pinned image + prune label
+# Stage 1 — base: shared digest-pinned image + image labels (OCI + prune flag)
 # =============================================================================
 # Base image pinned by digest (not just the mutable :3.12-slim-bookworm tag) so
 # the build is reproducible and resistant to tag re-pointing / supply-chain
-# tampering. This is the same digest used by the application Dockerfile; bump it
+# tampering. This is the same digest used by Dockerfile.heroforge-app; bump it
 # deliberately to pick up upstream security updates. Pinning it ONCE here and
 # having every other stage derive `FROM base` means the digest lives in a single
 # place.
@@ -66,6 +66,17 @@ FROM python:3.12-slim-bookworm@sha256:76d4b7b6305788c6b4c6a19d6a22a3921bf802e9af
 ARG EPHEMERAL_LABEL_NAME
 ARG EPHEMERAL_LABEL_VALUE
 LABEL ${EPHEMERAL_LABEL_NAME}=${EPHEMERAL_LABEL_VALUE}
+
+# Standard OCI image labels, declared on the base layer so every derived stage
+# inherits them via FROM (same pattern as Dockerfile.heroforge-app). These are
+# descriptive metadata about the artifact; they are kept separate from the
+# com.heroforge.* prune flag above, which is a private control tag the cleanup
+# step matches on — OCI keys describe the image, the vendor key drives behaviour.
+LABEL org.opencontainers.image.title="HeroForge-Anew graphify builder" \
+      org.opencontainers.image.description="Throwaway, network-isolated image that builds the graphify codebase knowledge graph (graphify-out/graph.json); see scripts/build-graph.sh." \
+      org.opencontainers.image.source="https://github.com/chaoscommencer/HeroForge-Anew" \
+      org.opencontainers.image.licenses="GPL-3.0-or-later" \
+      org.opencontainers.image.base.name="docker.io/library/python:3.12-slim-bookworm"
 
 # =============================================================================
 # Stage 2 — python-builder: install graphifyy into an isolated pipx venv
