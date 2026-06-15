@@ -54,25 +54,32 @@ src/
 This repository can be mapped into a queryable **knowledge graph** by
 [graphify](https://github.com/safishamsi/graphify) (PyPI package `graphifyy`,
 CLI `graphify`). `graphifyy` is listed in the `dev` optional-dependencies in
-`pyproject.toml`, so `pip install -e ".[dev]"` makes the `graphify` CLI
-available. Code is extracted locally with tree-sitter — no API key or network
-access is needed to build or query the graph.
+`pyproject.toml`, so the coding agent's `pip install -e ".[dev]"` puts the
+`graphify` CLI on its `PATH`. Locally, the CLI is intentionally NOT installed
+into the dev container's environment — it runs inside an isolated container
+instead (see below). Code is extracted locally with tree-sitter — no API key or
+network access is needed to build or query the graph.
 
 **Availability differs by environment:**
 
 - In the GitHub Copilot **coding agent** environment, the graph is pre-built at
   `graphify-out/graph.json` by `.github/workflows/copilot-setup-steps.yml`.
 - In the **local dev container** (Copilot Chat in VS Code), the graph is *not*
-  built automatically. Create it on demand if it is missing: verify the CLI is
-  present (`command -v graphify`; if absent, `pip install -e ".[dev]"`), then run
-  `graphify update .` once to generate `graphify-out/graph.json` before querying.
+  built automatically. Build it on demand if `graphify-out/graph.json` is
+  missing by running `scripts/build-graph.sh`. That script builds the graph in a
+  throwaway, network-isolated container (repository mounted read-only, run with
+  `--network none`) so graphifyy and its dependencies never enter the dev
+  container's Python environment; the resulting `graphify-out/graph.json` is
+  written back to the workspace, owned by the host user, ready to query. See
+  `Dockerfile.graphify` for the two-stage build it uses.
 
 **Query the graph before grepping or opening files.** A single `graphify query`
 returns the relevant functions, classes, files, and their relationships in a
 compact form, so you spend far fewer tokens than reading source files one by one.
 
 - Build the graph on demand if `graphify-out/graph.json` does not yet exist:
-  `graphify update .`
+  `scripts/build-graph.sh` (local dev container; isolated + network-free) or
+  `graphify update .` (coding agent, where the CLI is already on `PATH`).
 - Understand structure or find where logic lives:
   `graphify query "how are saving throws calculated"`
 - Trace a relationship between two concepts:
@@ -80,8 +87,13 @@ compact form, so you spend far fewer tokens than reading source files one by one
 - Summarise one symbol and its neighbours:
   `graphify explain "compute_derived_stats()"`
 - Rebuild after significant edits (or if `graphify-out/graph.json` is missing):
-  `graphify update .`
+  `scripts/build-graph.sh` locally, or `graphify update .` in the coding agent.
 - Skim `graphify-out/GRAPH_REPORT.md` for a high-level architecture overview.
+
+In the **local dev container** the `graphify` CLI is not on `PATH`, so run any
+`graphify` subcommand through the isolated container by forwarding it to the
+script, e.g. `scripts/build-graph.sh graphify query "how are saving throws
+calculated"` (the image is reused; the repo stays read-only and network-free).
 
 Only fall back to `grep`/file reads for the specific locations the graph points
 you at. See `.github/skills/graphify/SKILL.md` for full usage. The generated

@@ -28,6 +28,22 @@
         "panel": "dedicated"
       },
       "detail": "Stop and remove BOTH QA containers (app + noVNC display), their network, and the shared X11 socket volume."
+    },
+    {
+      "label": "Generate knowledge graph",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/build-graph.sh",
+      "args": [
+        "--build",
+        "--prune-cache",
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "detail": "Build the graphify codebase knowledge graph (graphify-out/graph.json) in a throwaway, network-isolated container (repo mounted read-only, --network none). graphifyy never enters the dev container's Python env, and the built image is pruned automatically afterwards."
     }
   ]
 }

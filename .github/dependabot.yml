@@ -7,7 +7,11 @@
 version: 2
 updates:
   # --- Python (pip) ---------------------------------------------------------
-  # Picks up the project + dev/optional dependencies declared in pyproject.toml.
+  # Picks up the project + dev/optional dependencies declared in pyproject.toml,
+  # and the hash-pinned bootstrap pip in requirements-pip.txt (consumed by
+  # Dockerfile.graphify). Dependabot scans every requirements-style .txt file in
+  # this directory, so when a new pip is released it opens a PR that bumps both
+  # the version and the --hash in requirements-pip.txt.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
@@ -45,8 +49,11 @@ updates:
       - "dependencies"
       - "devcontainers"
 
-  # --- Docker (runtime / QA image) ------------------------------------------
-  # Tracks the base image in the root Dockerfile and docker-compose.yml.
+  # --- Docker (runtime / QA + tooling images) -------------------------------
+  # Tracks the base images in every root Dockerfile and docker-compose.yml.
+  # Dependabot matches all files whose name contains "Dockerfile" in this
+  # directory, so Dockerfile, Dockerfile.display and Dockerfile.graphify (the
+  # isolated graphify knowledge-graph builder) are all covered by this one entry.
   - package-ecosystem: "docker"
     directory: "/"
     schedule:

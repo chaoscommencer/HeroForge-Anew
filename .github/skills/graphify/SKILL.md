@@ -11,10 +11,20 @@ user-invocable: true
 
 # graphify – queryable codebase knowledge graph
 
-`graphify` (PyPI package **`graphifyy`**, CLI command `graphify`) is pre-installed
-in this environment via `.github/workflows/copilot-setup-steps.yml`, which also
-registers this skill with Copilot (`graphify install --platform copilot`) and
-pre-builds the graph at `graphify-out/graph.json` before the task starts.
+`graphify` (PyPI package **`graphifyy`**, CLI command `graphify`) maps this
+codebase into a queryable knowledge graph. **Availability differs by environment:**
+
+- In the GitHub Copilot **coding agent** environment it is pre-installed via
+  `.github/workflows/copilot-setup-steps.yml`, which also registers this skill
+  (`graphify install --platform copilot`) and pre-builds the graph at
+  `graphify-out/graph.json` before the task starts, so the `graphify` CLI is on
+  `PATH` and the commands below run as written.
+- In the **local dev container** the CLI is intentionally NOT installed into the
+  environment. Instead, run every `graphify` subcommand through the isolated,
+  network-free container wrapper `scripts/build-graph.sh`, which forwards its
+  arguments to a `graphify` CLI living inside a throwaway container (repository
+  mounted read-only, `--network none`). Prefix the commands below with
+  `scripts/build-graph.sh`, e.g. `scripts/build-graph.sh graphify query "..."`.
 
 Code is extracted **locally** with tree-sitter (AST) — **no API key and no network
 call is required** for `update`, `query`, `path`, or `explain`. The graph and its
@@ -31,12 +41,15 @@ you at them.
 ## Make sure the graph exists / is fresh
 
 ```bash
+# coding agent (CLI on PATH):
 graphify update .
+# local dev container (isolated, network-free container):
+scripts/build-graph.sh
 ```
 
-`graphify update .` re-extracts code files and (re)writes `graphify-out/graph.json`
-with no LLM needed. Run it once at the start of a task if `graphify-out/graph.json`
-is missing, and again after you make significant code changes so later queries
+This re-extracts code files and (re)writes `graphify-out/graph.json` with no LLM
+needed. Run it once at the start of a task if `graphify-out/graph.json` is
+missing, and again after you make significant code changes so later queries
 reflect your edits.
 
 ## Query the graph (preferred)
