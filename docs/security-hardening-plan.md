@@ -47,25 +47,11 @@ docker compose down
 | 7 | `36735d3` | Add a `healthcheck:` to the `app` service in `docker-compose.yml`: a dependency-free pure-Python `/proc` scan (the app has `network_mode: none` and no extra tooling) that exits 0 once a `python -m heroforge` process is found, with a 30s `start_period` to cover first-launch DB seeding. Verified `health=healthy` live. |
 | 8 | `fe9d9c0` | Serve noVNC over TLS: `display-entrypoint.sh` generates a self-signed loopback cert+key (CN=localhost, RSA-2048, key 0600) into the `/home/app` tmpfs and launches websockify with `--cert/--key/--ssl-only` (wss:// only; plaintext refused); `openssl` added to `Dockerfile.display`. Forwarded port 6080 marked `protocol: https` in `devcontainer.json` + a live `remote.portsAttributes` mirror in `.vscode/settings.json` so the VS Code forwarder speaks TLS to the backend (plain HTTP otherwise → 502); `onAutoForward` switched to `notify`. Task URLs updated to `https://wss://`; TLS setup and benign websockify log lines documented in `docs/containerized-runtime.md`. |
 | 9 | `6b38652` | Document the knowingly accepted residual risks in `docs/containerized-runtime.md` under a new **Residual / accepted risks** subsection: VNC's DES-based password is capped at 8 significant characters (protocol-inherent), and Dependabot **security alerts** are a repository-settings toggle (*Settings → Code security and analysis*), not something `.github/dependabot.yml` can enable. Docs-only. |
+| 10 | `01d678d` | Document `userns-remap` in `docs/containerized-runtime.md` as an **optional host daemon-level** hardening option (`/etc/docker/daemon.json` `{"userns-remap": "default"}`) that maps the container's UID 1000 to an unprivileged subordinate host UID for extra defense in depth on a shared host. Notes it cannot be enforced from this repo (not a per-Compose setting), plus the volume-ownership remapping caveat, the daemon-global scope, and that rootless Podman achieves a similar end without daemon config. Docs-only. |
 
 ---
 
 ## Remaining steps
-
-### Step 10 — Document `userns-remap` (docs-only)
-
-In `docs/containerized-runtime.md`, document `userns-remap` as a **host
-daemon-level** hardening option:
-
-- Configured in `/etc/docker/daemon.json` as `{"userns-remap": "default"}`, it
-  maps the container's UID 1000 to an unprivileged subordinate UID on the host —
-  extra defense in depth if the host is shared.
-- It cannot be enforced from this repo (not a per-compose setting), so document
-  it as a recommended host step, including the volume-ownership remapping caveat.
-
-**Commit:** `docs(security): document userns-remap host-level hardening option`
-
----
 
 ### Step 11 — Remove this plan document (cleanup)
 
@@ -82,5 +68,5 @@ not linger in the repository.
 
 ## Status
 
-- Steps 1–9 complete and committed (see table above).
-- **Next: Step 10** (document `userns-remap` host-level hardening option) — awaiting go-ahead.
+- Steps 1–10 complete and committed (see table above).
+- **Next: Step 11** (remove this completed plan document) — awaiting go-ahead.
