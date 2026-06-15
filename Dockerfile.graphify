@@ -116,24 +116,44 @@ USER builder
 # Bootstrap pipx into the build user's site with pip (against the image's 3.12,
 # as non-root → no warning), then have pipx install graphifyy into /opt/pipx.
 # tree-sitter grammars ship as prebuilt wheels, so no compiler/sdist build step
-# is required. --no-cache-dir keeps pip's download cache out of the layer.
+# is required. --no-cache-dir keeps pip's download cache out of every layer.
 #
-# The bootstrap pip is hash-pinned for supply-chain integrity. --require-hashes
-# makes pip refuse to install unless the downloaded wheel's sha256 matches the
-# digest recorded in requirements-pip.txt, so the one artifact that bootstraps
-# everything else is cryptographically verified, consistent with the digest-
-# pinned base image. The pin lives in its own committed file (not inline) so
-# Dependabot / CI can track and update it automatically.
+# Every install here is hash-pinned for supply-chain integrity: --require-hashes
+# makes pip refuse to install unless each downloaded wheel's sha256 matches a
+# digest recorded in the corresponding committed lockfile, consistent with the
+# digest-pinned base image. Each lockfile is generated from a one-line *.in
+# source with `pip-compile --generate-hashes` so Dependabot / CI can track and
+# update the pins automatically (CI's audit job also scans every requirements*.txt).
+# Every install also passes --only-binary=:all: so pip refuses sdists and no
+# package's build backend can execute arbitrary code at install time (the closest
+# equivalent to `npm --ignore-scripts`); it is forwarded into the pipx bootstrap
+# via --pip-args so even that throwaway resolve is wheels-only.
 #
-# It runs as its OWN install command because --require-hashes is all-or-nothing:
-# every requirement resolved in that invocation must carry a hash. The subsequent
-# `pip install pipx` and `pipx install graphifyy` pull large transitive dependency
-# trees we deliberately do not hash-pin exhaustively, so they stay in separate,
-# non-hash-checked commands.
-COPY requirements-pip.txt /tmp/requirements-pip.txt
-RUN python -m pip install --no-cache-dir --user --require-hashes -r /tmp/requirements-pip.txt \
-    && python -m pip install --no-cache-dir --user pipx \
-    && python -m pipx install graphifyy
+# Because --require-hashes is all-or-nothing — every requirement resolved in an
+# invocation must carry a hash — and a package named on the *command line* is
+# always treated as its own unpinned requirement (so pip rejects it under
+# --require-hashes), the four steps are:
+#   1. pip   — install a hash-pinned pip from requirements-pip.txt (the artifact
+#              that bootstraps everything else is verified first).
+#   2. pipx  — install a hash-pinned pipx (+ its deps) from requirements-pipx.txt.
+#   3. pipx install graphifyy — create the /opt/pipx venv and expose the
+#              `graphify`/`graphify-mcp` console scripts. This bootstrap resolve
+#              cannot itself be hash-checked (graphifyy is a command-line spec),
+#              but --pip-args='--only-binary=:all:' keeps it wheels-only (no sdist
+#              code executes), and step 4 immediately re-verifies the whole closure.
+#   4. pipx runpip graphifyy install --require-hashes -r requirements-graphifyy.txt
+#              --force-reinstall — re-install graphifyy AND its entire transitive
+#              tree *inside* that venv with every wheel cryptographically verified,
+#              overwriting whatever step 3 resolved. This is the actual integrity
+#              gate: a tampered or version-drifted artifact fails the build (pipx
+#              propagates pip's non-zero exit). runpip is pipx's supported way to
+#              run pip in an existing pipx venv, which is what lets a hashed
+#              -r file (rather than an unpinnable command-line spec) drive it.
+COPY requirements-pip.txt requirements-pipx.txt requirements-graphifyy.txt /tmp/
+RUN python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r /tmp/requirements-pip.txt \
+    && python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r /tmp/requirements-pipx.txt \
+    && python -m pipx install --pip-args='--only-binary=:all:' graphifyy \
+    && python -m pipx runpip graphifyy install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/requirements-graphifyy.txt --force-reinstall
 
 # =============================================================================
 # Stage 3 — git-builder: download git as offline-installable .deb packages
