@@ -6,22 +6,34 @@
 // longer runs a remote-viewable desktop itself.
 //
 // Customize freely: swap VS Code extensions, or change the Python version via
-// .devcontainer/Dockerfile.
+// .devcontainer/Dockerfile.devcontainer-default.
 {
   "name": "HeroForge-Anew (PyQt6 Dev)",
 
   // Build the tailored dev image (Python + Qt runtime libs).
   "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".."
+    "dockerfile": "Dockerfile.devcontainer-default",
+    "context": "..",
+    "args": {
+      // Bake the rootless-Podman runtime packages (podman, crun, catatonit,
+      // uidmap, fuse-overlayfs, slirp4netns) into the image so the preferred
+      // Podman QA engine is ready on first boot without an apt fetch at
+      // postCreate. The Dockerfile gates the install on this flag; set it to
+      // "false" to keep the image lean when only the Docker-in-Docker QA path
+      // will be used (scripts/setup-podman.sh then installs whatever is missing
+      // at postCreate). Per-user Podman config still happens in that script.
+      "INSTALL_PODMAN_DEPS": "true"
+    }
   },
 
   "features": {
     // Docker-in-Docker so the QA docker-compose stack can be built and run from
     // within the Codespace. Compose is included. A rootless Podman alternative
-    // (podman + podman-compose) is provisioned by the postCreateCommand below
-    // via scripts/setup-podman.sh; scripts/run-gui.sh prefers Podman when it is
-    // present.
+    // is preferred by scripts/run-gui.sh when present: its runtime packages are
+    // baked into the image via the INSTALL_PODMAN_DEPS build arg above, and the
+    // per-user Podman setup (subuid/subgid, storage.conf, containers.conf,
+    // podman-compose) is provisioned by the postCreateCommand below via
+    // scripts/setup-podman.sh.
     "ghcr.io/devcontainers/features/docker-in-docker:2": {
       "version": "latest",
       "dockerDashComposeVersion": "v2"
@@ -58,11 +70,15 @@
   // local editable checkout). --user installs into ~/.local; --only-binary=:all:
   // refuses sdists so no build backend runs arbitrary code at install time.
   //
-  // scripts/setup-podman.sh (rootless Podman + podman-compose; idempotent) is
-  // OPTIONAL, so it is wrapped to be non-fatal: a failure prints a warning and
-  // container creation still succeeds. Optional host-style hardening
-  // (userns-remap on the inner Docker daemon) is a separate, manual opt-in: run
-  // scripts/enable-userns-remap.sh.
+  // scripts/setup-podman.sh (per-user rootless Podman config + podman-compose;
+  // idempotent) is OPTIONAL, so it is wrapped to be non-fatal: a failure prints
+  // a warning and container creation still succeeds. The Podman runtime packages
+  // themselves are baked into the image (INSTALL_PODMAN_DEPS build arg), so the
+  // script's apt installs are normally no-ops; it remains responsible for the
+  // per-user state and for installing any packages still missing (e.g. when the
+  // image was built with INSTALL_PODMAN_DEPS=false). Optional host-style
+  // hardening (userns-remap on the inner Docker daemon) is a separate, manual
+  // opt-in: run scripts/enable-userns-remap.sh.
   "postCreateCommand": "python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-pip.txt && python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-dev.txt && python -m pip install --no-cache-dir --user --only-binary=:all: --no-deps -e . && { scripts/setup-podman.sh || echo 'warning: scripts/setup-podman.sh failed (optional); QA stack can still run via docker compose. Continuing.'; }",
 
   // Run as the unprivileged user shipped with the base image.
