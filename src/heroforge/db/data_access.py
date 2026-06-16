@@ -614,13 +614,13 @@ class GameDataRepository:
         if not name_list:
             return []
         normalized_names = [n.casefold() for n in name_list]
-        unique_names = list(dict.fromkeys(normalized_names))
-        placeholders = ", ".join("?" for _ in unique_names)
+        unique_normalized_names = list(dict.fromkeys(normalized_names))
+        placeholders = ", ".join("?" for _ in unique_normalized_names)
         rows = self._query(
             "SELECT id, name, cr_adjustment, level_adjustment, type_change, "
             "subtype_added, str_adj, dex_adj, con_adj, int_adj, wis_adj, "
             f"cha_adj, source FROM templates WHERE LOWER(name) IN ({placeholders})",
-            unique_names,
+            unique_normalized_names,
         )
         by_name: dict[str, Template] = {}
         for r in rows:
