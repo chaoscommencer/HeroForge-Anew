@@ -105,5 +105,5 @@ class GameLogTab(QWidget):
             return
         for entry in self._model.character.game_log:
             self._append_line(
-                str(entry.get("timestamp", "")), str(entry.get("content", ""))
+                entry.get("timestamp") or "", entry.get("content") or ""
             )
