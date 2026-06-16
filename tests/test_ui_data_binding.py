@@ -174,6 +174,63 @@ class TestSourceSelectDialog:
         assert dialog._source_list.count() == 0
 
 
+class TestOptionsDialog:
+    def test_get_options_returns_selected_values(self, qapp: object) -> None:
+        from heroforge.ui.dialogs.options import OptionsDialog
+
+        dialog = OptionsDialog(options={"point_buy_budget": "32"})
+        assert dialog.point_buy_budget == 32
+        assert dialog.get_options() == {"point_buy_budget": "32"}
+
+    def test_prepopulates_from_stored_options(self, qapp: object) -> None:
+        from heroforge.ui.dialogs.options import OptionsDialog
+
+        dialog = OptionsDialog()
+        dialog.set_options({"point_buy_budget": "28"})
+        assert dialog.get_options()["point_buy_budget"] == "28"
+
+    def test_invalid_stored_value_falls_back_to_default(self, qapp: object) -> None:
+        from heroforge.ui.dialogs.options import OptionsDialog
+
+        dialog = OptionsDialog(options={"point_buy_budget": "garbage"})
+        assert dialog.point_buy_budget == 25
+
+    def test_model_round_trip_stores_and_reads_options(
+        self, empty_model: object
+    ) -> None:
+        from heroforge.ui.dialogs.options import OptionsDialog
+
+        dialog = OptionsDialog(options=empty_model.options())
+        dialog.set_options({"point_buy_budget": "30"})
+
+        received: list[None] = []
+        empty_model.options_changed.connect(lambda: received.append(None))
+        empty_model.set_options(dialog.get_options())
+
+        assert received  # options_changed emitted
+        assert empty_model.options() == {"point_buy_budget": "30"}
+        assert empty_model.point_buy_budget() == 30
+        # Persisted on the character so character_repo saves it.
+        assert empty_model.character.options == {"point_buy_budget": "30"}
+
+
+class TestStatsTabPointBuyApplied:
+    def test_summary_reflects_configured_budget(self, empty_model: object) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        tab = StatsAndCharacterDetailsTab(model=empty_model)
+        # Default budget of 25, all-10 scores cost 12.
+        assert tab._point_buy_label.text() == "Point-Buy: 12 / 25"
+
+        empty_model.set_options({"point_buy_budget": "15"})
+        empty_model.ability_score_changed.emit("STR", 18)
+        text = tab._point_buy_label.text()
+        assert "/ 15" in text
+        assert "over budget" in text
+
+
 class TestMainWindowWiring:
     def test_game_db_path_threaded_into_model(
         self, qapp: object, seeded_db: Path

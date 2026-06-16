@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Mapping
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -36,6 +37,7 @@ from heroforge.logic.familiar import (
 from heroforge.logic.familiar import save_bonuses as familiar_save_bonuses
 from heroforge.logic.legacy_import import import_hfg
 from heroforge.models.character import Character
+from heroforge.models.options import point_buy_budget as _options_point_buy_budget
 from heroforge.ui.dialogs.custom_class import CustomClassDialog
 from heroforge.ui.dialogs.custom_familiar import CustomFamiliarDialog
 from heroforge.ui.dialogs.custom_race import CustomRaceDialog
@@ -161,6 +163,14 @@ class CharacterModel(QObject):
 
     character_reset = pyqtSignal()
     """Emitted when a new blank character is created."""
+
+    options_changed = pyqtSignal()
+    """Emitted when build / house-rule options change (e.g. point-buy budget).
+
+    Tabs whose behaviour depends on an option (such as the Stats tab's
+    point-buy readout) connect here to refresh when the user edits options via
+    the :class:`~heroforge.ui.dialogs.options.OptionsDialog`.
+    """
 
     def __init__(
         self,
@@ -342,9 +352,42 @@ class CharacterModel(QObject):
         """
         return self._game_data
 
+    # ------------------------------------------------------------------
+    # Build / house-rule options (Options dialog, tab 11b)
+    # ------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# MainWindow
+    def options(self) -> dict[str, str]:
+        """Return the active character's stored build options.
+
+        These are persisted with the character via the ``character_options``
+        table (see :mod:`heroforge.db.character_repo`).
+        """
+        return self._character.options
+
+    def set_options(self, options: Mapping[str, object]) -> None:
+        """Store *options* on the active character and announce the change.
+
+        Values are stringified to match the ``dict[str, str]`` shape used by
+        :class:`~heroforge.models.character.Character` and the persistence
+        layer.  Emits :attr:`options_changed` so dependent tabs refresh, and
+        :attr:`derived_stats_changed` because options (e.g. the point-buy
+        budget) can influence computed readouts.
+        """
+        self._character.options = {
+            str(name): str(value) for name, value in options.items()
+        }
+        self.options_changed.emit()
+        self.derived_stats_changed.emit()
+
+    def point_buy_budget(self) -> int:
+        """Return the configured point-buy budget for the active character.
+
+        Reads the persisted option, falling back to the standard 25-point
+        budget when unset (DMG p169).
+        """
+        return _options_point_buy_budget(self._character.options)
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -613,7 +656,9 @@ class MainWindow(QMainWindow):
         return dialog
 
     def _on_options(self) -> None:
-        self._open_dialog(OptionsDialog(parent=self))
+        dialog = OptionsDialog(options=self.model.options(), parent=self)
+        if self._open_dialog(dialog).result() == QDialog.DialogCode.Accepted:
+            self.model.set_options(dialog.get_options())
 
     def _on_select_sources(self) -> None:
         self._open_dialog(SourceSelectDialog(repo=self.model.game_data(), parent=self))

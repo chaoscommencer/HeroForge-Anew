@@ -21,8 +21,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from heroforge.logic.ability_scores import ability_modifier
+from heroforge.logic.ability_scores import ability_modifier, point_buy_spent
 from heroforge.logic.experience import xp_for_level
+from heroforge.models.options import point_buy_budget
 
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
@@ -68,6 +69,7 @@ class StatsAndCharacterDetailsTab(QWidget):
             model.character_loaded.connect(lambda _id: self._sync_from_model())
             model.ability_score_changed.connect(self._on_ability_score_changed)
             model.derived_stats_changed.connect(self._refresh_derived)
+            model.options_changed.connect(self._refresh_point_buy)
             self._connect_identity_signals()
             self._sync_from_model()
             self._refresh_derived()
@@ -153,7 +155,10 @@ class StatsAndCharacterDetailsTab(QWidget):
 
     def _build_ability_group(self) -> QGroupBox:
         box = QGroupBox("Ability Scores")
-        grid_layout = QHBoxLayout(box)
+        outer = QVBoxLayout(box)
+        grid_widget = QWidget()
+        grid_layout = QHBoxLayout(grid_widget)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
 
         for ability in _ABILITIES:
             col = QVBoxLayout()
@@ -183,6 +188,16 @@ class StatsAndCharacterDetailsTab(QWidget):
             col.addWidget(spinbox)
             col.addWidget(mod_label)
             grid_layout.addLayout(col)
+
+        outer.addWidget(grid_widget)
+
+        # Point-buy summary: reflects the budget configured in the Options
+        # dialog (tab 11b) so the player sees points spent against their budget.
+        self._point_buy_label = QLabel()
+        self._point_buy_label.setObjectName("pointBuy")
+        self._point_buy_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        outer.addWidget(self._point_buy_label)
+        self._refresh_point_buy()
 
         return box
 
@@ -266,6 +281,24 @@ class StatsAndCharacterDetailsTab(QWidget):
         # Race is owned by the Race & Templates tab; mirror it read-only here.
         self._race_edit.setText(self._model.character.race)
 
+    def _refresh_point_buy(self) -> None:
+        """Update the point-buy summary against the configured budget.
+
+        The budget comes from the Options dialog (tab 11b) via the model; when
+        no model is present (standalone widget) the standard 25-point default is
+        shown.  Spending over budget is flagged so the player notices.
+        """
+        if not hasattr(self, "_point_buy_label"):
+            return
+        scores = {ab: spin.value() for ab, spin in self._ability_spinboxes.items()}
+        spent = point_buy_spent(scores)
+        if self._model is not None:
+            budget = self._model.point_buy_budget()
+        else:
+            budget = point_buy_budget({})
+        over = " — over budget!" if spent > budget else ""
+        self._point_buy_label.setText(f"Point-Buy: {spent} / {budget}{over}")
+
     # ------------------------------------------------------------------
     # Signal handlers
     # ------------------------------------------------------------------
@@ -274,6 +307,7 @@ class StatsAndCharacterDetailsTab(QWidget):
         mod = ability_modifier(value)
         sign = "+" if mod >= 0 else ""
         self._modifier_labels[ability].setText(f"{sign}{mod}")
+        self._refresh_point_buy()
         if self._model:
             self._model.ability_score_changed.emit(ability, value)
 
@@ -285,6 +319,7 @@ class StatsAndCharacterDetailsTab(QWidget):
             mod = ability_modifier(value)
             sign = "+" if mod >= 0 else ""
             self._modifier_labels[ability].setText(f"{sign}{mod}")
+            self._refresh_point_buy()
 
     def _update_next_level(self, xp: int) -> None:
         from heroforge.logic.experience import level_for_xp
@@ -357,3 +392,4 @@ class StatsAndCharacterDetailsTab(QWidget):
             mod = ability_modifier(value)
             sign = "+" if mod >= 0 else ""
             self._modifier_labels[ab].setText(f"{sign}{mod}")
+        self._refresh_point_buy()
