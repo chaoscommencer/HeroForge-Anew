@@ -1,6 +1,6 @@
 """Tests for the Custom Familiar dialog (Excel tab 9c) save path.
 
-These cover the structured serialisation helpers
+These cover the structured serialization helpers
 (:mod:`heroforge.logic.familiar`), the dialog's OK/accept handler persisting a
 homebrew familiar onto ``Character.custom_content``, its round trip through the
 character save file, and the Familiar tab surfacing it as selectable.

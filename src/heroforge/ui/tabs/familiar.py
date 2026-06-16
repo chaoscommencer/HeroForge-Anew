@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 from heroforge.logic.familiar import (
     STANDARD_FAMILIAR_BONUSES,
     STANDARD_FAMILIAR_MASTER_ABILITIES,
+    CustomFamiliar,
     describe_bonus,
     list_custom_familiars,
 )
@@ -133,7 +134,7 @@ class FamiliarTab(QWidget):
     # State helpers
     # ------------------------------------------------------------------
 
-    def _custom_familiars(self) -> list:  # type: ignore[type-arg]
+    def _custom_familiars(self) -> list[CustomFamiliar]:
         """Return the homebrew familiars saved on the current character."""
         if self._model is None:
             return []
