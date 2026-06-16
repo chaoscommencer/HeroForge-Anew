@@ -236,7 +236,6 @@ class ClassesTab(QWidget):
             return
         base_rows = self._taken_rows()
         new_levels = dict(base_rows)
-        owned = set(new_levels)
         # Merge in place so the original "order taken" of every entry is kept
         # (see ``Character.classes`` docstring): walk the existing list,
         # updating the levels of base classes this tab owns and dropping any it
@@ -244,7 +243,7 @@ class ClassesTab(QWidget):
         merged: list[tuple[str, int]] = []
         seen: set[str] = set()
         for name, level in self._model.character.classes:
-            if name in self._base_class_names or name in owned:
+            if name in self._base_class_names:
                 if name in new_levels:
                     merged.append((name, new_levels[name]))
                     seen.add(name)
