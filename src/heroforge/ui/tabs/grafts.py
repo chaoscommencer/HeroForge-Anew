@@ -7,6 +7,7 @@ applied grafts are persisted to :attr:`Character.grafts`.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
@@ -26,6 +27,15 @@ from heroforge.ui.tabs._tab_helper import pick_from_catalog
 
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
+
+# _make_item labels items as "{name} ({slot})".  When UserRole data is absent
+# or corrupted we recover the bare graft name by removing this suffix.
+_SLOT_SUFFIX_RE = re.compile(r"\s*\([^)]+\)\s*$")
+
+
+def _strip_slot_suffix(label: str) -> str:
+    """Remove the trailing ' (body-slot)' suffix appended by ``_make_item``."""
+    return _SLOT_SUFFIX_RE.sub("", label).strip()
 
 
 class GraftsTab(QWidget):
@@ -88,7 +98,9 @@ class GraftsTab(QWidget):
             data = item.data(Qt.ItemDataRole.UserRole) or {}
             result.append(
                 {
-                    "graft_name": data.get("graft_name", item.text()),
+                    "graft_name": data.get(
+                        "graft_name", _strip_slot_suffix(item.text())
+                    ),
                     "body_slot": data.get("body_slot", ""),
                     "notes": data.get("notes", ""),
                 }
@@ -168,7 +180,7 @@ class GraftsTab(QWidget):
         if current is None or self._model is None:
             return
         data = current.data(Qt.ItemDataRole.UserRole) or {}
-        name = data.get("graft_name", current.text())
+        name = data.get("graft_name") or _strip_slot_suffix(current.text())
         if not name:
             return
         for ability in self._model.game_data().list_graft_abilities(name):
