@@ -534,15 +534,16 @@ class GameDataRepository:
             "base_burrow_speed, darkvision, low_light_vision, natural_armor, "
             "str_adj, dex_adj, con_adj, int_adj, wis_adj, cha_adj, "
             "level_adjustment, favored_class, source "
-            "FROM races WHERE name = ? LIMIT 1",
+            "FROM races WHERE LOWER(name) = LOWER(?) LIMIT 1",
             [name],
         )
         if not rows:
             return None
         r = rows[0]
+        canonical_name = r["name"]
         return Race(
             id=r["id"],
-            name=r["name"],
+            name=canonical_name,
             size=r["size"] or "Medium",
             type=r["type"] or "Humanoid",
             subtype=r["subtype"] or "",
@@ -564,7 +565,8 @@ class GameDataRepository:
             favored_class=r["favored_class"] or "",
             source=r["source"] or "",
             abilities=[
-                a.ability_name for a in self.list_racial_abilities(race_name=name)
+                a.ability_name
+                for a in self.list_racial_abilities(race_name=canonical_name)
             ],
         )
 
