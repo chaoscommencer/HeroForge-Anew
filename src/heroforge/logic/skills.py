@@ -23,7 +23,6 @@ STANDARD_SKILL_SYNERGIES: tuple[tuple[str, str], ...] = (
     ("Bluff", "Diplomacy"),
     ("Bluff", "Intimidate"),
     ("Bluff", "Sleight of Hand"),
-    ("Escape Artist", "Use Rope"),
     ("Handle Animal", "Ride"),
     ("Jump", "Tumble"),
     ("Knowledge (Arcana)", "Spellcraft"),
@@ -34,7 +33,6 @@ STANDARD_SKILL_SYNERGIES: tuple[tuple[str, str], ...] = (
     ("Spellcraft", "Use Magic Device"),
     ("Tumble", "Balance"),
     ("Tumble", "Jump"),
-    ("Use Rope", "Escape Artist"),
 )
 
 

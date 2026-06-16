@@ -366,14 +366,14 @@ class SkillsTab(QWidget):
             rank_widget.setMaximum(50)
 
     @staticmethod
-    def _total_tooltip(familiar: int, synergy: int, armor_penalty: int) -> str:
+    def _total_tooltip(familiar: int, synergy: int, armor_check_penalty: int) -> str:
         parts: list[str] = []
         if familiar:
             parts.append(f"+{familiar} familiar")
         if synergy:
             parts.append(f"+{synergy} synergy")
-        if armor_penalty:
-            parts.append(f"{armor_penalty} armor check penalty")
+        if armor_check_penalty:
+            parts.append(f"armor-check penalty {armor_check_penalty:+d}")
         return "Includes " + ", ".join(parts) + "." if parts else ""
 
     def _update_budget(self) -> None:
