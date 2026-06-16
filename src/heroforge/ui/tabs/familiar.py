@@ -156,7 +156,7 @@ class FamiliarTab(QWidget):
             if familiar.special_bonus:
                 bonuses[familiar.name.lower()] = familiar.special_bonus
         self._bonus_lbl.setText(
-            bonuses.get(kind, "(Select a standard familiar kind – see PHB p52.)")
+            bonuses.get(kind, "(Select a familiar kind – see PHB p52 for standard familiars.)")
         )
 
     def _refresh_master_abilities(self) -> None:
