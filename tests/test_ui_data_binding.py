@@ -143,6 +143,16 @@ class TestRaceAndTemplatesTab:
         assert tab._race_combo.count() == 0
         assert tab._available_templates == []
 
+    def test_refresh_variants_preserves_outer_loading_guard(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.race_and_templates import RaceAndTemplatesTab
+
+        tab = RaceAndTemplatesTab(model=model)
+        tab._loading = True
+        tab._refresh_variants("Elf")
+        assert tab._loading is True
+
 
 class TestSpellsTab:
     def test_caster_classes_populated(self, model: object) -> None:

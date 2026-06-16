@@ -27,6 +27,7 @@ from heroforge.db.character_repo import (
 )
 from heroforge.db.data_access import GameDataRepository
 from heroforge.env_paths import dir_from_env
+from heroforge.logic import race_templates
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
 from heroforge.logic.familiar import (
     STANDARD_FAMILIAR_BONUSES,
@@ -295,8 +296,28 @@ class CharacterModel(QObject):
             if kind
             else {}
         )
+        # Look up the selected race and applied templates so their ability
+        # adjustments, size, and level adjustment flow into the derived stats.
+        race = (
+            self._game_data.get_race(self._character.race)
+            if self._game_data.available and self._character.race
+            else None
+        )
+        templates = (
+            self._game_data.get_templates(self._character.templates)
+            if self._game_data.available and self._character.templates
+            else []
+        )
+        adjustments = race_templates.ability_adjustments(race, templates)
+        level_adjustment = race_templates.total_level_adjustment(race, templates)
+        size = race.size if race is not None else "Medium"
         return compute_derived_stats(
-            self._character, progressions, save_bonuses=familiar_saves
+            self._character,
+            progressions,
+            save_bonuses=familiar_saves,
+            ability_adjustments=adjustments,
+            level_adjustment=level_adjustment,
+            size=size,
         )
 
     @property
