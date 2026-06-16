@@ -5,6 +5,8 @@ Reference: PHB p8, p307.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 # ---------------------------------------------------------------------------
 # Ability score modifier
 # ---------------------------------------------------------------------------
@@ -103,3 +105,29 @@ def total_point_buy_cost(scores: dict[str, int]) -> int:
         ValueError: If any score is outside the valid range.
     """
     return sum(point_buy_cost(v) for v in scores.values())
+
+
+def point_buy_spent(scores: Mapping[str, int]) -> int:
+    """Return the point-buy points spent, tolerating out-of-range scores.
+
+    Unlike :func:`total_point_buy_cost`, this never raises: scores below the
+    point-buy minimum (8) cost nothing, and scores above the maximum (18) are
+    treated as the most expensive entry. This makes it safe to call against the
+    free-form ability spinboxes (which allow 1–100) when displaying a live
+    point-buy summary against the configured budget.
+
+    Reference: D&D 3.5 Dungeon Master's Guide (DMG) p169.
+
+    Args:
+        scores: Mapping of ability name to score value (STR, DEX, …).
+
+    Returns:
+        Total point-buy points spent across all supplied scores.
+    """
+    lowest = min(_POINT_BUY_COSTS)
+    highest = max(_POINT_BUY_COSTS)
+    total = 0
+    for value in scores.values():
+        clamped = max(lowest, min(highest, value))
+        total += _POINT_BUY_COSTS[clamped]
+    return total
