@@ -8,6 +8,7 @@ character save file, and the Familiar tab surfacing it as selectable.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,36 @@ def test_custom_familiar_from_content_ignores_other_content() -> None:
         )
         is None
     )
+
+
+def test_custom_familiar_from_content_handles_null_fields() -> None:
+    """JSON ``null`` for kind/special_bonus must decode to ``""`` not ``"None"``."""
+    entry = {
+        "content_type": CUSTOM_FAMILIAR_CONTENT_TYPE,
+        "name": "Imp",
+        "definition": json.dumps(
+            {"kind": None, "special_bonus": None, "intelligence": 8, "natural_armor": 2}
+        ),
+    }
+    familiar = custom_familiar_from_content(entry)
+    assert familiar is not None
+    assert familiar.kind == ""
+    assert familiar.special_bonus == ""
+    assert familiar.intelligence == 8
+    assert familiar.natural_armor == 2
+
+
+def test_custom_familiar_from_content_strips_whitespace_from_string_fields() -> None:
+    """Leading/trailing whitespace in JSON strings is stripped."""
+    entry = {
+        "content_type": CUSTOM_FAMILIAR_CONTENT_TYPE,
+        "name": "Quasit",
+        "definition": json.dumps({"kind": "  Outsider  ", "special_bonus": " bonus "}),
+    }
+    familiar = custom_familiar_from_content(entry)
+    assert familiar is not None
+    assert familiar.kind == "Outsider"
+    assert familiar.special_bonus == "bonus"
 
 
 def test_list_custom_familiars_filters_other_content() -> None:

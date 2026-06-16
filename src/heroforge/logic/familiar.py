@@ -251,10 +251,14 @@ def custom_familiar_from_content(
             loaded = None
         if isinstance(loaded, dict):
             data = loaded
+
+    def _str_field(value: object) -> str:
+        return str(value).strip() if isinstance(value, str) else ""
+
     return CustomFamiliar(
         name=name,
-        kind=str(data.get("kind", "")),
-        special_bonus=str(data.get("special_bonus", "")),
+        kind=_str_field(data.get("kind")),
+        special_bonus=_str_field(data.get("special_bonus")),
         intelligence=_coerce_int(data.get("intelligence"), 6),
         natural_armor=_coerce_int(data.get("natural_armor"), 0),
     )
