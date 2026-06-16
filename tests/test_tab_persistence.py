@@ -91,6 +91,15 @@ def catalog_db(tmp_path: Path) -> Path:
             ],
         )
         conn.executemany(
+            "INSERT INTO graft_abilities (graft_name, ability_name, description) "
+            "VALUES (?, ?, ?)",
+            [
+                ("Fiendish Arm", "Claw Attack", "Primary claw dealing 1d6 damage."),
+                ("Fiendish Arm", "Strength Boost", "+2 Strength."),
+                ("Fiendish Eye", "Darkvision", "Darkvision out to 60 feet."),
+            ],
+        )
+        conn.executemany(
             "INSERT INTO soulmelds (name, chakra, essentia_capacity, source) "
             "VALUES (?, ?, ?, ?)",
             [
@@ -287,6 +296,19 @@ class TestGraftsTab:
         assert tab.add_graft("Fiendish Eye", "Eyes") is True
         slots = {g["body_slot"] for g in model.character.grafts}
         assert slots == {"Arms", "Eyes"}
+
+    def test_abilities_displayed_for_selected_graft(self, model: object) -> None:
+        from heroforge.ui.tabs.grafts import GraftsTab
+
+        tab = GraftsTab(model=model)
+        assert tab.add_graft("Fiendish Arm", "Arms") is True
+        tab._graft_list.setCurrentRow(0)
+        labels = [
+            tab._abilities_list.item(i).text()
+            for i in range(tab._abilities_list.count())
+        ]
+        assert any("Claw Attack" in label for label in labels)
+        assert any("Strength Boost" in label for label in labels)
 
 
 # ---------------------------------------------------------------------------

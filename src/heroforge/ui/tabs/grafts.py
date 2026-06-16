@@ -58,6 +58,7 @@ class GraftsTab(QWidget):
         taken_box = QGroupBox("Applied Grafts")
         taken_layout = QVBoxLayout(taken_box)
         self._graft_list = QListWidget()
+        self._graft_list.currentItemChanged.connect(self._refresh_abilities)
         taken_layout.addWidget(self._graft_list)
 
         btn_row = QHBoxLayout()
@@ -70,6 +71,12 @@ class GraftsTab(QWidget):
         btn_row.addStretch()
         taken_layout.addLayout(btn_row)
         layout.addWidget(taken_box)
+
+        abilities_box = QGroupBox("Graft Abilities")
+        abilities_layout = QVBoxLayout(abilities_box)
+        self._abilities_list = QListWidget()
+        abilities_layout.addWidget(self._abilities_list)
+        layout.addWidget(abilities_box)
         layout.addStretch()
 
     def _entries(self) -> list[dict]:  # type: ignore[type-arg]
@@ -94,6 +101,9 @@ class GraftsTab(QWidget):
     def _sync_to_model(self) -> None:
         if self._model is not None:
             self._model.character.grafts = self._entries()
+            # Graft abilities can grant bonuses that feed derived stats, so
+            # announce an update whenever the applied grafts change.
+            self._model.derived_stats_changed.emit()
 
     def _make_item(self, name: str, slot: str, notes: str = "") -> QListWidgetItem:
         label = f"{name} ({slot})" if slot else name
@@ -146,3 +156,23 @@ class GraftsTab(QWidget):
                         entry.get("notes", ""),
                     )
                 )
+        self._refresh_abilities(self._graft_list.currentItem(), None)
+
+    def _refresh_abilities(
+        self,
+        current: QListWidgetItem | None,
+        _previous: QListWidgetItem | None = None,
+    ) -> None:
+        """Show the abilities granted by the selected applied graft."""
+        self._abilities_list.clear()
+        if current is None or self._model is None:
+            return
+        data = current.data(Qt.ItemDataRole.UserRole) or {}
+        name = data.get("graft_name", current.text())
+        if not name:
+            return
+        for ability in self._model.game_data().list_graft_abilities(name):
+            label = ability.ability_name
+            if ability.description and ability.description != ability.ability_name:
+                label = f"{ability.ability_name}: {ability.description}"
+            self._abilities_list.addItem(label)

@@ -92,6 +92,27 @@ def seeded_repo(tmp_path: Path) -> GameDataRepository:
                 ),
             ],
         )
+        conn.executemany(
+            "INSERT INTO graft_abilities (graft_name, ability_name, description) "
+            "VALUES (?, ?, ?)",
+            [
+                (
+                    "Fiendish Arm",
+                    "Claw Attack",
+                    "Grants a primary claw attack dealing 1d6 damage.",
+                ),
+                (
+                    "Fiendish Arm",
+                    "Strength Boost",
+                    "+2 enhancement bonus to Strength.",
+                ),
+                (
+                    "Fiendish Eye",
+                    "Darkvision",
+                    "Grants darkvision out to 60 feet.",
+                ),
+            ],
+        )
         conn.commit()
     finally:
         conn.close()
@@ -262,6 +283,31 @@ class TestRacialAbilities:
         conn.close()
         repo = GameDataRepository(db_path)
         assert repo.list_racial_abilities() == []
+
+
+class TestGraftAbilities:
+    def test_list_all(self, seeded_repo: GameDataRepository) -> None:
+        abilities = seeded_repo.list_graft_abilities()
+        assert len(abilities) == 3
+
+    def test_filter_by_graft(self, seeded_repo: GameDataRepository) -> None:
+        arm = seeded_repo.list_graft_abilities(graft_name="Fiendish Arm")
+        assert {a.ability_name for a in arm} == {"Claw Attack", "Strength Boost"}
+
+    def test_description_present(self, seeded_repo: GameDataRepository) -> None:
+        eye = seeded_repo.list_graft_abilities(graft_name="Fiendish Eye")
+        assert len(eye) == 1
+        assert "darkvision" in eye[0].description.lower()
+
+    def test_unknown_graft_returns_empty(self, seeded_repo: GameDataRepository) -> None:
+        assert seeded_repo.list_graft_abilities(graft_name="Aboleth Gland") == []
+
+    def test_empty_when_no_data(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "empty.db"
+        conn = initialize_database(db_path)
+        conn.close()
+        repo = GameDataRepository(db_path)
+        assert repo.list_graft_abilities() == []
 
 
 def test_repository_is_read_only(
