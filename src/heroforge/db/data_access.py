@@ -234,6 +234,15 @@ class RacialAbility:
 
 
 @dataclass(frozen=True)
+class GraftAbility:
+    """A graft special ability from the ``graft_abilities`` table."""
+
+    graft_name: str
+    ability_name: str
+    description: str
+
+
+@dataclass(frozen=True)
 class Variant:
     """A class/racial variant from the ``variants`` table.
 
@@ -1154,4 +1163,42 @@ class GameDataRepository:
             )
             for r in rows
             if r["race_name"]
+        ]
+
+    # ------------------------------------------------------------------
+    # Graft abilities
+    # ------------------------------------------------------------------
+
+    def list_graft_abilities(self, graft_name: str | None = None) -> list[GraftAbility]:
+        """Return graft special-ability entries.
+
+        Args:
+            graft_name: When provided, only abilities for that exact graft are
+                returned (case-sensitive match).  ``None`` returns abilities
+                for all grafts.
+
+        Data is read from the ``graft_abilities`` table seeded from the
+        *Graft Abilities* sheet of the reference workbook.  Returns an empty
+        list when the database is unavailable or not yet seeded.
+        """
+        if graft_name is not None:
+            rows = self._query(
+                "SELECT graft_name, ability_name, description "
+                "FROM graft_abilities WHERE graft_name = ? "
+                "ORDER BY ability_name",
+                [graft_name],
+            )
+        else:
+            rows = self._query(
+                "SELECT graft_name, ability_name, description "
+                "FROM graft_abilities ORDER BY graft_name, ability_name"
+            )
+        return [
+            GraftAbility(
+                graft_name=r["graft_name"],
+                ability_name=r["ability_name"] or "",
+                description=r["description"] or "",
+            )
+            for r in rows
+            if r["graft_name"]
         ]
