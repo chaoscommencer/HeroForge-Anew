@@ -31,6 +31,7 @@ from heroforge.logic.familiar import (
     STANDARD_FAMILIAR_BONUSES,
     STANDARD_FAMILIAR_MASTER_ABILITIES,
     describe_bonus,
+    list_custom_familiars,
 )
 from heroforge.ui.tabs._tab_helper import pick_from_catalog
 
@@ -132,13 +133,27 @@ class FamiliarTab(QWidget):
     # State helpers
     # ------------------------------------------------------------------
 
+    def _custom_familiars(self) -> list:  # type: ignore[type-arg]
+        """Return the homebrew familiars saved on the current character."""
+        if self._model is None:
+            return []
+        return list_custom_familiars(self._model.character.custom_content)
+
     def _refresh_bonus(self) -> None:
         kind = self._kind_edit.text().strip().lower()
-        bonuses = (
-            self._model.game_data().get_familiar_bonuses()
-            if self._model is not None
-            else {}
-        ) or _FAMILIAR_BONUSES
+        bonuses = dict(
+            (
+                self._model.game_data().get_familiar_bonuses()
+                if self._model is not None
+                else {}
+            )
+            or _FAMILIAR_BONUSES
+        )
+        # Homebrew familiars contribute their free-text special bonus, keyed by
+        # the familiar's name so selecting it surfaces the description.
+        for familiar in self._custom_familiars():
+            if familiar.special_bonus:
+                bonuses[familiar.name.lower()] = familiar.special_bonus
         self._bonus_lbl.setText(
             bonuses.get(kind, "(Select a standard familiar kind – see PHB p52.)")
         )
@@ -205,6 +220,14 @@ class FamiliarTab(QWidget):
     def _select_kind(self) -> None:
         creatures = self._model.game_data().list_creatures() if self._model else []
         options = [c.name for c in creatures]
+        # Surface homebrew familiars (Excel tab 9c) alongside the catalogue so a
+        # saved custom familiar is selectable.  Custom names take precedence and
+        # are de-duplicated against the catalogue.
+        custom_names = [f.name for f in self._custom_familiars() if f.name]
+        existing = {name.casefold() for name in options}
+        options = [
+            name for name in custom_names if name.casefold() not in existing
+        ] + options
         name = pick_from_catalog(self, "Select Familiar", "Kind:", options)
         if name is not None:
             self._kind_edit.setText(name)
