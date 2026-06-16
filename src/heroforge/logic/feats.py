@@ -106,6 +106,8 @@ def check_prerequisites(
     character_skills: dict[str, float],
     character_feats: list[str],
     character_level: int,
+    feat_prereqs: dict[str, list[str]] | None = None,
+    _chain: frozenset[str] | None = None,
 ) -> bool:
     """Determine whether a character satisfies all prerequisites.
 
@@ -118,6 +120,12 @@ def check_prerequisites(
 
     Unknown prerequisite formats are conservatively assumed to be *not met*.
 
+    When a *feat_prereqs* mapping is supplied, feat-name prerequisites are
+    validated **recursively**: a chained prerequisite feat is only considered
+    satisfied if the character also meets that feat's own prerequisites.  This
+    walks the full prerequisite tree (PHB Chapter 5) rather than checking a
+    single level, and is guarded against cycles via ``_chain``.
+
     Reference: PHB Chapter 5 (individual feat entries).
 
     Args:
@@ -127,11 +135,22 @@ def check_prerequisites(
         character_skills:        Mapping of skill name → ranks.
         character_feats:         List of feat names the character possesses.
         character_level:         Total character level.
+        feat_prereqs:            Optional mapping of feat name → prerequisite
+            strings used to recurse through nested feat prerequisites.  When
+            ``None`` (the default) feat-name prerequisites are checked only by
+            possession, preserving the original shallow behaviour.
+        _chain:                  Internal set of feat names already being
+            evaluated higher in the recursion, used to break prerequisite
+            cycles.  Callers should not set this.
 
     Returns:
         ``True`` if all prerequisites are satisfied, ``False`` otherwise.
     """
     feats_lower = {f.lower() for f in character_feats}
+    chain = _chain or frozenset()
+    prereq_map_lower: dict[str, list[str]] | None = None
+    if feat_prereqs:
+        prereq_map_lower = {name.lower(): reqs for name, reqs in feat_prereqs.items()}
 
     for prereq in feat_prerequisites:
         prereq = prereq.strip()
@@ -173,7 +192,24 @@ def check_prerequisites(
             continue
 
         # Check feat prerequisite (by name)
-        if prereq.lower() in feats_lower:
+        prereq_key = prereq.lower()
+        if prereq_key in feats_lower:
+            # Recurse into the prerequisite feat's own prerequisites so chained
+            # requirements are fully validated.  The cycle guard prevents
+            # infinite recursion on self-referential or circular data.
+            if prereq_map_lower is not None and prereq_key not in chain:
+                nested = prereq_map_lower.get(prereq_key)
+                if nested and not check_prerequisites(
+                    nested,
+                    character_bab,
+                    character_ability_scores,
+                    character_skills,
+                    character_feats,
+                    character_level,
+                    feat_prereqs=feat_prereqs,
+                    _chain=chain | {prereq_key},
+                ):
+                    return False
             continue
 
         # Unknown prerequisite – conservatively fail
@@ -218,6 +254,7 @@ def available_feats(
             character_skills,
             character_feats,
             character_level,
+            feat_prereqs=feat_prereqs,
         ):
             result.append(feat)
     return sorted(result)

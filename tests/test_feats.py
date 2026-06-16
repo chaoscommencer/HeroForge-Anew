@@ -115,6 +115,101 @@ class TestCheckPrerequisites:
         assert "Received empty prerequisite" in caplog.text
 
 
+class TestRecursivePrerequisites:
+    """Recursive validation through chained feat prerequisites (issue #64)."""
+
+    # Greater Cleave -> Cleave -> Power Attack -> STR 13
+    _chain = {
+        "Greater Cleave": ["Cleave"],
+        "Cleave": ["Power Attack"],
+        "Power Attack": ["STR 13"],
+    }
+
+    def test_full_chain_satisfied(self) -> None:
+        assert (
+            check_prerequisites(
+                ["Cleave"],
+                0,
+                {"STR": 13},
+                {},
+                ["Cleave", "Power Attack"],
+                6,
+                feat_prereqs=self._chain,
+            )
+            is True
+        )
+
+    def test_nested_feat_missing_fails(self) -> None:
+        # Character has Cleave but is missing its prerequisite Power Attack.
+        assert (
+            check_prerequisites(
+                ["Cleave"],
+                0,
+                {"STR": 13},
+                {},
+                ["Cleave"],  # Power Attack absent
+                6,
+                feat_prereqs=self._chain,
+            )
+            is False
+        )
+
+    def test_deep_nested_ability_unmet_fails(self) -> None:
+        # All feats present, but Power Attack's STR 13 requirement is unmet.
+        assert (
+            check_prerequisites(
+                ["Cleave"],
+                0,
+                {"STR": 10},
+                {},
+                ["Cleave", "Power Attack"],
+                6,
+                feat_prereqs=self._chain,
+            )
+            is False
+        )
+
+    def test_without_mapping_is_shallow(self) -> None:
+        # No mapping supplied: only direct possession is checked (legacy
+        # behaviour), so the missing nested prerequisite is not detected.
+        assert (
+            check_prerequisites(
+                ["Cleave"],
+                0,
+                {"STR": 10},
+                {},
+                ["Cleave"],
+                6,
+            )
+            is True
+        )
+
+    def test_cycle_is_handled(self) -> None:
+        cyclic = {"A": ["B"], "B": ["A"]}
+        assert (
+            check_prerequisites(
+                ["A"],
+                0,
+                {},
+                {},
+                ["A", "B"],
+                1,
+                feat_prereqs=cyclic,
+            )
+            is True
+        )
+
+    def test_available_feats_recurses(self) -> None:
+        all_feats = ["Power Attack", "Cleave", "Greater Cleave"]
+        # Character has Cleave but not Power Attack, so Greater Cleave (which
+        # requires Cleave, which requires the missing Power Attack) must be
+        # excluded.
+        result = available_feats(
+            all_feats, self._chain, 0, {"STR": 13}, {}, ["Cleave"], 6
+        )
+        assert "Greater Cleave" not in result
+
+
 class TestAvailableFeats:
     def test_no_prereqs_available(self) -> None:
         all_feats = ["Alertness", "Improved Initiative"]

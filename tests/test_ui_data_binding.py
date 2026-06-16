@@ -118,6 +118,26 @@ class TestFeatsTab:
         tab = FeatsTab(model=empty_model)
         assert tab._avail_list.count() == 0
 
+    def test_slot_count_displayed(self, model: object) -> None:
+        from heroforge.ui.tabs.feats import FeatsTab
+
+        model.character.classes = [("Fighter", 4)]
+        tab = FeatsTab(model=model)
+        tab._update_slots_label()
+        # Fighter 4: general feats at 1,3 = 2; fighter bonus at 1,2,4 = 3.
+        assert "5 available" in tab._slots_label.text()
+        assert "0 used" in tab._slots_label.text()
+
+    def test_slot_count_updates_reactively(self, model: object) -> None:
+        from heroforge.ui.tabs.feats import FeatsTab
+
+        tab = FeatsTab(model=model)
+        model.character.classes = [("Wizard", 5)]
+        # Recompute via the derived-stats refresh signal the model bridges.
+        model.class_levels_changed.emit()
+        # Wizard 5: general feats at 1,3 = 2; wizard bonus at 1,5 = 2.
+        assert "4 available" in tab._slots_label.text()
+
 
 class TestRaceAndTemplatesTab:
     def test_races_populated(self, model: object) -> None:

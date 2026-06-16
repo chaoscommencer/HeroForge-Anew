@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QListWidget,
     QPushButton,
@@ -17,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from heroforge.logic.feats import check_prerequisites
+from heroforge.logic.feats import check_prerequisites, feat_slots_available
 
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
@@ -49,6 +50,12 @@ class FeatsTab(QWidget):
         inner = QWidget()
         inner_layout = QVBoxLayout(inner)
         inner_layout.setSpacing(10)
+
+        # Feat-slot summary (general + class bonus feats), updated reactively as
+        # class levels and selected feats change (docs/conversion-plan.md §8.6).
+        self._slots_label = QLabel()
+        self._slots_label.setObjectName("featSlotsLabel")
+        inner_layout.addWidget(self._slots_label)
 
         avail_box = QGroupBox("Available Feats")
         avail_layout = QVBoxLayout(avail_box)
@@ -110,10 +117,12 @@ class FeatsTab(QWidget):
         Feats whose prerequisites are not met are shown disabled with an
         explanatory tooltip, recomputed in real time as ability scores, BAB,
         skills, and feats change.  Validation uses
-        :func:`heroforge.logic.feats.check_prerequisites`.
+        :func:`heroforge.logic.feats.check_prerequisites`, threading the full
+        prerequisite mapping so chained (recursive) prerequisites are honoured.
         """
         if self._model is None:
             return
+        self._update_slots_label()
         stats = self._model.derived_stats()
         char = self._model.character
         for i in range(self._avail_list.count()):
@@ -128,6 +137,7 @@ class FeatsTab(QWidget):
                 char.skills,
                 char.feats,
                 char.total_level,
+                feat_prereqs=self._prerequisites,
             )
             flags = item.flags()
             if met or not prereqs:
@@ -136,6 +146,31 @@ class FeatsTab(QWidget):
             else:
                 item.setFlags(flags & ~Qt.ItemFlag.ItemIsEnabled)
                 item.setToolTip("Prerequisites not met: " + ", ".join(prereqs))
+
+    def _update_slots_label(self) -> None:
+        """Refresh the feat-slot summary (used / available, incl. bonus feats).
+
+        Available slots come from
+        :func:`heroforge.logic.feats.feat_slots_available`, combining general
+        feats (PHB p87) with Fighter and Wizard bonus feats derived from the
+        character's class levels.  Used slots are the count of selected feats.
+        """
+        if self._model is None:
+            return
+        char = self._model.character
+        fighter_levels = sum(
+            level for name, level in char.classes if name.lower() == "fighter"
+        )
+        wizard_levels = sum(
+            level for name, level in char.classes if name.lower() == "wizard"
+        )
+        available = feat_slots_available(
+            char.total_level,
+            fighter_levels=fighter_levels,
+            wizard_levels=wizard_levels,
+        )
+        used = self._taken_list.count()
+        self._slots_label.setText(f"Feat Slots: {used} used / {available} available")
 
     def _show_description(self, name: str) -> None:
         self._desc_text.setPlainText(self._descriptions.get(name, ""))
