@@ -220,12 +220,16 @@ class RaceAndTemplatesTab(QWidget):
         if self._model is None:
             return
         race_name = self._race_combo.currentText()
+        race_key = race_name.casefold()
         char = self._model.character
         # Keep variants tied to other races/classes untouched.
         kept: list[str | dict[str, str | None]] = [
             entry
             for entry in char.variants
-            if not (isinstance(entry, dict) and entry.get("class_name") == race_name)
+            if not (
+                isinstance(entry, dict)
+                and (entry.get("class_name") or "").casefold() == race_key
+            )
         ]
         for i in range(self._variants_list.count()):
             item = self._variants_list.item(i)
@@ -251,7 +255,7 @@ class RaceAndTemplatesTab(QWidget):
             if not (
                 isinstance(entry, dict)
                 and (entry.get("class_name") or "").casefold() in race_names
-                and entry.get("class_name") != keep_race
+                and (entry.get("class_name") or "").casefold() != keep_race.casefold()
             )
         ]
 
