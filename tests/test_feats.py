@@ -119,7 +119,7 @@ class TestRecursivePrerequisites:
     """Recursive validation through chained feat prerequisites (issue #64)."""
 
     # Greater Cleave -> Cleave -> Power Attack -> STR 13
-    _chain = {
+    _prereq_mapping = {
         "Greater Cleave": ["Cleave"],
         "Cleave": ["Power Attack"],
         "Power Attack": ["STR 13"],
@@ -134,7 +134,7 @@ class TestRecursivePrerequisites:
                 {},
                 ["Cleave", "Power Attack"],
                 6,
-                feat_prereqs=self._chain,
+                feat_prereqs=self._prereq_mapping,
             )
             is True
         )
@@ -149,7 +149,7 @@ class TestRecursivePrerequisites:
                 {},
                 ["Cleave"],  # Power Attack absent
                 6,
-                feat_prereqs=self._chain,
+                feat_prereqs=self._prereq_mapping,
             )
             is False
         )
@@ -164,7 +164,7 @@ class TestRecursivePrerequisites:
                 {},
                 ["Cleave", "Power Attack"],
                 6,
-                feat_prereqs=self._chain,
+                feat_prereqs=self._prereq_mapping,
             )
             is False
         )
@@ -205,7 +205,7 @@ class TestRecursivePrerequisites:
         # requires Cleave, which requires the missing Power Attack) must be
         # excluded.
         result = available_feats(
-            all_feats, self._chain, 0, {"STR": 13}, {}, ["Cleave"], 6
+            all_feats, self._prereq_mapping, 0, {"STR": 13}, {}, ["Cleave"], 6
         )
         assert "Greater Cleave" not in result
 

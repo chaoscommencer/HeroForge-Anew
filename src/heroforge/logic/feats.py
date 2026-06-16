@@ -108,6 +108,7 @@ def check_prerequisites(
     character_level: int,
     feat_prereqs: dict[str, list[str]] | None = None,
     _chain: frozenset[str] | None = None,
+    _prereq_map_lower: dict[str, list[str]] | None = None,
 ) -> bool:
     """Determine whether a character satisfies all prerequisites.
 
@@ -142,14 +143,17 @@ def check_prerequisites(
         _chain:                  Internal set of feat names already being
             evaluated higher in the recursion, used to break prerequisite
             cycles.  Callers should not set this.
+        _prereq_map_lower:       Internal case-folded copy of *feat_prereqs*,
+            built once at the top-level call and reused across recursion.
+            Callers should not set this.
 
     Returns:
         ``True`` if all prerequisites are satisfied, ``False`` otherwise.
     """
     feats_lower = {f.lower() for f in character_feats}
     chain = _chain or frozenset()
-    prereq_map_lower: dict[str, list[str]] | None = None
-    if feat_prereqs:
+    prereq_map_lower = _prereq_map_lower
+    if prereq_map_lower is None and feat_prereqs:
         prereq_map_lower = {name.lower(): reqs for name, reqs in feat_prereqs.items()}
 
     for prereq in feat_prerequisites:
@@ -208,6 +212,7 @@ def check_prerequisites(
                     character_level,
                     feat_prereqs=feat_prereqs,
                     _chain=chain | {prereq_key},
+                    _prereq_map_lower=prereq_map_lower,
                 ):
                     return False
             continue

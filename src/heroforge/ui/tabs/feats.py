@@ -147,6 +147,20 @@ class FeatsTab(QWidget):
                 item.setFlags(flags & ~Qt.ItemFlag.ItemIsEnabled)
                 item.setToolTip("Prerequisites not met: " + ", ".join(prereqs))
 
+    def _class_levels(self, class_name: str) -> int:
+        """Return the total levels the character has in *class_name*.
+
+        Case-insensitive sum used to derive bonus-feat-granting class levels
+        (e.g. Fighter, Wizard) for the feat-slot count.
+        """
+        if self._model is None:
+            return 0
+        return sum(
+            level
+            for name, level in self._model.character.classes
+            if name.lower() == class_name.lower()
+        )
+
     def _update_slots_label(self) -> None:
         """Refresh the feat-slot summary (used / available, incl. bonus feats).
 
@@ -158,16 +172,10 @@ class FeatsTab(QWidget):
         if self._model is None:
             return
         char = self._model.character
-        fighter_levels = sum(
-            level for name, level in char.classes if name.lower() == "fighter"
-        )
-        wizard_levels = sum(
-            level for name, level in char.classes if name.lower() == "wizard"
-        )
         available = feat_slots_available(
             char.total_level,
-            fighter_levels=fighter_levels,
-            wizard_levels=wizard_levels,
+            fighter_levels=self._class_levels("Fighter"),
+            wizard_levels=self._class_levels("Wizard"),
         )
         used = self._taken_list.count()
         self._slots_label.setText(f"Feat Slots: {used} used / {available} available")
