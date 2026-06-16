@@ -8,7 +8,8 @@ user-invocable: true
 
 # Ruff – Python linter
 
-`ruff` is pre-installed in this environment (via `pip install -e ".[dev]"`).
+`ruff` is pre-installed in this environment (via the hash-pinned
+`requirements-dev.txt`).
 
 ## Check for lint violations
 

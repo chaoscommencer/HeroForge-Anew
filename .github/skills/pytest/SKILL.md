@@ -8,7 +8,8 @@ user-invocable: true
 
 # pytest – Python test runner
 
-`pytest` is pre-installed in this environment (via `pip install -e ".[dev]"`).
+`pytest` is pre-installed in this environment (via the hash-pinned
+`requirements-dev.txt`).
 
 ## Run all tests
 

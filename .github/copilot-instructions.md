@@ -71,12 +71,13 @@ Type `/graphify` in Copilot Chat to build or update the graph, or, preferably, u
 
 This repository can be mapped into a queryable **knowledge graph** by
 [graphify](https://github.com/safishamsi/graphify) (PyPI package `graphifyy`,
-CLI `graphify`). `graphifyy` is listed in the `dev` optional-dependencies in
-`pyproject.toml`, so the coding agent's `pip install -e ".[dev]"` puts the
-`graphify` CLI on its `PATH`. Locally, the CLI is intentionally NOT installed
-into the dev container's environment — it runs inside an isolated container
-instead (see below). Code is extracted locally with tree-sitter — no API key or
-network access is needed to build or query the graph.
+CLI `graphify`). `graphifyy` is pinned in the hash-locked `requirements-dev.txt`
+(and `requirements-graphifyy.txt`), so the coding agent's setup
+(`.github/workflows/copilot-setup-steps.yml`) installs those requirements with
+`pip --user`, putting the `graphify` CLI on its `PATH`. Locally, the CLI is
+intentionally NOT installed into the dev container's environment — it runs inside
+an isolated container instead (see below). Code is extracted locally with
+tree-sitter — no API key or network access is needed to build or query the graph.
 
 **Availability differs by environment:**
 
@@ -160,7 +161,7 @@ you at. See `.github/skills/graphify/SKILL.md` for full usage. The generated
 
 ### 5. Pre-Completion Quality Checks
 
-`ruff`, `black`, and `pytest` are pre-installed in Copilot's development environment via `.github/workflows/copilot-setup-steps.yml` (which runs `pip install -e ".[dev]"`). Each tool has a skill definition under `.github/skills/<tool>/SKILL.md` that provides full usage instructions.
+`ruff`, `black`, and `pytest` are pre-installed in Copilot's development environment via `.github/workflows/copilot-setup-steps.yml` (which installs the hash-pinned `requirements-dev.txt` with `pip --user`, then `--no-deps -e .`). Each tool has a skill definition under `.github/skills/<tool>/SKILL.md` that provides full usage instructions.
 
 **Only when Python files have been added or modified**, run the following checks in order before finishing the task:
 

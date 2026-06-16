@@ -3,12 +3,13 @@
 # Build the graphify codebase knowledge graph in a throwaway, network-isolated
 # container, writing graphify-out/graph.json back to the host.
 #
-# Why a container instead of a plain `pip install -e ".[dev]" && graphify
+# Why a container instead of installing graphifyy locally and running `graphify
 # update .`: it keeps graphifyy and its transitive dependencies out of the local
 # dev container's Python environment, and the graph-building run is executed with
 # NO network access (`--network none`) in a disposable container that mounts the
-# repository READ-ONLY. Only the image build touches the network (to pip-install
-# graphifyy); the actual source-tree walk cannot phone home. See Dockerfile.graphify.
+# repository READ-ONLY. Only the image build touches the network (to install the
+# hash-pinned graphifyy into an isolated pipx venv); the actual source-tree walk
+# cannot phone home. See Dockerfile.graphify.
 #
 # The repository is mounted read-only at /src and the writable output directory
 # is mounted over /src/graphify-out, so the graph the Copilot agent reads from

@@ -8,7 +8,8 @@ user-invocable: true
 
 # Black – Python code formatter
 
-`black` is pre-installed in this environment (via `pip install -e ".[dev]"`).
+`black` is pre-installed in this environment (via the hash-pinned
+`requirements-dev.txt`).
 
 ## Format files
 
