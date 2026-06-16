@@ -7,6 +7,7 @@ central data bus between tabs via Qt signals.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import uuid
 
@@ -498,7 +499,7 @@ class MainWindow(QMainWindow):
             # Bind the class per-iteration so each action opens its own dialog.
             action.triggered.connect(
                 lambda _checked=False, cls=dialog_cls: self._open_dialog(
-                    cls(parent=self)
+                    self._construct_custom_dialog(cls)
                 )
             )
 
@@ -622,6 +623,20 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Dialog actions (§8.3)
     # ------------------------------------------------------------------
+
+    def _construct_custom_dialog(self, dialog_cls: type[QDialog]) -> QDialog:
+        """Construct a custom-content dialog, injecting the model at construction time.
+
+        Custom-content dialogs that persist their input (e.g. the Custom
+        Familiar dialog) declare a ``model`` constructor parameter; those are
+        given the live :class:`CharacterModel` at construction so the dialog
+        can write through to the character when accepted.  Dialogs without
+        that parameter keep the original ``parent``-only construction.
+        """
+        params = inspect.signature(dialog_cls.__init__).parameters
+        if "model" in params:
+            return dialog_cls(model=self.model, parent=self)  # type: ignore[call-arg]
+        return dialog_cls(parent=self)
 
     def _open_dialog(self, dialog: QDialog) -> QDialog:
         """Parent *dialog* to this window and show it modally.
