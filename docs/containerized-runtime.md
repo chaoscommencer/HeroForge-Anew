@@ -20,12 +20,17 @@ Open the repository in a GitHub Codespace (or locally via **Dev Containers:
 Reopen in Container**). The container defined in
 [`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json):
 
-- builds [`.devcontainer/Dockerfile`](../.devcontainer/Dockerfile) — the official
-  devcontainers Python 3.12 image plus the Qt/X11 system libraries PyQt6 needs;
+- builds [`.devcontainer/Dockerfile.devcontainer-default`](../.devcontainer/Dockerfile.devcontainer-default) — the official
+  devcontainers Python 3.12 image plus the Qt/X11 system libraries PyQt6 needs,
+  the rootless-Podman runtime packages (gated by the `INSTALL_PODMAN_DEPS` build
+  arg), and the hash-pinned third-party dependencies (`requirements-pip.txt` +
+  `requirements-dev.txt`) baked into a `vscode`-owned virtual environment at
+  `/opt/venv`;
 - adds the **docker-in-docker** feature, so the QA Compose stack can be built and
   run from inside the Codespace;
-- on creation runs the hash-pinned dependency install (`requirements-pip.txt` →
-  `requirements-dev.txt` → the editable project, matching CI) and then
+- on creation installs only the editable project into that venv
+  (`pip install --no-deps -e .`, since the workspace is bind-mounted at runtime
+  and absent at build time) and then
   `scripts/setup-podman.sh` (which provisions rootless Podman + podman-compose;
   it is optional, so a failure only warns), and runs as the non-root `vscode`
   user.
@@ -322,7 +327,7 @@ apply it to matters:
 running the QA stack rootless needs no flags once Podman is installed. The dev
 container provisions it automatically: the `postCreateCommand` in
 [`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json) runs
-[`scripts/setup-podman.sh`](../scripts/setup-podman.sh) after the dependency
+[`scripts/setup-podman.sh`](../scripts/setup-podman.sh) after the editable-project
 install (non-fatally — a failure only warns, since Docker remains available).
 
 You can also run it (or re-run it — it is idempotent) by hand:

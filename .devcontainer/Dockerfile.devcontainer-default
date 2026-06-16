@@ -105,3 +105,72 @@ RUN if [ "${INSTALL_PODMAN_DEPS}" = "true" ]; then \
 RUN apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# --- Python dependencies (baked into a vscode-owned virtual environment) ------
+#
+# Install the hash-pinned third-party dependencies into a virtual environment at
+# /opt/venv so the dev environment is ready on first boot WITHOUT a postCreate
+# network fetch. Two deliberate choices make this robust:
+#   * /opt/venv lives OUTSIDE /home/vscode and /workspaces, so it cannot be
+#     shadowed by a future home-directory or workspace volume mount. A baked
+#     `pip install --user` into ~/.local would silently vanish behind such a
+#     mount; a venv at a system path does not.
+#   * the venv is created and owned by the unprivileged `vscode` user, and the
+#     installs run as that user (via `su vscode`), so nothing lands in root-owned
+#     paths that the runtime user could not later write to.
+# The editable project itself (`-e .`) is deliberately NOT installed here: it
+# links to the workspace checkout, which is bind-mounted at runtime and absent
+# during `docker build`. It stays in devcontainer.json's postCreateCommand, which
+# targets this same venv (now first on PATH).
+#
+# CI-PARITY NOTE: .github/workflows/ci.yml and copilot-setup-steps.yml install
+# the SAME hash-pinned requirements with `pip install --user` (no venv), because
+# their runners are throwaway. This image uses a venv instead, but installs the
+# identical pinned wheels — so the two must be bumped together when the pins in
+# requirements-pip.txt / requirements-dev.txt change. --only-binary=:all: refuses
+# sdists so no package's build backend runs arbitrary code at install time.
+ARG VENV_PATH=/opt/venv
+ENV VENV_PATH=${VENV_PATH}
+# Put the venv first on PATH so `python`/`pip` resolve to it in non-login shells
+# (the postCreate command, `docker exec`, VS Code's integrated terminal task
+# runner). NOTE: this ENV does NOT win in a *login* shell — the base image's
+# /etc/profile.d/00-restore-env.sh re-prepends the system Python
+# (/usr/local/python/current/bin) ahead of $PATH, pushing the venv behind it. The
+# 99-venv-path.sh profile.d snippet written below restores the venv to the front
+# for login shells too, so every entry path lands on /opt/venv consistently.
+ENV PATH="${VENV_PATH}/bin:${PATH}"
+
+# requirements-pip.txt (verified bootstrap pip) and requirements-dev.txt (the
+# hash-pinned dev environment) are the only two pip inputs baked in; both live in
+# the build context (not excluded by .dockerignore).
+COPY requirements-pip.txt requirements-dev.txt /tmp/reqs/
+RUN python -m venv "${VENV_PATH}" \
+    && chown -R vscode:vscode "${VENV_PATH}" /tmp/reqs \
+    && su vscode -c "set -eu; \
+        '${VENV_PATH}/bin/python' -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-pip.txt; \
+        '${VENV_PATH}/bin/python' -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-dev.txt" \
+    && rm -rf /tmp/reqs
+
+# Make the venv win in *login* shells too. The base image's
+# /etc/profile.d/00-restore-env.sh re-prepends the system Python to $PATH, so an
+# interactive `bash -l` would otherwise resolve `python` to /usr/local rather
+# than the venv. The 99- snippet sorts AFTER that one (99 > 00) and moves the
+# venv back to the front, so `python`/`pip`/`pytest`/`black`/`ruff` resolve to
+# /opt/venv in login shells, non-login shells and VS Code alike. The snippet is
+# written via a heredoc so the file reads exactly as generated; ${VENV_PATH} is
+# expanded now (build time) while \${PATH} stays literal (evaluated at login).
+RUN cat > /etc/profile.d/99-venv-path.sh <<EOF && chmod 0644 /etc/profile.d/99-venv-path.sh
+# Prefer the baked HeroForge dev virtualenv (see Dockerfile.devcontainer-default).
+# The base image's 00-restore-env.sh puts the system Python first in login
+# shells; move the venv back to the front. The colon-wrapped \`case\` is an
+# idempotent membership test: it matches when ":\${PATH}:" already contains the
+# entry ":${VENV_PATH}/bin:" as a whole element (the wildcards on either side let
+# it sit anywhere in PATH), so re-sourcing never stacks duplicate entries. The
+# -d test makes the prepend a no-op if the venv is ever missing.
+if [ -d "${VENV_PATH}/bin" ]; then
+    case ":\${PATH}:" in
+        *":${VENV_PATH}/bin:"*) ;;
+        *) export PATH="${VENV_PATH}/bin:\${PATH}" ;;
+    esac
+fi
+EOF
+
