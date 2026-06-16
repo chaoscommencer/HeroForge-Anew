@@ -382,14 +382,18 @@ class CharacterModel(QObject):
                 :meth:`point_buy_budget`) coerce them back via
                 :meth:`heroforge.models.options.OptionSpec.coerce`.
 
-        Emits :attr:`options_changed` so dependent tabs refresh, and
-        :attr:`derived_stats_changed` because options (e.g. the point-buy
-        budget) can influence computed readouts.
+        Emits :attr:`options_changed` and :attr:`derived_stats_changed` only
+        when at least one stored value actually changes, so unchanged
+        round-trips (e.g. closing the dialog without editing) do not trigger
+        unnecessary recomputation across tabs.
         """
-        self._character.options = {
+        merged = {
             **self._character.options,
             **{str(name): str(value) for name, value in options.items()},
         }
+        if merged == self._character.options:
+            return
+        self._character.options = merged
         self.options_changed.emit()
         self.derived_stats_changed.emit()
 
