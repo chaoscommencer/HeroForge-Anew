@@ -196,3 +196,40 @@ if [ -d "${VENV_PATH}/bin" ]; then
 fi
 EOF
 
+# --- Persist bash history across container rebuilds --------------------------
+#
+# devcontainer.json mounts a Docker *named volume* at /commandhistory (see its
+# "mounts" entry). Point HISTFILE at a file on that volume and flush after every
+# command, so shell history survives a full container rebuild (which otherwise
+# discards everything outside the bind-mounted /workspaces and the rebuilt image
+# layers — including the default ~/.bash_history).
+#
+# The directory is created and chowned to vscode HERE, at build time, because
+# Docker seeds a freshly-created named volume from the image's contents and
+# ownership at that path on first use. Without this, the volume would mount as
+# root-owned and the unprivileged vscode shell could not write to it.
+RUN mkdir -p /commandhistory \
+    && touch /commandhistory/.bash_history \
+    && chown -R vscode:vscode /commandhistory
+
+# Sourced for interactive login shells (same profile.d mechanism the venv PATH
+# fix above relies on). The heredoc is single-quoted ('EOF') so $PROMPT_COMMAND
+# and the other shell variables stay literal and are evaluated at login, not at
+# build time. The case guard makes appending `history -a` to PROMPT_COMMAND
+# idempotent, so re-sourcing never stacks duplicate flush commands.
+RUN cat > /etc/profile.d/98-bash-history.sh <<'EOF' && chmod 0644 /etc/profile.d/98-bash-history.sh
+# Persist bash history on the /commandhistory named volume (see
+# Dockerfile.devcontainer-default and devcontainer.json's "mounts").
+if [ -d /commandhistory ]; then
+    export HISTFILE=/commandhistory/.bash_history
+    export HISTSIZE=10000
+    export HISTFILESIZE=20000
+    # Flush each command to HISTFILE immediately rather than only on shell exit,
+    # so concurrent terminals and ungraceful container stops do not lose history.
+    case "${PROMPT_COMMAND:-}" in
+        *'history -a'*) ;;
+        *) PROMPT_COMMAND="history -a${PROMPT_COMMAND:+; ${PROMPT_COMMAND}}" ;;
+    esac
+fi
+EOF
+

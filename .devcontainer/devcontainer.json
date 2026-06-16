@@ -40,6 +40,17 @@
     }
   },
 
+  // Persist bash history across container rebuilds. Dockerfile.devcontainer-default
+  // creates /commandhistory (owned by vscode) and a profile.d snippet that points
+  // HISTFILE there and flushes after each command. This named volume keeps that
+  // file's contents between rebuilds — everything outside the bind-mounted
+  // /workspaces and the rebuilt image layers (including ~/.bash_history) is
+  // otherwise discarded. A named volume (not a bind mount) is used so it is
+  // host-OS-agnostic and managed by the container engine.
+  "mounts": [
+    "source=heroforge-bash-history,target=/commandhistory,type=volume"
+  ],
+
   // noVNC desktop published by the QA Compose stack's display sidecar on 6080
   // (loopback). It only serves a desktop while `scripts/run-gui.sh` is running.
   "forwardPorts": [6080],
