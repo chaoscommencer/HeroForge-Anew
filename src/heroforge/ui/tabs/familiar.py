@@ -157,8 +157,7 @@ class FamiliarTab(QWidget):
                 bonuses[familiar.name.lower()] = familiar.special_bonus
         self._bonus_lbl.setText(
             bonuses.get(
-                kind,
-                "(Select a familiar kind – see PHB p52 for standard familiars.)"
+                kind, "(Select a familiar kind – see PHB p52 for standard familiars.)"
             )
         )
 
