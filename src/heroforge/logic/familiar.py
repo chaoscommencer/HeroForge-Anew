@@ -160,6 +160,129 @@ STANDARD_FAMILIAR_MASTER_ABILITIES: tuple[FamiliarMasterAbility, ...] = (
 )
 
 
+# The ``content_type`` used for homebrew familiars stored on a character's
+# ``custom_content`` list (see :class:`heroforge.models.character.Character`).
+# This mirrors the workbook's *Custom Familiar* sheet (Excel tab 9c).
+CUSTOM_FAMILIAR_CONTENT_TYPE = "familiar"
+
+
+@dataclass(frozen=True)
+class CustomFamiliar:
+    """A homebrew familiar defined by the user via the Custom Familiar dialog.
+
+    Custom familiars are persisted on a character's ``custom_content`` list (one
+    ``{content_type, name, definition}`` entry per familiar, where ``definition``
+    is a JSON blob) so they round-trip through save/load and become selectable on
+    the Familiar tab.  This mirrors the workbook's *Custom Familiar* sheet
+    (Excel tab 9c).
+
+    Attributes:
+        name:          The familiar's unique name (its selectable identifier).
+        kind:          The creature kind/species (free text, e.g. ``"Pseudodragon"``).
+        special_bonus: Free-text description of the bonus granted to the master.
+        intelligence:  The familiar's Intelligence score.
+        natural_armor: The familiar's natural-armor bonus.
+    """
+
+    name: str
+    kind: str = ""
+    special_bonus: str = ""
+    intelligence: int = 6
+    natural_armor: int = 0
+
+    def to_content(self) -> dict[str, object]:
+        """Serialise to a ``character.custom_content`` entry.
+
+        Returns:
+            A ``{content_type, name, definition}`` mapping whose ``definition``
+            is a JSON string capturing the remaining fields.
+        """
+        return {
+            "content_type": CUSTOM_FAMILIAR_CONTENT_TYPE,
+            "name": self.name,
+            "definition": json.dumps(
+                {
+                    "kind": self.kind,
+                    "special_bonus": self.special_bonus,
+                    "intelligence": self.intelligence,
+                    "natural_armor": self.natural_armor,
+                }
+            ),
+        }
+
+
+def _coerce_int(value: object, default: int) -> int:
+    """Return *value* as an ``int``, falling back to *default* when invalid."""
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return default
+    return default
+
+
+def custom_familiar_from_content(
+    entry: Mapping[str, object],
+) -> CustomFamiliar | None:
+    """Reconstruct a :class:`CustomFamiliar` from a ``custom_content`` entry.
+
+    Args:
+        entry: A single ``{content_type, name, definition}`` mapping.
+
+    Returns:
+        The decoded :class:`CustomFamiliar`, or ``None`` when *entry* is not a
+        named familiar definition.
+    """
+    if entry.get("content_type") != CUSTOM_FAMILIAR_CONTENT_TYPE:
+        return None
+    name = str(entry.get("name", "")).strip()
+    if not name:
+        return None
+    data: dict[str, object] = {}
+    raw = entry.get("definition")
+    if isinstance(raw, str) and raw:
+        try:
+            loaded = json.loads(raw)
+        except (TypeError, ValueError):
+            loaded = None
+        if isinstance(loaded, dict):
+            data = loaded
+
+    def _str_field(value: object) -> str:
+        return str(value).strip() if isinstance(value, str) else ""
+
+    return CustomFamiliar(
+        name=name,
+        kind=_str_field(data.get("kind")),
+        special_bonus=_str_field(data.get("special_bonus")),
+        intelligence=_coerce_int(data.get("intelligence"), 6),
+        natural_armor=_coerce_int(data.get("natural_armor"), 0),
+    )
+
+
+def list_custom_familiars(
+    custom_content: Iterable[Mapping[str, object]],
+) -> list[CustomFamiliar]:
+    """Return every custom familiar stored on a character's ``custom_content``.
+
+    Args:
+        custom_content: The character's ``custom_content`` collection.
+
+    Returns:
+        The decoded custom familiars in their stored order (named entries only).
+    """
+    result: list[CustomFamiliar] = []
+    for entry in custom_content:
+        familiar = custom_familiar_from_content(entry)
+        if familiar is not None:
+            result.append(familiar)
+    return result
+
+
 def describe_bonus(bonus: FamiliarBonus) -> str:
     """Compose the human-readable helper text for *bonus*.
 
