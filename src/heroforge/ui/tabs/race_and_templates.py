@@ -166,6 +166,7 @@ class RaceAndTemplatesTab(QWidget):
 
     def _refresh_variants(self, race_name: str) -> None:
         """Populate the race-variant checklist for ``race_name``."""
+        previous_loading = self._loading
         self._loading = True
         try:
             self._variants_list.clear()
@@ -192,7 +193,7 @@ class RaceAndTemplatesTab(QWidget):
                     item.setToolTip(variant.description)
                 self._variants_list.addItem(item)
         finally:
-            self._loading = False
+            self._loading = previous_loading
 
     def _selected_variant_names(
         self, race_name: str, available_names: set[str] | None = None

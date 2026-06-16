@@ -450,6 +450,13 @@ class TestGetRaceTemplate:
         assert template.level_adjustment == 3
         assert template.type_change == "Dragon"
 
+    def test_get_template_case_insensitive(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        template = race_template_repo.get_template("half-dragon")
+        assert template is not None
+        assert template.name == "Half-Dragon"
+
     def test_get_template_unknown_returns_none(
         self, race_template_repo: GameDataRepository
     ) -> None:
@@ -460,6 +467,14 @@ class TestGetRaceTemplate:
     ) -> None:
         templates = race_template_repo.get_templates(["Half-Dragon", "Ghost"])
         assert [t.name for t in templates] == ["Half-Dragon"]
+
+    def test_get_templates_case_insensitive_and_preserves_duplicates(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        templates = race_template_repo.get_templates(
+            ["half-dragon", "GHOST", "HALF-DRAGON"]
+        )
+        assert [t.name for t in templates] == ["Half-Dragon", "Half-Dragon"]
 
     def test_list_race_variants(self, race_template_repo: GameDataRepository) -> None:
         variants = race_template_repo.list_race_variants("Elf")
