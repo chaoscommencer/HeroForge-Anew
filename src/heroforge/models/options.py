@@ -47,6 +47,8 @@ class OptionSpec:
         produces an out-of-range or non-numeric option.
         """
         try:
+            if value is None:
+                return self.default
             number = int(str(value).strip())
         except (TypeError, ValueError):
             return self.default

@@ -288,8 +288,6 @@ class StatsAndCharacterDetailsTab(QWidget):
         no model is present (standalone widget) the standard 25-point default is
         shown.  Spending over budget is flagged so the player notices.
         """
-        if not hasattr(self, "_point_buy_label"):
-            return
         scores = {ab: spin.value() for ab, spin in self._ability_spinboxes.items()}
         spent = point_buy_spent(scores)
         if self._model is not None:

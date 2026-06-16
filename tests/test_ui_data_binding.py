@@ -226,9 +226,8 @@ class TestStatsTabPointBuyApplied:
 
         empty_model.set_options({"point_buy_budget": "15"})
         empty_model.ability_score_changed.emit("STR", 18)
-        text = tab._point_buy_label.text()
-        assert "/ 15" in text
-        assert "over budget" in text
+        # Five 10s (10) plus one 18 (16) = 26 spent against a 15-point budget.
+        assert tab._point_buy_label.text() == "Point-Buy: 26 / 15 — over budget!"
 
 
 class TestMainWindowWiring:

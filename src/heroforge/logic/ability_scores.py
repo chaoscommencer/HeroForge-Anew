@@ -116,7 +116,7 @@ def point_buy_spent(scores: Mapping[str, int]) -> int:
     free-form ability spinboxes (which allow 1–100) when displaying a live
     point-buy summary against the configured budget.
 
-    Reference: DMG p169.
+    Reference: D&D 3.5 Dungeon Master's Guide (DMG) p169.
 
     Args:
         scores: Mapping of ability name to score value (STR, DEX, …).

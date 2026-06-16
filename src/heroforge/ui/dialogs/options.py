@@ -65,7 +65,8 @@ class OptionsDialog(QDialog):
         option's default, so a partial or hand-edited save still loads cleanly.
         """
         for spec in OPTION_SPECS:
-            self._spinboxes[spec.key].setValue(spec.coerce(options.get(spec.key)))
+            if spec.key in self._spinboxes:
+                self._spinboxes[spec.key].setValue(spec.coerce(options.get(spec.key)))
 
     def get_options(self) -> dict[str, str]:
         """Return the currently selected option values keyed by option key.

@@ -367,9 +367,17 @@ class CharacterModel(QObject):
     def set_options(self, options: Mapping[str, object]) -> None:
         """Store *options* on the active character and announce the change.
 
-        Values are stringified to match the ``dict[str, str]`` shape used by
-        :class:`~heroforge.models.character.Character` and the persistence
-        layer.  Emits :attr:`options_changed` so dependent tabs refresh, and
+        Args:
+            options: A mapping of option key to value.  Values should be
+                primitive types (``str``/``int``/``bool``) that stringify
+                meaningfully; they are stored as ``str`` to match the
+                ``dict[str, str]`` shape used by
+                :class:`~heroforge.models.character.Character` and the
+                persistence layer.  Typed reads (e.g.
+                :meth:`point_buy_budget`) coerce them back via
+                :meth:`heroforge.models.options.OptionSpec.coerce`.
+
+        Emits :attr:`options_changed` so dependent tabs refresh, and
         :attr:`derived_stats_changed` because options (e.g. the point-buy
         budget) can influence computed readouts.
         """
