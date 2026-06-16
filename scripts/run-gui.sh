@@ -216,13 +216,31 @@ if [[ "${1:-}" =~ ^(down|logs|ps|stop|build|config)$ ]]; then
     # $1: although the guard above currently matches on $1, the subcommand is
     # not guaranteed to stay positional (e.g. a future global flag could precede
     # it), so detect it by value.
+    is_down=0
     for arg in "$@"; do
         if [[ "$arg" == "down" ]]; then
+            is_down=1
             echo "Tearing down the QA stack: each container is listed twice (stopped, then removed),"
             echo "followed by any volumes (with --volumes) and the network."
             break
         fi
     done
+    # Stop the `app` service before tearing the rest of the stack down so the Qt
+    # process exits while its X server is still alive. Without the default Podman
+    # pod (removed via `x-podman: in_pod: false` in docker-compose.podman.yml),
+    # podman-compose's `down` stops services individually and does NOT honour the
+    # app's `depends_on: display` on the teardown path, so the display sidecar's
+    # Xvfb can be killed first — removing the shared /tmp/.X11-unix/X99 socket out
+    # from under the still-running app. Qt's Xlib reacts to that with a fatal
+    # "XIO: ... IO error 2 (No such file or directory) on X server ':99'" on the
+    # way down. Quiescing `app` first (Docker already orders this via depends_on;
+    # this makes the order explicit for Podman too) lets the GUI close cleanly and
+    # suppresses that benign-but-alarming shutdown error. The stop is best-effort:
+    # if the app container is already gone (e.g. it crashed earlier) `stop` is a
+    # no-op, so a non-zero result here must not abort the real teardown below.
+    if [[ "$is_down" == 1 ]]; then
+        "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" stop app >/dev/null 2>&1 || true
+    fi
     echo "Using: ${COMPOSE[*]} ${COMPOSE_FILES[*]} $*"
     exec "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" "$@"
 fi
