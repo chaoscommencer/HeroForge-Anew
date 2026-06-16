@@ -226,6 +226,21 @@ class TestOptionsDialog:
         # The pre-existing key must be preserved.
         assert empty_model.character.options["psionic_total_pp"] == "5"
 
+    def test_options_returns_copy_not_live_reference(
+        self, empty_model: object
+    ) -> None:
+        """options() must return a copy; mutating it must not affect the model."""
+        empty_model.set_options({"point_buy_budget": "25"})
+
+        snapshot = empty_model.options()
+        # Mutate the returned dict directly.
+        snapshot["point_buy_budget"] = "99"
+        snapshot["injected_key"] = "surprise"
+
+        # Internal state must be unchanged.
+        assert empty_model.options()["point_buy_budget"] == "25"
+        assert "injected_key" not in empty_model.options()
+
 
 class TestStatsTabPointBuyApplied:
     def test_summary_reflects_configured_budget(self, empty_model: object) -> None:

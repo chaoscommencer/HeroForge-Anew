@@ -357,12 +357,17 @@ class CharacterModel(QObject):
     # ------------------------------------------------------------------
 
     def options(self) -> dict[str, str]:
-        """Return the active character's stored build options.
+        """Return a snapshot of the active character's stored build options.
+
+        Returns a **shallow copy** of the internal mapping so that callers
+        cannot silently mutate options without going through
+        :meth:`set_options` (which emits :attr:`options_changed` and
+        :attr:`derived_stats_changed` so all dependent tabs refresh).
 
         These are persisted with the character via the ``character_options``
         table (see :mod:`heroforge.db.character_repo`).
         """
-        return self._character.options
+        return dict(self._character.options)
 
     def set_options(self, options: Mapping[str, object]) -> None:
         """Store *options* on the active character and announce the change.
