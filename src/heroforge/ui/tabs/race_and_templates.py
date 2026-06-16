@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -11,6 +12,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QListWidgetItem,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -20,9 +22,11 @@ from PyQt6.QtWidgets import (
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
+_ABILITIES: tuple[str, ...] = ("STR", "DEX", "CON", "INT", "WIS", "CHA")
+
 
 class RaceAndTemplatesTab(QWidget):
-    """Race selection and template application."""
+    """Race selection, template application, and race variants."""
 
     def __init__(
         self, model: CharacterModel | None = None, parent: QWidget | None = None
@@ -35,6 +39,7 @@ class RaceAndTemplatesTab(QWidget):
         if model:
             model.character_reset.connect(self._sync_from_model)
             model.character_loaded.connect(lambda _id: self._sync_from_model())
+            model.derived_stats_changed.connect(self._refresh_summary)
             self._sync_from_model()
 
     def _build_ui(self) -> None:
@@ -61,6 +66,19 @@ class RaceAndTemplatesTab(QWidget):
         race_form.addRow("Info:", self._race_info)
         inner_layout.addWidget(race_box)
 
+        # Race variants
+        variant_box = QGroupBox("Race Variants")
+        variant_layout = QVBoxLayout(variant_box)
+        self._variants_list = QListWidget()
+        self._variants_list.setToolTip(
+            "Optional variants for the selected race; check any that apply"
+        )
+        variant_layout.addWidget(self._variants_list)
+        self._variants_hint = QLabel("Select a race to view available variants.")
+        self._variants_hint.setWordWrap(True)
+        variant_layout.addWidget(self._variants_hint)
+        inner_layout.addWidget(variant_box)
+
         # Templates
         tmpl_box = QGroupBox("Applied Templates")
         tmpl_layout = QVBoxLayout(tmpl_box)
@@ -75,6 +93,20 @@ class RaceAndTemplatesTab(QWidget):
         btn_row.addStretch()
         tmpl_layout.addLayout(btn_row)
         inner_layout.addWidget(tmpl_box)
+
+        # Adjustments summary (ability adjustments, size, LA, ECL)
+        summary_box = QGroupBox("Racial & Template Adjustments")
+        summary_form = QFormLayout(summary_box)
+        self._size_label = QLabel("Medium")
+        self._adjust_label = QLabel("None")
+        self._adjust_label.setWordWrap(True)
+        self._la_label = QLabel("+0")
+        self._ecl_label = QLabel("0")
+        summary_form.addRow("Size:", self._size_label)
+        summary_form.addRow("Ability Adjustments:", self._adjust_label)
+        summary_form.addRow("Level Adjustment:", self._la_label)
+        summary_form.addRow("ECL (level + LA):", self._ecl_label)
+        inner_layout.addWidget(summary_box)
 
         # Racial traits
         traits_box = QGroupBox("Racial Traits")
@@ -91,6 +123,7 @@ class RaceAndTemplatesTab(QWidget):
         self._remove_template_btn.clicked.connect(self._remove_template)
         self._add_template_btn.clicked.connect(self._add_template)
         self._race_combo.currentTextChanged.connect(self._on_race_changed)
+        self._variants_list.itemChanged.connect(self._on_variant_toggled)
         self._load_data()
 
     def _load_data(self) -> None:
@@ -108,11 +141,16 @@ class RaceAndTemplatesTab(QWidget):
             self._loading = False
 
     def _on_race_changed(self, race_name: str) -> None:
-        """Refresh racial traits and record the chosen race on the character."""
+        """Refresh racial traits/variants and record the chosen race."""
         self._refresh_traits(race_name)
         if self._loading or self._model is None:
+            self._refresh_variants(race_name)
             return
         self._model.character.race = race_name
+        # Selecting a different race invalidates previously-chosen race
+        # variants, so drop them before repopulating and recomputing.
+        self._prune_race_variants(keep_race=race_name)
+        self._refresh_variants(race_name)
         # Race affects size, speed, and ability adjustments, so trigger a
         # full derived-stat refresh (also updates the Stats tab's mirror).
         self._model.derived_stats_changed.emit()
@@ -125,6 +163,128 @@ class RaceAndTemplatesTab(QWidget):
         repo = self._model.game_data()
         for ability in repo.list_racial_abilities(race_name):
             self._traits_list.addItem(ability.ability_name)
+
+    def _refresh_variants(self, race_name: str) -> None:
+        """Populate the race-variant checklist for ``race_name``."""
+        previous_loading = self._loading
+        self._loading = True
+        try:
+            self._variants_list.clear()
+            if not race_name or self._model is None:
+                self._variants_hint.setText("Select a race to view available variants.")
+                return
+            variants = self._model.game_data().list_race_variants(race_name)
+            if not variants:
+                self._variants_hint.setText("No variants available for this race.")
+                return
+            available_names = {v.name for v in variants}
+            selected = self._selected_variant_names(race_name, available_names)
+            self._variants_hint.setText("")
+            for variant in variants:
+                item = QListWidgetItem(variant.name)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                state = (
+                    Qt.CheckState.Checked
+                    if variant.name in selected
+                    else Qt.CheckState.Unchecked
+                )
+                item.setCheckState(state)
+                if variant.description:
+                    item.setToolTip(variant.description)
+                self._variants_list.addItem(item)
+        finally:
+            self._loading = previous_loading
+
+    def _selected_variant_names(
+        self, race_name: str, available_names: set[str] | None = None
+    ) -> set[str]:
+        """Names of variants already selected for *race_name* on the character.
+
+        Handles both structured dict entries (current format) and legacy plain-
+        string entries.  Legacy strings are treated as selected when they match
+        one of the *available_names* for the current race, preventing them from
+        appearing unchecked and being duplicated on the next save.
+        """
+        if self._model is None:
+            return set()
+        target = race_name.casefold()
+        names: set[str] = set()
+        for entry in self._model.character.variants:
+            if isinstance(entry, dict):
+                if (entry.get("class_name") or "").casefold() == target:
+                    name = entry.get("variant_name")
+                    if name:
+                        names.add(name)
+            elif isinstance(entry, str):
+                # Legacy plain-string variant: treat as selected when it matches
+                # an available variant for the current race.
+                if available_names and entry in available_names:
+                    names.add(entry)
+        return names
+
+    def _on_variant_toggled(self, _item: QListWidgetItem) -> None:
+        """Record a race-variant selection change on the character."""
+        if self._loading or self._model is None:
+            return
+        self._sync_variants_to_model()
+
+    def _sync_variants_to_model(self) -> None:
+        """Rewrite the active character's race variants from the checklist."""
+        if self._model is None:
+            return
+        race_name = self._race_combo.currentText()
+        race_key = race_name.casefold()
+        char = self._model.character
+        # Collect the variant names currently shown in the checklist so that
+        # matching legacy plain-string entries can be migrated out (prevents
+        # a legacy string and a structured dict for the same variant coexisting).
+        displayed_names: set[str] = set()
+        for i in range(self._variants_list.count()):
+            item = self._variants_list.item(i)
+            if item is not None:
+                displayed_names.add(item.text())
+        # Keep variants tied to other races/classes untouched, removing both
+        # structured dict entries for this race and any legacy strings that
+        # match a currently-displayed variant (they will be re-added below in
+        # structured form if checked).
+        kept: list[str | dict[str, str | None]] = [
+            entry
+            for entry in char.variants
+            if not (
+                (
+                    isinstance(entry, dict)
+                    and (entry.get("class_name") or "").casefold() == race_key
+                )
+                or (isinstance(entry, str) and entry in displayed_names)
+            )
+        ]
+        for i in range(self._variants_list.count()):
+            item = self._variants_list.item(i)
+            if item is not None and item.checkState() == Qt.CheckState.Checked:
+                kept.append({"variant_name": item.text(), "class_name": race_name})
+        char.variants = kept
+
+    def _prune_race_variants(self, keep_race: str) -> None:
+        """Drop structured race variants that belong to a different race.
+
+        A variant is treated as a race variant when its ``class_name`` matches a
+        known race name; stale entries (from a previously selected race) are
+        removed when the race changes.
+        """
+        if self._model is None:
+            return
+        repo = self._model.game_data()
+        race_names = {name.casefold() for name in repo.list_races()}
+        char = self._model.character
+        char.variants = [
+            entry
+            for entry in char.variants
+            if not (
+                isinstance(entry, dict)
+                and (entry.get("class_name") or "").casefold() in race_names
+                and (entry.get("class_name") or "").casefold() != keep_race.casefold()
+            )
+        ]
 
     def _add_template(self) -> None:
         """Add a database-backed template that is not already applied."""
@@ -155,6 +315,25 @@ class RaceAndTemplatesTab(QWidget):
             for i in range(self._template_list.count())
             if self._template_list.item(i) is not None
         ]
+        # Templates contribute ability adjustments and LA, so refresh stats.
+        self._model.derived_stats_changed.emit()
+
+    def _refresh_summary(self) -> None:
+        """Update the size / ability-adjustment / LA / ECL readout."""
+        if self._model is None:
+            return
+        stats = self._model.derived_stats()
+        self._size_label.setText(stats.size or "Medium")
+        base = self._model.character.ability_scores
+        parts: list[str] = []
+        for ability in _ABILITIES:
+            effective = stats.effective_ability_scores.get(ability, 10)
+            delta = effective - int(base.get(ability, 10))
+            if delta:
+                parts.append(f"{ability} {delta:+d}")
+        self._adjust_label.setText(", ".join(parts) if parts else "None")
+        self._la_label.setText(f"{stats.level_adjustment:+d}")
+        self._ecl_label.setText(str(stats.effective_character_level))
 
     def _sync_from_model(self) -> None:
         """Restore race and templates from the active character (load/reset)."""
@@ -170,3 +349,5 @@ class RaceAndTemplatesTab(QWidget):
                 self._template_list.addItem(name)
         finally:
             self._loading = False
+        self._refresh_variants(char.race)
+        self._refresh_summary()

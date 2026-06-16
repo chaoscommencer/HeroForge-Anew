@@ -113,6 +113,40 @@ def seeded_repo(tmp_path: Path) -> GameDataRepository:
                 ),
             ],
         )
+        conn.executemany(
+            "INSERT INTO classes (name, is_prestige, hit_die, bab_progression, "
+            "fort_progression, ref_progression, will_progression, "
+            "skill_points_per_level, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("Fighter", 0, 10, "fast", "good", "poor", "poor", 2, "PHB"),
+                ("Wizard", 0, 4, "slow", "poor", "poor", "good", 2, "PHB"),
+                ("Arcane Archer", 1, 8, "fast", "poor", "good", "poor", 4, "DMG"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO class_skills (class_name, skill_name) VALUES (?, ?)",
+            [
+                ("Fighter", "Intimidate"),
+                ("Fighter", "Climb"),
+                ("Wizard", "Spellcraft"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO class_weapons_armor (class_name, proficiency) VALUES (?, ?)",
+            [
+                ("Fighter", "All simple weapons"),
+                ("Fighter", "All martial weapons"),
+                ("Fighter", "Heavy armor"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO class_abilities (class_name, level, ability_name, "
+            "description) VALUES (?, ?, ?, ?)",
+            [
+                ("Fighter", 1, "Bonus Feat", "A fighter gains a bonus feat."),
+                ("Fighter", 2, "Bonus Feat", "A fighter gains a bonus feat."),
+            ],
+        )
         conn.commit()
     finally:
         conn.close()
@@ -396,3 +430,173 @@ class TestSpells:
     def test_spells_known(self, seeded_repo: GameDataRepository) -> None:
         known = seeded_repo.spells_known("Sorcerer")
         assert [(s.spell_level, s.count) for s in known] == [(0, 4), (1, 2)]
+
+
+@pytest.fixture()
+def race_template_repo(tmp_path: Path) -> GameDataRepository:
+    """A repository seeded with rich race/template/variant rows."""
+    db_path = tmp_path / "rt.db"
+    conn = initialize_database(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO races (name, size, type, base_land_speed, dex_adj, "
+            "con_adj, level_adjustment, source) "
+            "VALUES ('Elf', 'Medium', 'Humanoid', 30, 2, -2, 0, 'PHB')"
+        )
+        conn.execute(
+            "INSERT INTO templates (name, str_adj, con_adj, int_adj, cha_adj, "
+            "level_adjustment, type_change, source) "
+            "VALUES ('Half-Dragon', 8, 2, 2, 2, 3, 'Dragon', 'MM')"
+        )
+        conn.executemany(
+            "INSERT INTO variants (name, base_class, description, source) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("Aquatic Elf", "Elf", "An aquatic subrace.", "MM"),
+                ("Wood Elf", "Elf", "A forest subrace.", "UA"),
+                ("Whirling Frenzy", "Barbarian", "A rage variant.", "UA"),
+            ],
+        )
+        conn.execute(
+            "INSERT INTO racial_abilities (race_name, ability_name, description) "
+            "VALUES ('Elf', 'Low-Light Vision', 'See in dim light.')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return GameDataRepository(db_path)
+
+
+class TestGetRaceTemplate:
+    def test_get_race_returns_full_row(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        race = race_template_repo.get_race("Elf")
+        assert race is not None
+        assert race.name == "Elf"
+        assert race.size == "Medium"
+        assert race.dex_adj == 2
+        assert race.con_adj == -2
+        assert race.level_adjustment == 0
+        assert race.base_land_speed == 30
+        assert race.abilities == ["Low-Light Vision"]
+
+    def test_get_race_unknown_returns_none(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        assert race_template_repo.get_race("Nonexistent") is None
+
+    def test_get_template_returns_full_row(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        template = race_template_repo.get_template("Half-Dragon")
+        assert template is not None
+        assert template.str_adj == 8
+        assert template.con_adj == 2
+        assert template.level_adjustment == 3
+        assert template.type_change == "Dragon"
+
+    def test_get_template_case_insensitive(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        template = race_template_repo.get_template("half-dragon")
+        assert template is not None
+        assert template.name == "Half-Dragon"
+
+    def test_get_template_unknown_returns_none(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        assert race_template_repo.get_template("Nope") is None
+
+    def test_get_templates_preserves_order_and_skips_unknown(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        templates = race_template_repo.get_templates(["Half-Dragon", "Ghost"])
+        assert [t.name for t in templates] == ["Half-Dragon"]
+
+    def test_get_templates_case_insensitive_and_preserves_duplicates(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        templates = race_template_repo.get_templates(
+            ["half-dragon", "GHOST", "HALF-DRAGON"]
+        )
+        assert [t.name for t in templates] == ["Half-Dragon", "Half-Dragon"]
+
+    def test_list_race_variants(self, race_template_repo: GameDataRepository) -> None:
+        variants = race_template_repo.list_race_variants("Elf")
+        assert [v.name for v in variants] == ["Aquatic Elf", "Wood Elf"]
+
+    def test_list_race_variants_case_insensitive(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        assert [v.name for v in race_template_repo.list_race_variants("elf")] == [
+            "Aquatic Elf",
+            "Wood Elf",
+        ]
+
+    def test_list_race_variants_none_for_unknown(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        assert race_template_repo.list_race_variants("Human") == []
+
+
+class TestClasses:
+    def test_list_classes_base_only(self, seeded_repo: GameDataRepository) -> None:
+        names = [c.name for c in seeded_repo.list_classes()]
+        # Prestige classes are excluded by default.
+        assert names == ["Fighter", "Wizard"]
+
+    def test_list_classes_include_prestige(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        names = [c.name for c in seeded_repo.list_classes(include_prestige=True)]
+        assert names == ["Arcane Archer", "Fighter", "Wizard"]
+
+    def test_list_classes_fields(self, seeded_repo: GameDataRepository) -> None:
+        fighter = next(c for c in seeded_repo.list_classes() if c.name == "Fighter")
+        assert fighter.is_prestige is False
+        assert fighter.hit_die == 10
+        assert fighter.bab_progression == "fast"
+        assert fighter.fort_progression == "good"
+        assert fighter.skill_points_per_level == 2
+        assert fighter.source == "PHB"
+
+    def test_list_classes_source_filter(self, seeded_repo: GameDataRepository) -> None:
+        # Filtering to PHB keeps the PHB base classes and drops the DMG one.
+        names = [
+            c.name
+            for c in seeded_repo.list_classes(sources=["PHB"], include_prestige=True)
+        ]
+        assert names == ["Fighter", "Wizard"]
+
+    def test_class_skills(self, seeded_repo: GameDataRepository) -> None:
+        assert seeded_repo.class_skills("Fighter") == ["Climb", "Intimidate"]
+        assert seeded_repo.class_skills("Wizard") == ["Spellcraft"]
+
+    def test_class_proficiencies(self, seeded_repo: GameDataRepository) -> None:
+        profs = seeded_repo.class_proficiencies("Fighter")
+        assert profs == [
+            "All simple weapons",
+            "All martial weapons",
+            "Heavy armor",
+        ]
+
+    def test_class_abilities(self, seeded_repo: GameDataRepository) -> None:
+        abilities = seeded_repo.class_abilities("Fighter")
+        assert [(a.level, a.ability_name) for a in abilities] == [
+            (1, "Bonus Feat"),
+            (2, "Bonus Feat"),
+        ]
+        assert abilities[0].description == "A fighter gains a bonus feat."
+
+    def test_unknown_class_returns_empty(self, seeded_repo: GameDataRepository) -> None:
+        assert seeded_repo.class_skills("Bard") == []
+        assert seeded_repo.class_proficiencies("Bard") == []
+        assert seeded_repo.class_abilities("Bard") == []
+
+    def test_empty_when_no_data(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "empty.db"
+        conn = initialize_database(db_path)
+        conn.close()
+        repo = GameDataRepository(db_path)
+        assert repo.list_classes() == []
