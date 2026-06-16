@@ -1,0 +1,198 @@
+# syntax=docker/dockerfile:1
+#
+# Development container image for HeroForge-Anew.
+#
+# This is the image GitHub Codespaces / VS Code Dev Containers build from
+# devcontainer.json. It is for *developing* the project — editing, linting,
+# type-checking and running the (offscreen-capable) test suite — and is distinct
+# from the root Dockerfile.heroforge-app, which exists to *run* the GUI for QA.
+#
+# It layers the Qt runtime libraries on top of the official devcontainers Python
+# image so that `pytest` can import PyQt6 for real (instead of skipping the
+# widget tests). The viewable QA desktop now lives entirely in the Compose
+# `display` sidecar, so no X11 client utilities (xhost) are needed here.
+
+# Pinned to a specific digest for reproducible, tamper-evident builds. The
+# human-readable tag (3-3.12-bookworm) is kept alongside the digest for clarity;
+# the @sha256 is what Docker actually resolves. Available tags/digests are listed
+# at https://mcr.microsoft.com/en-us/artifact/mar/devcontainers/python/tags —
+# update both the tag and the digest together when bumping the base image.
+FROM mcr.microsoft.com/devcontainers/python:3-3.12-bookworm@sha256:4ace5266fed54e0e440d7b5142008684e305e5d456c8136f1bae5742139a95dc
+
+# Refresh the apt package index once, up front, so the install RUNs below do not
+# each repeat it. Each install RUN sets `export DEBIAN_FRONTEND=noninteractive`
+# in its own shell (it does NOT persist across RUN layers) so any package that
+# would otherwise prompt via debconf installs noninteractively.
+RUN apt-get update
+
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get install --no-install-recommends -y \
+        libgl1 \
+        libegl1 \
+        libglib2.0-0 \
+        libdbus-1-3 \
+        libfontconfig1 \
+        libfreetype6 \
+        libx11-6 \
+        libx11-xcb1 \
+        libxcb1 \
+        libxcb-cursor0 \
+        libxcb-glx0 \
+        libxcb-icccm4 \
+        libxcb-image0 \
+        libxcb-keysyms1 \
+        libxcb-randr0 \
+        libxcb-render0 \
+        libxcb-render-util0 \
+        libxcb-shape0 \
+        libxcb-shm0 \
+        libxcb-sync1 \
+        libxcb-util1 \
+        libxcb-xfixes0 \
+        libxcb-xinerama0 \
+        libxcb-xkb1 \
+        libxkbcommon0 \
+        libxkbcommon-x11-0 \
+        libxext6 \
+        libxrender1 \
+        libsm6 \
+        libice6
+
+# Whether to bake the rootless-Podman runtime packages into the image. Set by
+# devcontainer.json (build.args.INSTALL_PODMAN_DEPS) and overridable per build
+# with `--build-arg INSTALL_PODMAN_DEPS=false`. Front-loading these here (rather
+# than apt-installing them at postCreate via scripts/setup-podman.sh) bakes them
+# into a cached layer, so container creation is faster and does not depend on a
+# network fetch — and the QA stack's preferred Podman engine works on first boot
+# even if the optional setup-podman.sh step is skipped or fails. Set to "false"
+# to keep the image lean when only the Docker-in-Docker QA path will be used;
+# scripts/setup-podman.sh still installs whatever is missing at postCreate.
+ARG INSTALL_PODMAN_DEPS=true
+
+# Rootless Podman + its runtime prerequisites (only when INSTALL_PODMAN_DEPS is
+# true). These mirror the apt packages in scripts/setup-podman.sh section 1:
+#   * podman           — the container engine itself.
+#   * uidmap           — newuidmap/newgidmap setuid helpers rootless Podman needs.
+#   * fuse-overlayfs   — nested-friendly storage driver (kernel overlay is
+#                        usually unavailable inside the dev container).
+#   * slirp4netns      — rootless user-mode networking.
+#   * crun             — OCI runtime that starts containers gracefully when no
+#                        cgroup v2 controllers are delegated (the default runc
+#                        aborts). See setup-podman.sh section 4.
+#   * catatonit        — container-init binary that `init: true` needs; bookworm
+#                        installs it at /usr/libexec/podman/catatonit (Podman's
+#                        default init_path). See setup-podman.sh section 1.
+# The podman-compose CLI (a pure-Python tool) is baked into the venv further
+# down, also gated by INSTALL_PODMAN_DEPS. Only genuinely per-user/identity
+# state (subuid/subgid ranges, storage.conf, containers.conf) is deliberately
+# NOT done here — it does not belong in a shared image layer, so it stays in
+# scripts/setup-podman.sh, whose `command -v` guards make the package installs
+# above harmless no-ops when already present.
+RUN if [ "${INSTALL_PODMAN_DEPS}" = "true" ]; then \
+        export DEBIAN_FRONTEND=noninteractive \
+        && apt-get install --no-install-recommends -y \
+            podman \
+            uidmap \
+            fuse-overlayfs \
+            slirp4netns \
+            crun \
+            catatonit; \
+    else \
+        echo "INSTALL_PODMAN_DEPS=${INSTALL_PODMAN_DEPS}: skipping Podman runtime packages (scripts/setup-podman.sh will install them at postCreate if needed)."; \
+    fi
+
+# Clean the apt cache and drop the package lists once, at the very end, so every
+# layer above shares a single cleanup instead of repeating it per install.
+RUN apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Python dependencies (baked into a vscode-owned virtual environment) ------
+#
+# Install the hash-pinned third-party dependencies into a virtual environment at
+# /opt/venv so the dev environment is ready on first boot WITHOUT a postCreate
+# network fetch. Two deliberate choices make this robust:
+#   * /opt/venv lives OUTSIDE /home/vscode and /workspaces, so it cannot be
+#     shadowed by a future home-directory or workspace volume mount. A baked
+#     `pip install --user` into ~/.local would silently vanish behind such a
+#     mount; a venv at a system path does not.
+#   * the venv is created and owned by the unprivileged `vscode` user, and the
+#     installs run as that user (via a `USER vscode` stanza), so nothing lands in
+#     root-owned paths that the runtime user could not later write to.
+# The editable project itself (`-e .`) is deliberately NOT installed here: it
+# links to the workspace checkout, which is bind-mounted at runtime and absent
+# during `docker build`. It stays in devcontainer.json's postCreateCommand, which
+# targets this same venv (now first on PATH).
+#
+# CI-PARITY NOTE: .github/workflows/ci.yml and copilot-setup-steps.yml install
+# the SAME hash-pinned requirements with `pip install --user` (no venv), because
+# their runners are throwaway. This image uses a venv instead, but installs the
+# identical pinned wheels — so the two must be bumped together when the pins in
+# requirements-pip.txt / requirements-dev.txt change. --only-binary=:all: refuses
+# sdists so no package's build backend runs arbitrary code at install time.
+ARG VENV_PATH=/opt/venv
+ENV VENV_PATH=${VENV_PATH}
+# Put the venv first on PATH so `python`/`pip` resolve to it in non-login shells
+# (the postCreate command, `docker exec`, VS Code's integrated terminal task
+# runner). NOTE: this ENV does NOT win in a *login* shell — the base image's
+# /etc/profile.d/00-restore-env.sh re-prepends the system Python
+# (/usr/local/python/current/bin) ahead of $PATH, pushing the venv behind it. The
+# 99-venv-path.sh profile.d snippet written below restores the venv to the front
+# for login shells too, so every entry path lands on /opt/venv consistently.
+ENV PATH="${VENV_PATH}/bin:${PATH}"
+
+# The pip inputs baked in, all hash-pinned and living in the build context (not
+# excluded by .dockerignore):
+#   * requirements-pip.txt          — the verified bootstrap pip.
+#   * requirements-dev.txt          — the hash-pinned dev environment.
+#   * requirements-podman-compose.txt — the podman-compose CLI, installed into
+#     this same venv ONLY when INSTALL_PODMAN_DEPS=true (it pairs with the
+#     rootless-Podman apt packages above). Its deps (pyyaml, python-dotenv) are
+#     absent from requirements-dev.txt, so co-locating it in /opt/venv raises no
+#     version conflict, and the venv already isolates it from the system Python
+#     (the original isolation goal of scripts/setup-podman.sh's pipx path). This
+#     replaces that script's postCreate install; the script keeps a self-skipping
+#     fallback for standalone (non-devcontainer) use.
+#
+# The installs run as the unprivileged `vscode` user via a `USER vscode` stanza
+# (the idiomatic Docker way) rather than `su vscode -c "..."`: there is no nested
+# shell string to hand-quote, the steps are `&&`-chained so a failed install
+# aborts the build natively (no `set -e` needed), and `COPY --chown` plus a
+# pre-created venv dir give correct ownership at copy/create time without a
+# recursive `chown -R`. `USER root` is restored afterwards so the remaining build
+# steps (and the final image, per devcontainer.json's `remoteUser`) run as root.
+RUN mkdir -p "${VENV_PATH}" && chown vscode:vscode "${VENV_PATH}"
+COPY --chown=vscode:vscode requirements-pip.txt requirements-dev.txt requirements-podman-compose.txt /tmp/reqs/
+USER vscode
+RUN python -m venv "${VENV_PATH}" \
+    && "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-pip.txt \
+    && "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-dev.txt \
+    && if [ "${INSTALL_PODMAN_DEPS}" = "true" ]; then \
+           "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-podman-compose.txt; \
+       fi
+USER root
+RUN rm -rf /tmp/reqs
+
+# Make the venv win in *login* shells too. The base image's
+# /etc/profile.d/00-restore-env.sh re-prepends the system Python to $PATH, so an
+# interactive `bash -l` would otherwise resolve `python` to /usr/local rather
+# than the venv. The 99- snippet sorts AFTER that one (99 > 00) and moves the
+# venv back to the front, so `python`/`pip`/`pytest`/`black`/`ruff` resolve to
+# /opt/venv in login shells, non-login shells and VS Code alike. The snippet is
+# written via a heredoc so the file reads exactly as generated; ${VENV_PATH} is
+# expanded now (build time) while \${PATH} stays literal (evaluated at login).
+RUN cat > /etc/profile.d/99-venv-path.sh <<EOF && chmod 0644 /etc/profile.d/99-venv-path.sh
+# Prefer the baked HeroForge dev virtualenv (see Dockerfile.devcontainer-default).
+# The base image's 00-restore-env.sh puts the system Python first in login
+# shells; move the venv back to the front. The colon-wrapped \`case\` is an
+# idempotent membership test: it matches when ":\${PATH}:" already contains the
+# entry ":${VENV_PATH}/bin:" as a whole element (the wildcards on either side let
+# it sit anywhere in PATH), so re-sourcing never stacks duplicate entries. The
+# -d test makes the prepend a no-op if the venv is ever missing.
+if [ -d "${VENV_PATH}/bin" ]; then
+    case ":\${PATH}:" in
+        *":${VENV_PATH}/bin:"*) ;;
+        *) export PATH="${VENV_PATH}/bin:\${PATH}" ;;
+    esac
+fi
+EOF
+

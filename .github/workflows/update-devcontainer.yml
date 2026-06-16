@@ -1,0 +1,143 @@
+name: Update devcontainer dependencies
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
+  workflow_dispatch:
+
+# Minimal default: read-only for all jobs unless explicitly overridden at the job level.
+# Elevated permissions (contents: write, pull-requests: write) are declared only on the
+# apply-updates job that actually performs writes, preventing any read-only detection job
+# from being able to abuse write access.
+permissions:
+  contents: read
+
+jobs:
+  detect-updates:
+    runs-on: ubuntu-latest
+    # Inherits the read-only workflow-level permissions — no write access needed here.
+    outputs:
+      python-image-tag: ${{ steps.python-image.outputs.tag }}
+      python-image-digest: ${{ steps.python-image.outputs.digest }}
+      has-updates: ${{ steps.compare.outputs.has_updates }}
+      update-branch: ${{ steps.compare.outputs.update_branch }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Fetch latest devcontainers/python bookworm image
+        id: python-image
+        run: |
+          TAGS=$(curl -sf "https://mcr.microsoft.com/v2/devcontainers/python/tags/list" | jq -r '.tags[]')
+          if [ -z "$TAGS" ]; then
+            echo "ERROR: Failed to fetch devcontainers/python tag list from MCR (network error, API unavailability, or unexpected JSON response)" >&2
+            exit 1
+          fi
+          # Match versioned patch tags for Python 3.x on bookworm: e.g. 3-3.12.10-bookworm
+          LATEST_TAG=$(echo "$TAGS" | grep -E '^3-3\.[0-9]+\.[0-9]+-bookworm$' | sort -V | tail -1)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "ERROR: Could not determine latest devcontainers/python bookworm tag" >&2
+            exit 1
+          fi
+          RAW_DIGEST=$(curl -sI \
+            -H "Accept: application/vnd.oci.image.index.v1+json" \
+            "https://mcr.microsoft.com/v2/devcontainers/python/manifests/${LATEST_TAG}" \
+            | grep -i "^docker-content-digest:" \
+            | awk '{print $2}' \
+            | tr -d '\r\n')
+          if ! echo "$RAW_DIGEST" | grep -qE '^sha256:[a-f0-9]{64}$'; then
+            echo "ERROR: Digest '${RAW_DIGEST}' does not match expected sha256:<hex64> format" >&2
+            exit 1
+          fi
+          echo "tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
+          echo "digest=${RAW_DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Compare fetched image with current Dockerfile
+        id: compare
+        run: |
+          FILE=".devcontainer/Dockerfile"
+          CURRENT_FROM=$(grep -m1 '^FROM mcr.microsoft.com/devcontainers/python:' "$FILE" || true)
+          if [ -z "$CURRENT_FROM" ]; then
+            echo "ERROR: Could not find devcontainers/python FROM line in ${FILE}" >&2
+            exit 1
+          fi
+          INCOMING_FROM="FROM mcr.microsoft.com/devcontainers/python:${{ steps.python-image.outputs.tag }}@${{ steps.python-image.outputs.digest }}"
+
+          if [ "$CURRENT_FROM" != "$INCOMING_FROM" ]; then
+            echo "has_updates=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_updates=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          TAG_NORMALIZED=$(echo "${{ steps.python-image.outputs.tag }}" | tr '.-' '_')
+          echo "update_branch=automated/update-devcontainer_python_${TAG_NORMALIZED}" >> "$GITHUB_OUTPUT"
+
+  apply-updates:
+    needs: detect-updates
+    if: needs.detect-updates.outputs.has-updates == 'true'
+    runs-on: ubuntu-latest
+    # Elevated permissions scoped only to this job, which performs the actual file writes
+    # and pull request creation. The read-only detect-updates job above cannot abuse these.
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Apply Python image update to Dockerfile
+        run: |
+          FILE=".devcontainer/Dockerfile"
+          TAG="${{ needs.detect-updates.outputs.python-image-tag }}"
+          DIGEST="${{ needs.detect-updates.outputs.python-image-digest }}"
+
+          # Update the human-readable tag in the comment block above the FROM line
+          sed -i \
+            "s|human-readable tag ([^)]*) is kept|human-readable tag (${TAG}) is kept|" \
+            "$FILE"
+
+          # Update the FROM line — replace existing tag and digest atomically
+          sed -i \
+            "s|FROM mcr.microsoft.com/devcontainers/python:[^@]*@sha256:[a-f0-9]\{64\}|FROM mcr.microsoft.com/devcontainers/python:${TAG}@${DIGEST}|" \
+            "$FILE"
+
+      - name: Commit changes and open pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add .devcontainer/Dockerfile
+
+          if git diff --cached --quiet; then
+            echo "Destination is already up to date — nothing to deliver"
+            exit 0
+          fi
+
+          EVENT="${{ github.event_name }}"
+          if [ "$EVENT" = "schedule" ]; then
+            TRIGGER_DESC="scheduled cron job"
+          else
+            TRIGGER_DESC="manual workflow dispatch"
+          fi
+
+          TAG="${{ needs.detect-updates.outputs.python-image-tag }}"
+          DIGEST="${{ needs.detect-updates.outputs.python-image-digest }}"
+          BRANCH="${{ needs.detect-updates.outputs.update-branch }}"
+
+          git checkout -b "$BRANCH"
+          git commit -m "chore: update devcontainer to Python image ${TAG}"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "chore: update devcontainer to Python image ${TAG}" \
+            --body "Automated dependency update for the devcontainer:
+
+          - **devcontainers/python**: \`${TAG}\` (\`${DIGEST}\`)
+
+          Triggered by: ${TRIGGER_DESC}." \
+            --base main \
+            --head "$BRANCH"

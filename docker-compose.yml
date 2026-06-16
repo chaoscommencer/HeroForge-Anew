@@ -1,0 +1,290 @@
+# docker-compose definition for QA "developer-in-the-loop" testing of the
+# HeroForge-Anew PyQt6 desktop application.
+#
+# It builds two cooperating images and renders the GUI WITHOUT any host X server:
+#
+#   * display — Dockerfile.display: a virtual X server (Xvfb) plus a window
+#     manager, VNC server and the noVNC web client. It hosts the viewable
+#     desktop and is the only service that publishes a port (noVNC on 6080).
+#   * app — Dockerfile.heroforge-app: the Qt application itself. It draws into
+#     the display sidecar's X server over a shared /tmp/.X11-unix socket volume
+#     and carries no published ports of its own.
+#
+# This keeps the viewable desktop in a container that has no application source
+# or workspace bind mounts, rather than next to the editor/credentials — which
+# is why the devcontainer's desktop-lite feature is no longer used.
+#
+# Human access to the desktop is gated by a REQUIRED VNC password. Compose reads
+# it from a git-ignored .env file in the project root (copy .env.example to .env
+# and set VNC_PASSWORD) and hands it to the display sidecar as a Compose *secret*
+# — a file mounted at /run/secrets/vnc_password — rather than an environment
+# variable, so the password never appears in the container's environment (and
+# thus not in `docker inspect` or /proc/<pid>/environ). The entrypoint refuses to
+# start a passwordless desktop.
+#
+# Engine compatibility: this file is plain Compose and works with either
+#   docker compose -f docker-compose.yml up --build
+#   podman-compose -f docker-compose.yml up --build   (preferred, rootless)
+# The scripts/run-gui.sh helper auto-detects whichever engine is available and
+# wires up UID/GID for you.
+
+name: heroforge-anew
+
+services:
+  # --- Viewable desktop stack (Xvfb + fluxbox + x11vnc + noVNC) ---------------
+  display:
+    build:
+      context: .
+      dockerfile: Dockerfile.display
+      args:
+        # Align the in-container user with the host user so the shared X11
+        # socket volume stays accessible to the app container's process too.
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+    image: heroforge-anew-display:dev
+    # PID 1 reaping so Xvfb/x11vnc/websockify shut down cleanly on Ctrl-C.
+    init: true
+    environment:
+      DISPLAY: ":99"
+      # Virtual desktop resolution (WIDTHxHEIGHT); overridable via .env.
+      SCREEN_GEOMETRY: ${SCREEN_GEOMETRY:-1920x1080}
+      # X11 magic-cookie auth file on the shared x11-socket volume. The
+      # entrypoint generates the cookie here and Xvfb authenticates against it
+      # (replacing the old -ac "allow any client" mode); the app container reads
+      # the same file to connect. Setting it here also lets the xdpyinfo
+      # healthcheck below present the cookie.
+      XAUTHORITY: /tmp/.X11-unix/.Xauthority
+    # REQUIRED: noVNC access password, delivered as a file-based secret mounted
+    # at /run/secrets/vnc_password (see the top-level `secrets:` block). Keeping
+    # it out of `environment:` means it is absent from the container's env, so it
+    # cannot leak via `docker inspect` or /proc/<pid>/environ.
+    secrets:
+      - vnc_password
+    ports:
+      # Publish noVNC on the loopback interface only, so it is reachable solely
+      # through the devcontainer's own VS Code port forwarding (not the LAN).
+      - "127.0.0.1:6080:6080"
+    volumes:
+      # Shared X11 socket so the app container can draw to this X server.
+      - type: volume
+        source: x11-socket
+        target: /tmp/.X11-unix
+    # The app service waits on this: the desktop is "healthy" once Xvfb answers.
+    healthcheck:
+      test: ["CMD", "xdpyinfo", "-display", ":99"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    # Drop all Linux capabilities and forbid privilege escalation: the display
+    # stack needs none of them, keeping this QA container tightly sandboxed.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Immutable root filesystem: nothing in the image layers can be modified at
+    # runtime, so a compromised process cannot tamper with binaries/config. The
+    # only writable paths are the explicit tmpfs mounts below (all in RAM, wiped
+    # on stop), and the shared X11 socket lives on its own named volume mounted
+    # at /tmp/.X11-unix (nested over the /tmp tmpfs).
+    #
+    # Every tmpfs is mounted noexec,nosuid,nodev so a compromised process cannot
+    # drop and run an executable or setuid payload in a writable directory.
+    # /tmp holds Xvfb's lock file (/tmp/.X99-lock); /home/app carries mode=1707
+    # (sticky + owner/other rwx, group denied) so the non-root app user — the
+    # "other" class on this root-owned tmpfs — can write the runtime-generated
+    # VNC password, fluxbox config and the fbsetbg shim. Those files are only
+    # ever read, so noexec is safe here.
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev
+      - /home/app:mode=1707,noexec,nosuid,nodev
+    # Resource ceilings to blunt local DoS (fork bombs, memory/CPU exhaustion).
+    # Sized from observed steady-state (~85 MiB, 6 PIDs) with generous headroom;
+    # tighten further from `docker stats` if desired.
+    mem_limit: 256m
+    pids_limit: 128
+    cpus: 1.0
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 2048
+
+  # --- The Qt application (draws into the display sidecar) --------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.heroforge-app
+      args:
+        # Align the in-container user with the host user so the bind-mounted
+        # workspace stays writable and the X11 socket is accessible.
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+    # Tag applied to the image built from `build:` above. Without it the image
+    # would get an auto-generated name like `heroforge-anew_app`; naming it
+    # explicitly lets the engine reuse `heroforge-anew:dev` on later runs and
+    # makes it easy to find/inspect/remove (`podman images`, `docker rmi`).
+    image: heroforge-anew:dev
+    # PID 1 reaping so the Qt process shuts down cleanly on Ctrl-C.
+    init: true
+    # Start only once the virtual X server is accepting connections.
+    depends_on:
+      display:
+        condition: service_healthy
+    environment:
+      # Target the virtual X server hosted by the display sidecar.
+      DISPLAY: ":99"
+      # X11 magic-cookie auth file on the shared x11-socket volume, written by
+      # the display sidecar's entrypoint. The Qt client reads it (via libXau) to
+      # authenticate to :99 now that host-based access control (-ac) is gone.
+      XAUTHORITY: /tmp/.X11-unix/.Xauthority
+      # MIT-SHM does not work across the container boundary.
+      QT_X11_NO_MITSHM: "1"
+      # Force the X11 (xcb) platform plugin for a real, viewable window.
+      QT_QPA_PLATFORM: xcb
+      # Application log level (DEBUG/INFO/WARNING/ERROR). Defaults to INFO; set
+      # LOG_LEVEL=DEBUG in .env to surface the per-row detail behind seeding
+      # warnings (e.g. "skipped N source rows due to insert errors").
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Writable location for the seeded game database and character saves. It
+      # points at the persistent `heroforge-data` volume mounted below so the
+      # rest of the container filesystem can stay read-only (see read_only).
+      HEROFORGE_DATA_DIR: /app/userdata
+      # The root filesystem is read-only, so Python cannot write .pyc caches next
+      # to the source under /app/src. Redirect the bytecode cache into the
+      # writable /home/app tmpfs (in RAM) instead of suppressing it, so imports
+      # are still cached within a run rather than recompiled every time.
+      PYTHONPYCACHEPREFIX: /home/app/.cache/pycache
+    volumes:
+      # --- Code under active development (read-only: the app only imports it) -
+      # Only the runtime package and its project metadata are mounted; the test
+      # suite is a development/CI concern and is deliberately kept out of the
+      # running QA container to shrink its attack surface.
+      - type: bind
+        source: ./src
+        target: /app/src
+        read_only: true
+      - type: bind
+        source: ./pyproject.toml
+        target: /app/pyproject.toml
+        read_only: true
+      # --- Seed data and reference workbooks (read-only) ---------------------
+      # These feed the first-launch database seeding; the app must not alter them.
+      - type: bind
+        source: ./data/ClassInfo.xlsx
+        target: /app/data/ClassInfo.xlsx
+        read_only: true
+      - type: bind
+        source: ./data/CreatureInfo.csv
+        target: /app/data/CreatureInfo.csv
+        read_only: true
+      - type: bind
+        source: ./data/Tables.csv
+        target: /app/data/Tables.csv
+        read_only: true
+      - type: bind
+        source: ./data/WeaponInfo.csv
+        target: /app/data/WeaponInfo.csv
+        read_only: true
+      - type: bind
+        source: ./HeroForge Anew 3.5 v7.4.0.1.xlsm
+        target: /app/HeroForge Anew 3.5 v7.4.0.1.xlsm
+        read_only: true
+      - type: bind
+        source: ./Launcher.xlsm
+        target: /app/Launcher.xlsm
+        read_only: true
+      # --- Shared X11 socket so Qt can draw to the display sidecar ------------
+      - type: volume
+        source: x11-socket
+        target: /tmp/.X11-unix
+      # --- Persistent user data (seeded game DB + character .hfc saves) -------
+      # Mounted writable so the rest of the container filesystem can be
+      # read-only; survives container removal so saves/DB are not lost.
+      - type: volume
+        source: heroforge-data
+        target: /app/userdata
+    # Liveness probe: confirm the Qt application process is still running. The
+    # app has network_mode: none and no extra tooling, so this is a pure-Python
+    # /proc scan (Python is always present; no curl/pgrep/x11-utils needed) that
+    # works under the read-only rootfs and cap_drop: ALL. It looks for a process
+    # whose null-delimited cmdline contains the exact token "heroforge" — i.e.
+    # the `python -m heroforge` GUI — and reports healthy when found. The probe's
+    # own `python -c <script>` process does NOT match: its script is a single
+    # cmdline token, never equal to the bare "heroforge" token. A generous
+    # start_period covers first-launch openpyxl DB seeding before failures count.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import pathlib, sys, contextlib
+          for proc in pathlib.Path("/proc").glob("[0-9]*"):
+              with contextlib.suppress(OSError):
+                  args = (proc / "cmdline").read_bytes().split(b"\x00")
+                  if b"heroforge" in args:
+                      sys.exit(0)
+          sys.exit(1)
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    # Drop all Linux capabilities and forbid privilege escalation: the GUI needs
+    # none of them, which keeps this QA container tightly sandboxed.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # The app talks to the display sidecar only over the shared X11 unix socket
+    # and reads its data from local bind mounts — it needs no network at all.
+    # Fully isolating it removes any outbound exfiltration / inbound attack path.
+    network_mode: none
+    # Immutable root filesystem: only the explicit writable mounts can be
+    # written — the heroforge-data volume (persistent user data) and the tmpfs
+    # mounts below (in RAM, wiped on stop). Every tmpfs is mounted
+    # noexec,nosuid,nodev so a compromised process cannot drop and run an
+    # executable or setuid payload in a writable directory. /tmp holds Qt/X
+    # scratch files; /home/app carries mode=1707 (sticky + owner/other rwx,
+    # group denied) so the non-root app user can write Qt's runtime config/cache
+    # and the redirected .pyc bytecode cache — imports only read those files, so
+    # noexec is safe here.
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev
+      - /home/app:mode=1707,noexec,nosuid,nodev
+    # Resource ceilings to blunt local DoS (fork bombs, memory/CPU exhaustion).
+    # Sized from observed steady-state (~90 MiB, 4 PIDs) with headroom for the
+    # first-launch openpyxl seed spike; tighten from `docker stats` if desired.
+    mem_limit: 512m
+    pids_limit: 256
+    cpus: 2.0
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 2048
+
+# REQUIRED noVNC access password, supplied to the display sidecar as a file
+# mounted at /run/secrets/vnc_password instead of an environment variable, so the
+# password stays out of the container environment (and out of `docker inspect` /
+# /proc/<pid>/environ). The source file (secrets/vnc_password, git-ignored) is
+# materialized from the VNC_PASSWORD in .env by scripts/run-gui.sh on each
+# launch; a file-based secret is required here because the display service runs
+# with a read-only root filesystem (Compose cannot inject an env-based secret
+# into a read-only service). To run the stack by hand, create the file first:
+#   mkdir -p secrets && printf '%s' "$VNC_PASSWORD" > secrets/vnc_password
+secrets:
+  vnc_password:
+    file: ./secrets/vnc_password
+
+# Named volume carrying the X11 unix socket between the two containers. It is
+# initialized from the display image's /tmp/.X11-unix (mode 1777), so both the
+# non-root Xvfb and the non-root Qt process can use the socket.
+volumes:
+  x11-socket:
+  # Persistent user data for the app: the seeded game database and character
+  # .hfc saves (HEROFORGE_DATA_DIR=/app/userdata). Kept on a named volume so it
+  # survives container removal and so the app's root filesystem can stay
+  # read-only. Removed by `scripts/run-gui.sh down --volumes` if a clean reset
+  # is wanted.
+  heroforge-data:

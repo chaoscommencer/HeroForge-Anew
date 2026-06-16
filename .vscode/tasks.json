@@ -1,0 +1,98 @@
+{
+  // VS Code tasks for the QA Compose stack. These wrap scripts/run-gui.sh
+  // (which auto-detects podman/docker compose) so BOTH containers — the PyQt
+  // 'app' and the 'display' (Xvfb + noVNC) sidecar — can be brought up and torn
+  // down together from the Command Palette → "Tasks: Run Task".
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "QA Stack: Up (app + noVNC display)",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/run-gui.sh",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "detail": "Build and launch both QA containers: the Qt 'app' and the 'display' (Xvfb + noVNC) sidecar. The GUI draws to the shared X11 socket and is viewable at the forwarded noVNC port 6080 (gated by VNC_PASSWORD)."
+    },
+    {
+      "label": "QA Stack: Down (stop + remove both)",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/run-gui.sh",
+      "args": ["down", "--remove-orphans", "--volumes"],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      },
+      "detail": "Stop and remove BOTH QA containers (app + noVNC display), their network, and the shared X11 socket volume."
+    },
+    {
+      "label": "QA Stack: Open noVNC in browser tab (autoconnect)",
+      "type": "shell",
+      "command": "\"$BROWSER\" \"https://localhost:${input:novncPort}/vnc.html?autoconnect=true&mode=wss\"",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "close": true
+      },
+      "detail": "Open the noVNC client in the host's default browser (via the dev container's $BROWSER helper) with autoconnect enabled. The noVNC service uses a self-signed certificate, so you'll be prompted to accept a security warning in your browser. Bring the QA stack up first; you'll still be prompted for VNC_PASSWORD."
+    },
+    {
+      "label": "QA Stack: Preview noVNC in VS Code Simple Browser (autoconnect)",
+      "type": "shell",
+      "command": "${input:openNovncPreview}",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared",
+        "close": true
+      },
+      "detail": "Open the noVNC client in VS Code's built-in Simple Browser preview pane with autoconnect enabled. The forwarded URL is hardcoded in the openNovncPreview input below because a command-type input's args do NOT expand ${env:...}/${input:...} variables. Bring the QA stack up first; you'll still be prompted for VNC_PASSWORD."
+    },
+    {
+      "label": "Generate knowledge graph",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/build-graph.sh",
+      "args": [
+        "--build",
+        "--prune-cache",
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "detail": "Build the graphify codebase knowledge graph (graphify-out/graph.json) in a throwaway, network-isolated container (repo mounted read-only, --network none). graphifyy never enters the dev container's Python env, and the built image is pruned automatically afterwards."
+    }
+  ],
+  "inputs": [
+    {
+      // Shared noVNC port (NOVNC_PORT in Dockerfile.display / docker-compose).
+      // Defined once here and referenced as ${input:novncPort} by both open
+      // tasks so the port lives in a single place. promptString with a default
+      // lets you just press Enter to accept 6080.
+      "id": "novncPort",
+      "type": "promptString",
+      "description": "noVNC port published by the display sidecar",
+      "default": "6080"
+    },
+    {
+      // Opens VS Code's built-in Simple Browser preview pane at the noVNC
+      // client. The URL is hardcoded here because a command-type input's args
+      // are NOT variable-substituted (neither ${env:...} nor ${input:...}), and
+      // simpleBrowser.show will not forward a localhost URL itself. This host is
+      // specific to the current Codespace — update it if the Codespace is
+      // renamed/rebuilt, or use the browser-tab task (which forwards localhost
+      // automatically) outside this Codespace.
+      "id": "openNovncPreview",
+      "type": "command",
+      "command": "simpleBrowser.show",
+      "args": "https://{env:CODESPACE_NAME}-{input:novncPort}.app.github.dev/vnc.html?autoconnect=true&mode=wss"
+    }
+  ]
+}

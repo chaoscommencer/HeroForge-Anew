@@ -1,0 +1,15 @@
+{
+    "python.analysis.typeCheckingMode": "strict",
+    // The display sidecar's websockify is TLS-only (--ssl-only). VS Code's
+    // port-forwarding proxy connects to a forwarded port over plain HTTP by
+    // default, which websockify rejects ("non-SSL connection received but
+    // disallowed") and surfaces as a 502 in the browser. Declaring port 6080 as
+    // HTTPS makes the forwarder connect over TLS. This mirrors the same
+    // portsAttributes entry in .devcontainer/devcontainer.json, but applies in
+    // the current window without a container rebuild.
+    "remote.portsAttributes": {
+        "6080": {
+            "protocol": "https"
+        }
+    }
+}

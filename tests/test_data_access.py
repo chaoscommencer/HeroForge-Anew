@@ -1,0 +1,448 @@
+"""Tests for the read-only game data-access layer (heroforge.db.data_access)."""
+
+from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
+
+import pytest
+
+from heroforge.db.data_access import GameDataRepository
+from heroforge.db.schema import get_connection, initialize_database
+
+
+@pytest.fixture()
+def seeded_repo(tmp_path: Path) -> GameDataRepository:
+    """A repository over a small, hand-seeded game database."""
+    db_path = tmp_path / "game.db"
+    conn = initialize_database(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO sources (abbreviation, full_name) VALUES (?, ?)",
+            ("PHB", "Player's Handbook"),
+        )
+        conn.execute(
+            "INSERT INTO sources (abbreviation, full_name) VALUES (?, ?)",
+            ("CAr", "Complete Arcane"),
+        )
+        conn.executemany(
+            "INSERT INTO feats (name, type, description, benefit, source) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                ("Power Attack", "General", "Trade accuracy for damage.", "", "PHB"),
+                ("Empower Spell", "Metamagic", "Boost spell effect.", "", "CAr"),
+                ("Toughness", "General", "+3 hit points.", "", None),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO races (name, source) VALUES (?, ?)",
+            [("Human", "PHB"), ("Elf", "PHB")],
+        )
+        conn.executemany(
+            "INSERT INTO templates (name, source) VALUES (?, ?)",
+            [("Celestial", "PHB"), ("Fiendish", "PHB")],
+        )
+        conn.executemany(
+            "INSERT INTO spells_per_day (class_name, caster_level, spell_level, slots) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("Wizard", 1, 0, 3),
+                ("Wizard", 1, 1, 1),
+                ("Cleric", 1, 0, 3),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO spells_known (class_name, caster_level, spell_level, count) "
+            "VALUES (?, ?, ?, ?)",
+            [("Sorcerer", 1, 0, 4), ("Sorcerer", 1, 1, 2)],
+        )
+        conn.executemany(
+            "INSERT INTO incarnum_abilities (name, description) VALUES (?, ?)",
+            [
+                ("Airstep Sandals", "You may step through air."),
+                ("Dissolving Spittle", "Spit acid as a ranged touch attack."),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO vestiges (name, level, source) VALUES (?, ?, ?)",
+            [
+                ("Acererak", 8, "ToM"),
+                ("Aym", 4, "ToM"),
+                ("Leraje", 3, None),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO marshal_auras (name, type) VALUES (?, ?)",
+            [
+                ("Motivate Dexterity", "Minor"),
+                ("Motivate Strength", "Minor"),
+                ("Demand Fortitude", "Major"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO racial_abilities (race_name, ability_name, description) "
+            "VALUES (?, ?, ?)",
+            [
+                ("Dwarf", "Darkvision", "Can see 60 ft. in total darkness."),
+                ("Dwarf", "Stonecunning", "+2 bonus on checks for unusual stonework."),
+                (
+                    "Elf",
+                    "Low-Light Vision",
+                    "Can see twice as far as humans in dim light.",
+                ),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO classes (name, is_prestige, hit_die, bab_progression, "
+            "fort_progression, ref_progression, will_progression, "
+            "skill_points_per_level, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("Fighter", 0, 10, "fast", "good", "poor", "poor", 2, "PHB"),
+                ("Wizard", 0, 4, "slow", "poor", "poor", "good", 2, "PHB"),
+                ("Arcane Archer", 1, 8, "fast", "poor", "good", "poor", 4, "DMG"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO class_skills (class_name, skill_name) VALUES (?, ?)",
+            [
+                ("Fighter", "Intimidate"),
+                ("Fighter", "Climb"),
+                ("Wizard", "Spellcraft"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO class_weapons_armor (class_name, proficiency) VALUES (?, ?)",
+            [
+                ("Fighter", "All simple weapons"),
+                ("Fighter", "All martial weapons"),
+                ("Fighter", "Heavy armor"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO class_abilities (class_name, level, ability_name, "
+            "description) VALUES (?, ?, ?, ?)",
+            [
+                ("Fighter", 1, "Bonus Feat", "A fighter gains a bonus feat."),
+                ("Fighter", 2, "Bonus Feat", "A fighter gains a bonus feat."),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return GameDataRepository(db_path)
+
+
+class TestAvailability:
+    def test_missing_db_is_unavailable(self, tmp_path: Path) -> None:
+        repo = GameDataRepository(tmp_path / "does_not_exist.db")
+        assert repo.available is False
+        assert repo.list_feats() == []
+        assert repo.list_sources() == []
+
+    def test_none_db_is_unavailable(self) -> None:
+        repo = GameDataRepository(None)
+        assert repo.available is False
+        assert repo.list_caster_classes() == []
+
+
+class TestSources:
+    def test_list_sources(self, seeded_repo: GameDataRepository) -> None:
+        sources = seeded_repo.list_sources()
+        assert [s.abbreviation for s in sources] == ["CAr", "PHB"]
+        assert sources[1].label == "PHB – Player's Handbook"
+
+
+class TestFeats:
+    def test_list_all_feats(self, seeded_repo: GameDataRepository) -> None:
+        names = [f.name for f in seeded_repo.list_feats()]
+        assert names == ["Empower Spell", "Power Attack", "Toughness"]
+
+    def test_source_filter_includes_unsourced(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        # Filtering to PHB keeps PHB feats and the NULL-source feat, but drops CAr.
+        names = [f.name for f in seeded_repo.list_feats(sources=["PHB"])]
+        assert names == ["Power Attack", "Toughness"]
+
+    def test_empty_source_filter_returns_all(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        assert len(seeded_repo.list_feats(sources=[])) == 3
+
+
+class TestRacesTemplates:
+    def test_list_races(self, seeded_repo: GameDataRepository) -> None:
+        assert seeded_repo.list_races() == ["Elf", "Human"]
+
+    def test_list_templates(self, seeded_repo: GameDataRepository) -> None:
+        assert seeded_repo.list_templates() == ["Celestial", "Fiendish"]
+
+
+class TestSpells:
+    def test_caster_classes_union(self, seeded_repo: GameDataRepository) -> None:
+        assert seeded_repo.list_caster_classes() == ["Cleric", "Sorcerer", "Wizard"]
+
+    def test_spells_per_day(self, seeded_repo: GameDataRepository) -> None:
+        slots = seeded_repo.spells_per_day("Wizard")
+        assert [(s.spell_level, s.count) for s in slots] == [(0, 3), (1, 1)]
+
+    def test_spells_known(self, seeded_repo: GameDataRepository) -> None:
+        known = seeded_repo.spells_known("Sorcerer")
+        assert [(s.spell_level, s.count) for s in known] == [(0, 4), (1, 2)]
+
+
+class TestIncarnumAbilities:
+    def test_list_all(self, seeded_repo: GameDataRepository) -> None:
+        abilities = seeded_repo.list_incarnum_abilities()
+        assert [a.name for a in abilities] == ["Airstep Sandals", "Dissolving Spittle"]
+
+    def test_description_present(self, seeded_repo: GameDataRepository) -> None:
+        abilities = seeded_repo.list_incarnum_abilities()
+        assert abilities[0].description == "You may step through air."
+
+    def test_empty_when_no_data(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "empty.db"
+        conn = initialize_database(db_path)
+        conn.close()
+        repo = GameDataRepository(db_path)
+        assert repo.list_incarnum_abilities() == []
+
+
+class TestVestiges:
+    def test_list_all(self, seeded_repo: GameDataRepository) -> None:
+        vestiges = seeded_repo.list_vestiges()
+        assert [v.name for v in vestiges] == ["Acererak", "Aym", "Leraje"]
+
+    def test_level_and_source(self, seeded_repo: GameDataRepository) -> None:
+        vestiges = seeded_repo.list_vestiges()
+        acererak = next(v for v in vestiges if v.name == "Acererak")
+        assert acererak.level == 8
+        assert acererak.source == "ToM"
+
+    def test_null_source_is_none(self, seeded_repo: GameDataRepository) -> None:
+        vestiges = seeded_repo.list_vestiges()
+        leraje = next(v for v in vestiges if v.name == "Leraje")
+        assert leraje.source is None
+
+    def test_null_source_included_in_filter(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        # Leraje has NULL source; it must appear when filtering by "ToM".
+        vestiges = seeded_repo.list_vestiges(sources=["ToM"])
+        names = [v.name for v in vestiges]
+        assert "Leraje" in names
+        assert "Acererak" in names
+
+    def test_unmatched_source_filter_returns_only_null_sourced(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        # Filtering by a source that no vestige has keeps only NULL-sourced rows.
+        vestiges = seeded_repo.list_vestiges(sources=["PHB"])
+        names = [v.name for v in vestiges]
+        assert names == ["Leraje"]
+        assert "Acererak" not in names
+        assert "Aym" not in names
+
+    def test_empty_when_no_data(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "empty.db"
+        conn = initialize_database(db_path)
+        conn.close()
+        repo = GameDataRepository(db_path)
+        assert repo.list_vestiges() == []
+
+
+class TestMarshalAuras:
+    def test_list_all(self, seeded_repo: GameDataRepository) -> None:
+        auras = seeded_repo.list_marshal_auras()
+        assert len(auras) == 3
+
+    def test_filter_by_type(self, seeded_repo: GameDataRepository) -> None:
+        minor = seeded_repo.list_marshal_auras(aura_type="Minor")
+        assert all(a.aura_type == "Minor" for a in minor)
+        assert {a.name for a in minor} == {"Motivate Dexterity", "Motivate Strength"}
+
+    def test_filter_major(self, seeded_repo: GameDataRepository) -> None:
+        major = seeded_repo.list_marshal_auras(aura_type="Major")
+        assert [a.name for a in major] == ["Demand Fortitude"]
+
+    def test_empty_when_no_data(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "empty.db"
+        conn = initialize_database(db_path)
+        conn.close()
+        repo = GameDataRepository(db_path)
+        assert repo.list_marshal_auras() == []
+
+
+class TestRacialAbilities:
+    def test_list_all(self, seeded_repo: GameDataRepository) -> None:
+        abilities = seeded_repo.list_racial_abilities()
+        assert len(abilities) == 3
+
+    def test_filter_by_race(self, seeded_repo: GameDataRepository) -> None:
+        dwarf = seeded_repo.list_racial_abilities(race_name="Dwarf")
+        assert {a.ability_name for a in dwarf} == {"Darkvision", "Stonecunning"}
+
+    def test_description_present(self, seeded_repo: GameDataRepository) -> None:
+        elf = seeded_repo.list_racial_abilities(race_name="Elf")
+        assert len(elf) == 1
+        assert "dim light" in elf[0].description
+
+    def test_unknown_race_returns_empty(self, seeded_repo: GameDataRepository) -> None:
+        assert seeded_repo.list_racial_abilities(race_name="Gnome") == []
+
+    def test_empty_when_no_data(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "empty.db"
+        conn = initialize_database(db_path)
+        conn.close()
+        repo = GameDataRepository(db_path)
+        assert repo.list_racial_abilities() == []
+
+
+def test_repository_is_read_only(
+    seeded_repo: GameDataRepository, tmp_path: Path
+) -> None:
+    """Listing data must never mutate the backing database."""
+    assert seeded_repo.db_path is not None
+    conn = get_connection(seeded_repo.db_path)
+    try:
+        before = conn.execute("SELECT COUNT(*) FROM feats").fetchone()[0]
+    finally:
+        conn.close()
+    seeded_repo.list_feats()
+    seeded_repo.list_races()
+    conn = get_connection(seeded_repo.db_path)
+    try:
+        after = conn.execute("SELECT COUNT(*) FROM feats").fetchone()[0]
+    finally:
+        conn.close()
+    assert before == after == 3
+
+
+def test_query_tolerates_missing_table(tmp_path: Path) -> None:
+    """A database file without the expected tables yields empty results."""
+    db_path = tmp_path / "bare.db"
+    sqlite3.connect(db_path).close()  # empty file, no schema
+    repo = GameDataRepository(db_path)
+    assert repo.list_feats() == []
+    assert repo.list_caster_classes() == []
+
+
+class TestAvailability:
+    def test_missing_db_is_unavailable(self, tmp_path: Path) -> None:
+        repo = GameDataRepository(tmp_path / "does_not_exist.db")
+        assert repo.available is False
+        assert repo.list_feats() == []
+        assert repo.list_sources() == []
+
+    def test_none_db_is_unavailable(self) -> None:
+        repo = GameDataRepository(None)
+        assert repo.available is False
+        assert repo.list_caster_classes() == []
+
+
+class TestSources:
+    def test_list_sources(self, seeded_repo: GameDataRepository) -> None:
+        sources = seeded_repo.list_sources()
+        assert [s.abbreviation for s in sources] == ["CAr", "PHB"]
+        assert sources[1].label == "PHB – Player's Handbook"
+
+
+class TestFeats:
+    def test_list_all_feats(self, seeded_repo: GameDataRepository) -> None:
+        names = [f.name for f in seeded_repo.list_feats()]
+        assert names == ["Empower Spell", "Power Attack", "Toughness"]
+
+    def test_source_filter_includes_unsourced(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        # Filtering to PHB keeps PHB feats and the NULL-source feat, but drops CAr.
+        names = [f.name for f in seeded_repo.list_feats(sources=["PHB"])]
+        assert names == ["Power Attack", "Toughness"]
+
+    def test_empty_source_filter_returns_all(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        assert len(seeded_repo.list_feats(sources=[])) == 3
+
+
+class TestRacesTemplates:
+    def test_list_races(self, seeded_repo: GameDataRepository) -> None:
+        assert seeded_repo.list_races() == ["Elf", "Human"]
+
+    def test_list_templates(self, seeded_repo: GameDataRepository) -> None:
+        assert seeded_repo.list_templates() == ["Celestial", "Fiendish"]
+
+
+class TestSpells:
+    def test_caster_classes_union(self, seeded_repo: GameDataRepository) -> None:
+        assert seeded_repo.list_caster_classes() == ["Cleric", "Sorcerer", "Wizard"]
+
+    def test_spells_per_day(self, seeded_repo: GameDataRepository) -> None:
+        slots = seeded_repo.spells_per_day("Wizard")
+        assert [(s.spell_level, s.count) for s in slots] == [(0, 3), (1, 1)]
+
+    def test_spells_known(self, seeded_repo: GameDataRepository) -> None:
+        known = seeded_repo.spells_known("Sorcerer")
+        assert [(s.spell_level, s.count) for s in known] == [(0, 4), (1, 2)]
+
+
+class TestClasses:
+    def test_list_classes_base_only(self, seeded_repo: GameDataRepository) -> None:
+        names = [c.name for c in seeded_repo.list_classes()]
+        # Prestige classes are excluded by default.
+        assert names == ["Fighter", "Wizard"]
+
+    def test_list_classes_include_prestige(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        names = [c.name for c in seeded_repo.list_classes(include_prestige=True)]
+        assert names == ["Arcane Archer", "Fighter", "Wizard"]
+
+    def test_list_classes_fields(self, seeded_repo: GameDataRepository) -> None:
+        fighter = next(c for c in seeded_repo.list_classes() if c.name == "Fighter")
+        assert fighter.is_prestige is False
+        assert fighter.hit_die == 10
+        assert fighter.bab_progression == "fast"
+        assert fighter.fort_progression == "good"
+        assert fighter.skill_points_per_level == 2
+        assert fighter.source == "PHB"
+
+    def test_list_classes_source_filter(self, seeded_repo: GameDataRepository) -> None:
+        # Filtering to PHB keeps the PHB base classes and drops the DMG one.
+        names = [
+            c.name
+            for c in seeded_repo.list_classes(sources=["PHB"], include_prestige=True)
+        ]
+        assert names == ["Fighter", "Wizard"]
+
+    def test_class_skills(self, seeded_repo: GameDataRepository) -> None:
+        assert seeded_repo.class_skills("Fighter") == ["Climb", "Intimidate"]
+        assert seeded_repo.class_skills("Wizard") == ["Spellcraft"]
+
+    def test_class_proficiencies(self, seeded_repo: GameDataRepository) -> None:
+        profs = seeded_repo.class_proficiencies("Fighter")
+        assert profs == [
+            "All simple weapons",
+            "All martial weapons",
+            "Heavy armor",
+        ]
+
+    def test_class_abilities(self, seeded_repo: GameDataRepository) -> None:
+        abilities = seeded_repo.class_abilities("Fighter")
+        assert [(a.level, a.ability_name) for a in abilities] == [
+            (1, "Bonus Feat"),
+            (2, "Bonus Feat"),
+        ]
+        assert abilities[0].description == "A fighter gains a bonus feat."
+
+    def test_unknown_class_returns_empty(self, seeded_repo: GameDataRepository) -> None:
+        assert seeded_repo.class_skills("Bard") == []
+        assert seeded_repo.class_proficiencies("Bard") == []
+        assert seeded_repo.class_abilities("Bard") == []
+
+    def test_empty_when_no_data(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "empty.db"
+        conn = initialize_database(db_path)
+        conn.close()
+        repo = GameDataRepository(db_path)
+        assert repo.list_classes() == []
