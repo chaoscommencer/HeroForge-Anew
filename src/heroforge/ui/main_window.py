@@ -49,6 +49,7 @@ from heroforge.ui.tabs.armor import ArmorTab
 from heroforge.ui.tabs.attacks import AttacksTab
 from heroforge.ui.tabs.buffs import BuffsTab
 from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+from heroforge.ui.tabs.classes import ClassesTab
 from heroforge.ui.tabs.enhancements import EnhancementsTab
 from heroforge.ui.tabs.familiar import FamiliarTab
 from heroforge.ui.tabs.feats import FeatsTab
@@ -376,6 +377,7 @@ class MainWindow(QMainWindow):
     _TAB_REGISTRY: list[tuple[str, type[QWidget]]] = [
         ("Stats & Details", StatsAndCharacterDetailsTab),
         ("Race & Templates", RaceAndTemplatesTab),
+        ("Classes", ClassesTab),
         ("Prestige Classes", PrestigeClassesTab),
         ("Skills", SkillsTab),
         ("Skill Tricks", SkillTricksTab),
