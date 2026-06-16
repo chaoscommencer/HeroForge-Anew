@@ -172,11 +172,12 @@ class RaceAndTemplatesTab(QWidget):
             if not race_name or self._model is None:
                 self._variants_hint.setText("Select a race to view available variants.")
                 return
-            selected = self._selected_variant_names(race_name)
             variants = self._model.game_data().list_race_variants(race_name)
             if not variants:
                 self._variants_hint.setText("No variants available for this race.")
                 return
+            available_names = {v.name for v in variants}
+            selected = self._selected_variant_names(race_name, available_names)
             self._variants_hint.setText("")
             for variant in variants:
                 item = QListWidgetItem(variant.name)
@@ -193,20 +194,31 @@ class RaceAndTemplatesTab(QWidget):
         finally:
             self._loading = False
 
-    def _selected_variant_names(self, race_name: str) -> set[str]:
-        """Names of variants already selected for *race_name* on the character."""
+    def _selected_variant_names(
+        self, race_name: str, available_names: set[str] | None = None
+    ) -> set[str]:
+        """Names of variants already selected for *race_name* on the character.
+
+        Handles both structured dict entries (current format) and legacy plain-
+        string entries.  Legacy strings are treated as selected when they match
+        one of the *available_names* for the current race, preventing them from
+        appearing unchecked and being duplicated on the next save.
+        """
         if self._model is None:
             return set()
         target = race_name.casefold()
         names: set[str] = set()
         for entry in self._model.character.variants:
-            if (
-                isinstance(entry, dict)
-                and (entry.get("class_name") or "").casefold() == target
-            ):
-                name = entry.get("variant_name")
-                if name:
-                    names.add(name)
+            if isinstance(entry, dict):
+                if (entry.get("class_name") or "").casefold() == target:
+                    name = entry.get("variant_name")
+                    if name:
+                        names.add(name)
+            elif isinstance(entry, str):
+                # Legacy plain-string variant: treat as selected when it matches
+                # an available variant for the current race.
+                if available_names and entry in available_names:
+                    names.add(entry)
         return names
 
     def _on_variant_toggled(self, _item: QListWidgetItem) -> None:
@@ -222,13 +234,27 @@ class RaceAndTemplatesTab(QWidget):
         race_name = self._race_combo.currentText()
         race_key = race_name.casefold()
         char = self._model.character
-        # Keep variants tied to other races/classes untouched.
+        # Collect the variant names currently shown in the checklist so that
+        # matching legacy plain-string entries can be migrated out (prevents
+        # a legacy string and a structured dict for the same variant coexisting).
+        displayed_names: set[str] = set()
+        for i in range(self._variants_list.count()):
+            item = self._variants_list.item(i)
+            if item is not None:
+                displayed_names.add(item.text())
+        # Keep variants tied to other races/classes untouched, removing both
+        # structured dict entries for this race and any legacy strings that
+        # match a currently-displayed variant (they will be re-added below in
+        # structured form if checked).
         kept: list[str | dict[str, str | None]] = [
             entry
             for entry in char.variants
             if not (
-                isinstance(entry, dict)
-                and (entry.get("class_name") or "").casefold() == race_key
+                (
+                    isinstance(entry, dict)
+                    and (entry.get("class_name") or "").casefold() == race_key
+                )
+                or (isinstance(entry, str) and entry in displayed_names)
             )
         ]
         for i in range(self._variants_list.count()):

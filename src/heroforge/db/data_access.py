@@ -605,14 +605,38 @@ class GameDataRepository:
         """Return the :class:`Template` rows for *names*, skipping unknowns.
 
         Order follows *names* so template stacking respects the order the user
-        applied them.
+        applied them.  All rows are fetched in a single query to avoid N+1
+        connection overhead when multiple templates are applied.
         """
-        result: list[Template] = []
-        for name in names:
-            template = self.get_template(name)
-            if template is not None:
-                result.append(template)
-        return result
+        name_list = list(names)
+        if not name_list:
+            return []
+        unique_names = list(dict.fromkeys(name_list))
+        placeholders = ", ".join("?" for _ in unique_names)
+        rows = self._query(
+            "SELECT id, name, cr_adjustment, level_adjustment, type_change, "
+            "subtype_added, str_adj, dex_adj, con_adj, int_adj, wis_adj, "
+            f"cha_adj, source FROM templates WHERE name IN ({placeholders})",
+            unique_names,
+        )
+        by_name: dict[str, Template] = {}
+        for r in rows:
+            by_name[r["name"]] = Template(
+                id=r["id"],
+                name=r["name"],
+                cr_adjustment=r["cr_adjustment"] or 0.0,
+                level_adjustment=r["level_adjustment"] or 0,
+                type_change=r["type_change"] or "",
+                subtype_added=r["subtype_added"] or "",
+                str_adj=r["str_adj"] or 0,
+                dex_adj=r["dex_adj"] or 0,
+                con_adj=r["con_adj"] or 0,
+                int_adj=r["int_adj"] or 0,
+                wis_adj=r["wis_adj"] or 0,
+                cha_adj=r["cha_adj"] or 0,
+                source=r["source"] or "",
+            )
+        return [by_name[n] for n in name_list if n in by_name]
 
     def list_race_variants(
         self, race_name: str, sources: Iterable[str] | None = None
