@@ -445,6 +445,56 @@ class TestIncarnumPsionicsManeuvers:
         )
         assert model.character.options["psionic_total_pp"] == "11"
 
+    def test_power_points_and_manifester_level_auto_calculate(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        tab = PsionicsTab(model=model)
+        # Psion 10 with INT 20 (+5): 88 base + floor(5 * 10 / 2) = 113 PP.
+        model.character.classes = [("Psion", 10)]
+        model.character.ability_scores["INT"] = 20
+        model.derived_stats_changed.emit()
+
+        assert tab._manifester_lbl.text() == "10"
+        assert tab._total_pp.value() == 113
+        assert model.character.options["psionic_total_pp"] == "113"
+
+    def test_manual_override_survives_recalculation(self, model: object) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        tab = PsionicsTab(model=model)
+        model.character.classes = [("Psion", 10)]
+        model.character.ability_scores["INT"] = 20
+        model.derived_stats_changed.emit()
+
+        # A manual edit switches off auto-calculation and is preserved.
+        tab._total_pp.setValue(200)
+        assert tab._auto_pp.isChecked() is False
+        assert model.character.options["psionic_pp_auto"] == "false"
+
+        model.character.classes = [("Psion", 5)]
+        model.derived_stats_changed.emit()
+        assert tab._total_pp.value() == 200
+
+        # Re-enabling auto-calculation recomputes from the current build.
+        tab._auto_pp.setChecked(True)
+        assert tab._total_pp.value() == 37  # Psion 5, INT 20: 25 + floor(5*5/2)
+
+    def test_legacy_manual_total_is_preserved_on_load(self, model: object) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        # A saved character (no auto flag) with a hand-entered total differing
+        # from the computed value is treated as a manual override.
+        model.character.classes = [("Psion", 10)]
+        model.character.ability_scores["INT"] = 20
+        model.character.options["psionic_total_pp"] = "50"
+        tab = PsionicsTab(model=model)
+        model.character_loaded.emit(0)
+
+        assert tab._auto_pp.isChecked() is False
+        assert tab._total_pp.value() == 50
+
     def test_maneuver_and_stance_classified(self, model: object) -> None:
         from heroforge.ui.tabs.maneuvers_and_stances import ManeuversAndStancesTab
 
