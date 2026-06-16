@@ -350,3 +350,96 @@ class TestSpells:
     def test_spells_known(self, seeded_repo: GameDataRepository) -> None:
         known = seeded_repo.spells_known("Sorcerer")
         assert [(s.spell_level, s.count) for s in known] == [(0, 4), (1, 2)]
+
+
+@pytest.fixture()
+def race_template_repo(tmp_path: Path) -> GameDataRepository:
+    """A repository seeded with rich race/template/variant rows."""
+    db_path = tmp_path / "rt.db"
+    conn = initialize_database(db_path)
+    try:
+        conn.execute(
+            "INSERT INTO races (name, size, type, base_land_speed, dex_adj, "
+            "con_adj, level_adjustment, source) "
+            "VALUES ('Elf', 'Medium', 'Humanoid', 30, 2, -2, 0, 'PHB')"
+        )
+        conn.execute(
+            "INSERT INTO templates (name, str_adj, con_adj, int_adj, cha_adj, "
+            "level_adjustment, type_change, source) "
+            "VALUES ('Half-Dragon', 8, 2, 2, 2, 3, 'Dragon', 'MM')"
+        )
+        conn.executemany(
+            "INSERT INTO variants (name, base_class, description, source) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("Aquatic Elf", "Elf", "An aquatic subrace.", "MM"),
+                ("Wood Elf", "Elf", "A forest subrace.", "UA"),
+                ("Whirling Frenzy", "Barbarian", "A rage variant.", "UA"),
+            ],
+        )
+        conn.execute(
+            "INSERT INTO racial_abilities (race_name, ability_name, description) "
+            "VALUES ('Elf', 'Low-Light Vision', 'See in dim light.')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return GameDataRepository(db_path)
+
+
+class TestGetRaceTemplate:
+    def test_get_race_returns_full_row(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        race = race_template_repo.get_race("Elf")
+        assert race is not None
+        assert race.name == "Elf"
+        assert race.size == "Medium"
+        assert race.dex_adj == 2
+        assert race.con_adj == -2
+        assert race.level_adjustment == 0
+        assert race.base_land_speed == 30
+        assert race.abilities == ["Low-Light Vision"]
+
+    def test_get_race_unknown_returns_none(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        assert race_template_repo.get_race("Nonexistent") is None
+
+    def test_get_template_returns_full_row(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        template = race_template_repo.get_template("Half-Dragon")
+        assert template is not None
+        assert template.str_adj == 8
+        assert template.con_adj == 2
+        assert template.level_adjustment == 3
+        assert template.type_change == "Dragon"
+
+    def test_get_template_unknown_returns_none(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        assert race_template_repo.get_template("Nope") is None
+
+    def test_get_templates_preserves_order_and_skips_unknown(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        templates = race_template_repo.get_templates(["Half-Dragon", "Ghost"])
+        assert [t.name for t in templates] == ["Half-Dragon"]
+
+    def test_list_race_variants(self, race_template_repo: GameDataRepository) -> None:
+        variants = race_template_repo.list_race_variants("Elf")
+        assert [v.name for v in variants] == ["Aquatic Elf", "Wood Elf"]
+
+    def test_list_race_variants_case_insensitive(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        assert [v.name for v in race_template_repo.list_race_variants("elf")] == [
+            "Aquatic Elf",
+            "Wood Elf",
+        ]
+
+    def test_list_race_variants_none_for_unknown(
+        self, race_template_repo: GameDataRepository
+    ) -> None:
+        assert race_template_repo.list_race_variants("Human") == []

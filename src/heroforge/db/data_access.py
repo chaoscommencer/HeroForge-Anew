@@ -33,6 +33,8 @@ from heroforge.logic.familiar import (
     FamiliarMasterAbility,
     describe_bonus,
 )
+from heroforge.models.race import Race
+from heroforge.models.template import Template
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +233,20 @@ class RacialAbility:
     description: str
 
 
+@dataclass(frozen=True)
+class Variant:
+    """A class/racial variant from the ``variants`` table.
+
+    ``base_class`` names the class **or race** the variant modifies; race
+    variants are those whose ``base_class`` matches a race name.
+    """
+
+    name: str
+    base_class: str
+    description: str
+    source: str
+
+
 class GameDataRepository:
     """Read-only accessor for the seeded ``heroforge.db`` game database.
 
@@ -394,6 +410,132 @@ class GameDataRepository:
         where = f"WHERE {fragment}" if fragment else ""
         rows = self._query(f"SELECT name FROM templates {where} ORDER BY name", params)
         return [r["name"] for r in rows]
+
+    def get_race(self, name: str) -> Race | None:
+        """Return the full :class:`~heroforge.models.race.Race` row for *name*.
+
+        Supplies the ability adjustments, size, speeds, vision, natural armor,
+        and level adjustment used to apply racial modifiers to a character.
+        Returns ``None`` when the race is unknown or the database is
+        unavailable.  The race's special abilities are populated from the
+        ``racial_abilities`` table.
+        """
+        rows = self._query(
+            "SELECT id, name, size, type, subtype, base_land_speed, "
+            "base_fly_speed, base_swim_speed, base_climb_speed, "
+            "base_burrow_speed, darkvision, low_light_vision, natural_armor, "
+            "str_adj, dex_adj, con_adj, int_adj, wis_adj, cha_adj, "
+            "level_adjustment, favored_class, source "
+            "FROM races WHERE name = ? LIMIT 1",
+            [name],
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return Race(
+            id=r["id"],
+            name=r["name"],
+            size=r["size"] or "Medium",
+            type=r["type"] or "Humanoid",
+            subtype=r["subtype"] or "",
+            base_land_speed=r["base_land_speed"] or 0,
+            base_fly_speed=r["base_fly_speed"] or 0,
+            base_swim_speed=r["base_swim_speed"] or 0,
+            base_climb_speed=r["base_climb_speed"] or 0,
+            base_burrow_speed=r["base_burrow_speed"] or 0,
+            darkvision=r["darkvision"] or 0,
+            low_light_vision=r["low_light_vision"] or 0,
+            natural_armor=r["natural_armor"] or 0,
+            str_adj=r["str_adj"] or 0,
+            dex_adj=r["dex_adj"] or 0,
+            con_adj=r["con_adj"] or 0,
+            int_adj=r["int_adj"] or 0,
+            wis_adj=r["wis_adj"] or 0,
+            cha_adj=r["cha_adj"] or 0,
+            level_adjustment=r["level_adjustment"] or 0,
+            favored_class=r["favored_class"] or "",
+            source=r["source"] or "",
+            abilities=[
+                a.ability_name for a in self.list_racial_abilities(race_name=name)
+            ],
+        )
+
+    def get_template(self, name: str) -> Template | None:
+        """Return the full :class:`~heroforge.models.template.Template` for *name*.
+
+        Supplies the ability adjustments, type/subtype changes, CR adjustment,
+        and level adjustment a template contributes when layered on top of a
+        base race/creature.  Returns ``None`` when the template is unknown or
+        the database is unavailable.
+        """
+        rows = self._query(
+            "SELECT id, name, cr_adjustment, level_adjustment, type_change, "
+            "subtype_added, str_adj, dex_adj, con_adj, int_adj, wis_adj, "
+            "cha_adj, source FROM templates WHERE name = ? LIMIT 1",
+            [name],
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return Template(
+            id=r["id"],
+            name=r["name"],
+            cr_adjustment=r["cr_adjustment"] or 0.0,
+            level_adjustment=r["level_adjustment"] or 0,
+            type_change=r["type_change"] or "",
+            subtype_added=r["subtype_added"] or "",
+            str_adj=r["str_adj"] or 0,
+            dex_adj=r["dex_adj"] or 0,
+            con_adj=r["con_adj"] or 0,
+            int_adj=r["int_adj"] or 0,
+            wis_adj=r["wis_adj"] or 0,
+            cha_adj=r["cha_adj"] or 0,
+            source=r["source"] or "",
+        )
+
+    def get_templates(self, names: Iterable[str]) -> list[Template]:
+        """Return the :class:`Template` rows for *names*, skipping unknowns.
+
+        Order follows *names* so template stacking respects the order the user
+        applied them.
+        """
+        result: list[Template] = []
+        for name in names:
+            template = self.get_template(name)
+            if template is not None:
+                result.append(template)
+        return result
+
+    def list_race_variants(
+        self, race_name: str, sources: Iterable[str] | None = None
+    ) -> list[Variant]:
+        """Return the selectable variants for *race_name*.
+
+        Race variants are ``variants`` rows whose ``base_class`` matches the
+        race name (case-insensitive).  Returns an empty list when none exist or
+        the database is unavailable.
+        """
+        fragment, params = self._source_filter("source", sources)
+        where = "WHERE base_class = ? COLLATE NOCASE"
+        query_params: list[object] = [race_name]
+        if fragment:
+            where += f" AND {fragment}"
+            query_params.extend(params)
+        rows = self._query(
+            "SELECT name, base_class, description, source "
+            f"FROM variants {where} ORDER BY name",
+            query_params,
+        )
+        return [
+            Variant(
+                name=r["name"],
+                base_class=r["base_class"] or "",
+                description=r["description"] or "",
+                source=r["source"] or "",
+            )
+            for r in rows
+            if r["name"]
+        ]
 
     # ------------------------------------------------------------------
     # Spells

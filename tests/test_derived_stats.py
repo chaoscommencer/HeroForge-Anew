@@ -85,3 +85,46 @@ class TestClassProgressions:
         stats = compute_derived_stats(char, progressions)
         # Fighter fast (2) + Wizard slow (5 // 2 = 2) = 4.
         assert stats.base_attack_bonus == 4
+
+
+class TestRaceTemplateAdjustments:
+    def test_ability_adjustments_applied_to_scores_and_mods(self) -> None:
+        char = _character(STR=10, CON=14)
+        stats = compute_derived_stats(
+            char,
+            ability_adjustments={"STR": 8, "CON": 2},
+        )
+        assert stats.effective_ability_scores["STR"] == 18
+        assert stats.effective_ability_scores["CON"] == 16
+        # +4 STR modifier now drives melee and grapple.
+        assert stats.melee_attack == 4
+        assert stats.grapple == 4
+        # +3 CON modifier drives Fortitude.
+        assert stats.fortitude == 3
+        # Carrying capacity reflects the adjusted Strength of 18.
+        assert stats.carrying_capacity == (100, 200, 300)
+
+    def test_penalty_floored_at_one(self) -> None:
+        char = _character(STR=8)
+        stats = compute_derived_stats(char, ability_adjustments={"STR": -20})
+        assert stats.effective_ability_scores["STR"] == 1
+
+    def test_level_adjustment_drives_ecl(self) -> None:
+        char = Character()
+        char.classes = [("Fighter", 5)]
+        stats = compute_derived_stats(char, level_adjustment=3)
+        assert stats.level_adjustment == 3
+        assert stats.effective_character_level == 8
+
+    def test_size_flows_through(self) -> None:
+        stats = compute_derived_stats(Character(), size="Small")
+        assert stats.size == "Small"
+        # Small creatures get +1 size bonus to AC and attack.
+        assert stats.armor_class == 11
+
+    def test_defaults_are_neutral(self) -> None:
+        stats = compute_derived_stats(_character(STR=12))
+        assert stats.size == "Medium"
+        assert stats.level_adjustment == 0
+        assert stats.effective_character_level == 0
+        assert stats.effective_ability_scores["STR"] == 12

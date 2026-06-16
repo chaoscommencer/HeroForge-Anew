@@ -59,7 +59,11 @@ class DerivedStats:
     """
 
     ability_modifiers: Mapping[str, int]
+    effective_ability_scores: Mapping[str, int]
     total_level: int
+    level_adjustment: int
+    effective_character_level: int
+    size: str
     base_attack_bonus: int
     melee_attack: int
     ranged_attack: int
@@ -88,6 +92,8 @@ def compute_derived_stats(
     *,
     size: str = "Medium",
     save_bonuses: Mapping[str, int] | None = None,
+    ability_adjustments: Mapping[str, int] | None = None,
+    level_adjustment: int = 0,
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
@@ -98,19 +104,33 @@ def compute_derived_stats(
                        Classes absent from the mapping use the logic-layer
                        defaults (``medium`` BAB, ``poor`` saves).
         size:          Size category used for AC, attack, and grapple size
-                       modifiers (PHB p149, p156).
+                       modifiers (PHB p149, p156).  Usually the selected race's
+                       size.
         save_bonuses:  Optional miscellaneous saving-throw bonuses keyed by the
                        short save keys ``"fort"``, ``"ref"``, ``"will"`` (e.g. a
                        standard familiar's master benefit).  Missing keys are
                        treated as ``0``.
+        ability_adjustments: Optional per-ability adjustments (keyed ``"STR"`` …)
+                       contributed by the race and any applied templates.  These
+                       are added to the character's raw scores before any
+                       modifier or carrying-capacity math, flooring each
+                       resulting score at 1.
+        level_adjustment: Total level adjustment (LA) from race + templates,
+                       used to compute the effective character level
+                       (``ECL = total class level + LA``; DMG p199).
 
     Returns:
         An immutable :class:`DerivedStats` snapshot.
     """
     progressions = progressions or {}
     save_bonuses = save_bonuses or {}
-    scores = character.ability_scores
-    mods_dict = {a: ability_modifier(int(scores.get(a, 10))) for a in _ABILITIES}
+    adjustments = ability_adjustments or {}
+    base_scores = character.ability_scores
+    scores = {
+        a: max(1, int(base_scores.get(a, 10)) + int(adjustments.get(a, 0)))
+        for a in _ABILITIES
+    }
+    mods_dict = {a: ability_modifier(scores[a]) for a in _ABILITIES}
     mods: Mapping[str, int] = MappingProxyType(mods_dict)
     str_mod, dex_mod = mods["STR"], mods["DEX"]
     con_mod, wis_mod = mods["CON"], mods["WIS"]
@@ -136,7 +156,11 @@ def compute_derived_stats(
 
     return DerivedStats(
         ability_modifiers=mods,
+        effective_ability_scores=MappingProxyType(dict(scores)),
         total_level=character.total_level,
+        level_adjustment=level_adjustment,
+        effective_character_level=character.total_level + level_adjustment,
+        size=size,
         base_attack_bonus=bab,
         melee_attack=combat.melee_attack(bab, str_mod, size=size),
         ranged_attack=combat.ranged_attack(bab, dex_mod, size=size),
@@ -150,5 +174,5 @@ def compute_derived_stats(
         ),
         reflex=saving_throws.reflex(base_ref, dex_mod, save_bonuses.get("ref", 0)),
         will=saving_throws.will(base_will, wis_mod, save_bonuses.get("will", 0)),
-        carrying_capacity=combat.carrying_capacity(int(scores.get("STR", 10))),
+        carrying_capacity=combat.carrying_capacity(scores["STR"]),
     )
