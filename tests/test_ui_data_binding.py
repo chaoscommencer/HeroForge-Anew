@@ -226,9 +226,7 @@ class TestOptionsDialog:
         # The pre-existing key must be preserved.
         assert empty_model.character.options["psionic_total_pp"] == "5"
 
-    def test_options_returns_copy_not_live_reference(
-        self, empty_model: object
-    ) -> None:
+    def test_options_returns_copy_not_live_reference(self, empty_model: object) -> None:
         """options() must return a copy; mutating it must not affect the model."""
         empty_model.set_options({"point_buy_budget": "25"})
 
@@ -241,9 +239,7 @@ class TestOptionsDialog:
         assert empty_model.options()["point_buy_budget"] == "25"
         assert "injected_key" not in empty_model.options()
 
-    def test_set_options_no_signal_when_unchanged(
-        self, empty_model: object
-    ) -> None:
+    def test_set_options_no_signal_when_unchanged(self, empty_model: object) -> None:
         """set_options must not emit signals when no stored value changes."""
         empty_model.set_options({"point_buy_budget": "28"})
 
@@ -256,18 +252,14 @@ class TestOptionsDialog:
 
         assert not received
 
-    def test_set_options_emits_signal_when_changed(
-        self, empty_model: object
-    ) -> None:
+    def test_set_options_emits_signal_when_changed(self, empty_model: object) -> None:
         """set_options must emit both signals when at least one value changes."""
         empty_model.set_options({"point_buy_budget": "25"})
 
         options_received: list[None] = []
         derived_received: list[None] = []
         empty_model.options_changed.connect(lambda: options_received.append(None))
-        empty_model.derived_stats_changed.connect(
-            lambda: derived_received.append(None)
-        )
+        empty_model.derived_stats_changed.connect(lambda: derived_received.append(None))
 
         empty_model.set_options({"point_buy_budget": "32"})
 
