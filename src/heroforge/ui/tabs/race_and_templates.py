@@ -197,9 +197,13 @@ class RaceAndTemplatesTab(QWidget):
         """Names of variants already selected for *race_name* on the character."""
         if self._model is None:
             return set()
+        target = race_name.casefold()
         names: set[str] = set()
         for entry in self._model.character.variants:
-            if isinstance(entry, dict) and entry.get("class_name") == race_name:
+            if (
+                isinstance(entry, dict)
+                and (entry.get("class_name") or "").casefold() == target
+            ):
                 name = entry.get("variant_name")
                 if name:
                     names.add(name)
