@@ -382,7 +382,8 @@ class CharacterModel(QObject):
         budget) can influence computed readouts.
         """
         self._character.options = {
-            str(name): str(value) for name, value in options.items()
+            **self._character.options,
+            **{str(name): str(value) for name, value in options.items()},
         }
         self.options_changed.emit()
         self.derived_stats_changed.emit()

@@ -213,6 +213,19 @@ class TestOptionsDialog:
         # Persisted on the character so character_repo saves it.
         assert empty_model.character.options == {"point_buy_budget": "30"}
 
+    def test_set_options_merges_into_existing_options(
+        self, empty_model: object
+    ) -> None:
+        """set_options must not wipe unrelated keys (e.g. psionic_total_pp)."""
+        # Simulate another tab writing its own key first.
+        empty_model.character.options["psionic_total_pp"] = "5"
+
+        empty_model.set_options({"point_buy_budget": "28"})
+
+        assert empty_model.character.options["point_buy_budget"] == "28"
+        # The pre-existing key must be preserved.
+        assert empty_model.character.options["psionic_total_pp"] == "5"
+
 
 class TestStatsTabPointBuyApplied:
     def test_summary_reflects_configured_budget(self, empty_model: object) -> None:
