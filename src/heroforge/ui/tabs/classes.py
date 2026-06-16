@@ -235,14 +235,25 @@ class ClassesTab(QWidget):
         if self._model is None:
             return
         base_rows = self._taken_rows()
-        owned = {name for name, _ in base_rows}
-        # Preserve any class entry this tab does not own (prestige/custom).
-        preserved = [
-            (name, level)
-            for name, level in self._model.character.classes
-            if name not in self._base_class_names and name not in owned
-        ]
-        self._model.character.classes = base_rows + preserved
+        new_levels = dict(base_rows)
+        owned = set(new_levels)
+        # Merge in place so the original "order taken" of every entry is kept
+        # (see ``Character.classes`` docstring): walk the existing list,
+        # updating the levels of base classes this tab owns and dropping any it
+        # no longer holds, while leaving prestige/custom entries untouched.
+        merged: list[tuple[str, int]] = []
+        seen: set[str] = set()
+        for name, level in self._model.character.classes:
+            if name in self._base_class_names or name in owned:
+                if name in new_levels:
+                    merged.append((name, new_levels[name]))
+                    seen.add(name)
+                # else: a base class removed in this tab — drop it.
+            else:
+                merged.append((name, level))
+        # Append base classes newly added in this tab, in table order.
+        merged.extend((name, level) for name, level in base_rows if name not in seen)
+        self._model.character.classes = merged
         self._model.class_levels_changed.emit()
 
     def _reset(self) -> None:

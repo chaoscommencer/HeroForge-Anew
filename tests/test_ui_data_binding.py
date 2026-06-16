@@ -808,6 +808,32 @@ class TestClassesTab:
         assert ("Arcane Archer", 3) in model.character.classes
         assert ("Fighter", 1) in model.character.classes
 
+    def test_sync_preserves_order_taken(self, model: object) -> None:
+        from heroforge.ui.tabs.classes import ClassesTab
+
+        tab = ClassesTab(model=model)
+        # Order taken: base class, then a prestige level, then another base
+        # class. Editing a base-class level must not reorder the list.
+        model.character.classes = [
+            ("Fighter", 2),
+            ("Arcane Archer", 3),
+            ("Wizard", 1),
+        ]
+        tab._sync_from_model()
+        # Bump Fighter's level via its spinbox (row order follows the model).
+        fighter_row = next(
+            r
+            for r in range(tab._taken_table.rowCount())
+            if tab._taken_table.item(r, 0).text() == "Fighter"
+        )
+        tab._taken_table.cellWidget(fighter_row, 1).setValue(5)
+
+        assert model.character.classes == [
+            ("Fighter", 5),
+            ("Arcane Archer", 3),
+            ("Wizard", 1),
+        ]
+
     def test_restore_shows_only_base_classes(self, model: object) -> None:
         from heroforge.ui.tabs.classes import ClassesTab
 
