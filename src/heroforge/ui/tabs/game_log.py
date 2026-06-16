@@ -78,7 +78,9 @@ class GameLogTab(QWidget):
             return False
         ts = timestamp or datetime.now().strftime("%Y-%m-%d %H:%M")
         if self._model is not None:
-            self._model.character.game_log.append({"timestamp": ts, "content": content})
+            self._model.character.game_log.append(
+                {"timestamp": ts, "content": content}
+            )
         self._append_line(ts, content)
         return True
 
