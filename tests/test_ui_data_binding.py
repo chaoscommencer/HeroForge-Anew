@@ -42,6 +42,27 @@ def seeded_db(tmp_path: Path) -> Path:
             "('Fighter', 0, 10, 'fast', 'good', 'poor', 'poor', 2, 'PHB')"
         )
         conn.executemany(
+            "INSERT INTO classes (name, is_prestige, hit_die, bab_progression, "
+            "fort_progression, ref_progression, will_progression, "
+            "skill_points_per_level, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("Wizard", 0, 4, "slow", "poor", "poor", "good", 2, "PHB"),
+                ("Arcane Archer", 1, 8, "fast", "poor", "good", "poor", 4, "DMG"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO class_weapons_armor (class_name, proficiency) VALUES (?, ?)",
+            [
+                ("Fighter", "All simple weapons"),
+                ("Fighter", "Heavy armor"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO class_abilities (class_name, level, ability_name, "
+            "description) VALUES (?, ?, ?, ?)",
+            [("Fighter", 1, "Bonus Feat", "A fighter gains a bonus feat.")],
+        )
+        conn.executemany(
             "INSERT INTO races (name, source) VALUES (?, ?)",
             [("Human", "PHB"), ("Elf", "PHB")],
         )
@@ -708,3 +729,125 @@ class TestDialogMenuWiring:
         file_labels = {a.text() for a in file_menu.actions()}
         assert "&New Character" in file_labels
         assert "E&xit" in file_labels
+
+
+class TestClassesTab:
+    """Base-class picker (Excel tab 1b) is DB-backed and persists levels."""
+
+    def test_available_classes_populated_from_db(self, model: object) -> None:
+        from heroforge.ui.tabs.classes import ClassesTab
+
+        tab = ClassesTab(model=model)
+        names = {tab._avail_list.item(i).text() for i in range(tab._avail_list.count())}
+        # Only base classes appear; the prestige class is excluded.
+        assert names == {"Fighter", "Wizard"}
+        assert "Arcane Archer" not in names
+
+    def test_add_class_persists_levels(self, model: object) -> None:
+        from heroforge.ui.tabs.classes import ClassesTab
+
+        tab = ClassesTab(model=model)
+        items = [
+            tab._avail_list.item(i)
+            for i in range(tab._avail_list.count())
+            if tab._avail_list.item(i).text() == "Fighter"
+        ]
+        tab._avail_list.setCurrentItem(items[0])
+        tab._add_class()
+        tab._taken_table.cellWidget(0, 1).setValue(5)
+
+        assert model.character.classes == [("Fighter", 5)]
+
+    def test_add_class_twice_bumps_level(self, model: object) -> None:
+        from heroforge.ui.tabs.classes import ClassesTab
+
+        tab = ClassesTab(model=model)
+        items = [
+            tab._avail_list.item(i)
+            for i in range(tab._avail_list.count())
+            if tab._avail_list.item(i).text() == "Fighter"
+        ]
+        tab._avail_list.setCurrentItem(items[0])
+        tab._add_class()
+        tab._add_class()
+
+        assert tab._taken_table.rowCount() == 1
+        assert model.character.classes == [("Fighter", 2)]
+
+    def test_remove_class(self, model: object) -> None:
+        from heroforge.ui.tabs.classes import ClassesTab
+
+        tab = ClassesTab(model=model)
+        items = [
+            tab._avail_list.item(i)
+            for i in range(tab._avail_list.count())
+            if tab._avail_list.item(i).text() == "Fighter"
+        ]
+        tab._avail_list.setCurrentItem(items[0])
+        tab._add_class()
+        button = tab._taken_table.cellWidget(0, 2)
+        tab._remove_row(button)
+
+        assert tab._taken_table.rowCount() == 0
+        assert model.character.classes == []
+
+    def test_prestige_levels_are_preserved(self, model: object) -> None:
+        from heroforge.ui.tabs.classes import ClassesTab
+
+        tab = ClassesTab(model=model)
+        # A prestige level recorded by another tab must survive a base-class edit.
+        model.character.classes = [("Arcane Archer", 3)]
+        items = [
+            tab._avail_list.item(i)
+            for i in range(tab._avail_list.count())
+            if tab._avail_list.item(i).text() == "Fighter"
+        ]
+        tab._avail_list.setCurrentItem(items[0])
+        tab._add_class()
+
+        assert ("Arcane Archer", 3) in model.character.classes
+        assert ("Fighter", 1) in model.character.classes
+
+    def test_restore_shows_only_base_classes(self, model: object) -> None:
+        from heroforge.ui.tabs.classes import ClassesTab
+
+        tab = ClassesTab(model=model)
+        model.character.classes = [("Fighter", 4), ("Arcane Archer", 2)]
+        model.character_loaded.emit(0)
+
+        shown = {
+            tab._taken_table.item(r, 0).text()
+            for r in range(tab._taken_table.rowCount())
+        }
+        assert shown == {"Fighter"}
+
+    def test_features_surface_proficiencies_and_abilities(self, model: object) -> None:
+        from heroforge.ui.tabs.classes import ClassesTab
+
+        tab = ClassesTab(model=model)
+        tab._show_features("Fighter")
+        profs = {tab._prof_list.item(i).text() for i in range(tab._prof_list.count())}
+        assert profs == {"All simple weapons", "Heavy armor"}
+        abilities = [
+            tab._ability_list.item(i).text() for i in range(tab._ability_list.count())
+        ]
+        assert abilities == ["L1: Bonus Feat"]
+
+    def test_levels_feed_derived_stats(self, model: object) -> None:
+        from heroforge.ui.tabs.classes import ClassesTab
+
+        tab = ClassesTab(model=model)
+        items = [
+            tab._avail_list.item(i)
+            for i in range(tab._avail_list.count())
+            if tab._avail_list.item(i).text() == "Fighter"
+        ]
+        tab._avail_list.setCurrentItem(items[0])
+        tab._add_class()
+        tab._taken_table.cellWidget(0, 1).setValue(5)
+
+        stats = model.derived_stats()
+        assert stats.base_attack_bonus == 5
+        # The same signal must refresh saving throws (Fighter has a good Fort
+        # progression: +4 at level 5 with a +0 CON modifier).
+        assert stats.fortitude == 4

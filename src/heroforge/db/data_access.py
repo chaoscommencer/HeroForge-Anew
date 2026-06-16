@@ -231,6 +231,34 @@ class RacialAbility:
     description: str
 
 
+@dataclass(frozen=True)
+class ClassInfo:
+    """A character class entry from the ``classes`` table (PHB Chapter 3)."""
+
+    name: str
+    is_prestige: bool
+    hit_die: int
+    bab_progression: str
+    fort_progression: str
+    ref_progression: str
+    will_progression: str
+    skill_points_per_level: int
+    source: str
+
+
+@dataclass(frozen=True)
+class ClassAbility:
+    """A class special ability from the ``class_abilities`` table.
+
+    ``level`` is the class level at which the ability is gained.
+    """
+
+    class_name: str
+    level: int
+    ability_name: str
+    description: str
+
+
 class GameDataRepository:
     """Read-only accessor for the seeded ``heroforge.db`` game database.
 
@@ -376,6 +404,86 @@ class GameDataRepository:
             )
             for r in rows
         }
+
+    def list_classes(
+        self,
+        sources: Iterable[str] | None = None,
+        *,
+        include_prestige: bool = False,
+    ) -> list[ClassInfo]:
+        """Return character classes ordered by name.
+
+        By default only base classes (``is_prestige = 0``) are returned, which
+        is what the base-class picker (Excel tab 1b) needs; pass
+        ``include_prestige=True`` to include prestige classes as well.  Results
+        can additionally be filtered by enabled *sources*.
+        """
+        fragment, params = self._source_filter("source", sources)
+        clauses: list[str] = []
+        if not include_prestige:
+            clauses.append("COALESCE(is_prestige, 0) = 0")
+        if fragment:
+            clauses.append(fragment)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._query(
+            "SELECT name, is_prestige, hit_die, bab_progression, "
+            "fort_progression, ref_progression, will_progression, "
+            f"skill_points_per_level, source FROM classes {where} ORDER BY name",
+            params,
+        )
+        return [
+            ClassInfo(
+                name=r["name"],
+                is_prestige=bool(r["is_prestige"]),
+                hit_die=r["hit_die"] or 8,
+                bab_progression=r["bab_progression"] or "medium",
+                fort_progression=r["fort_progression"] or "poor",
+                ref_progression=r["ref_progression"] or "poor",
+                will_progression=r["will_progression"] or "poor",
+                skill_points_per_level=r["skill_points_per_level"] or 2,
+                source=r["source"] or "",
+            )
+            for r in rows
+        ]
+
+    def class_skills(self, class_name: str) -> list[str]:
+        """Return the class-skill names for *class_name*, ordered alphabetically."""
+        rows = self._query(
+            "SELECT skill_name FROM class_skills WHERE class_name = ? "
+            "ORDER BY skill_name",
+            (class_name,),
+        )
+        return [r["skill_name"] for r in rows]
+
+    def class_proficiencies(self, class_name: str) -> list[str]:
+        """Return the weapon/armor proficiencies granted by *class_name*.
+
+        Drawn from the ``class_weapons_armor`` table seeded from the workbook's
+        "Class Weapons & Armor" data.
+        """
+        rows = self._query(
+            "SELECT proficiency FROM class_weapons_armor WHERE class_name = ? "
+            "ORDER BY id",
+            (class_name,),
+        )
+        return [r["proficiency"] for r in rows]
+
+    def class_abilities(self, class_name: str) -> list[ClassAbility]:
+        """Return the special abilities granted by *class_name* by level."""
+        rows = self._query(
+            "SELECT class_name, level, ability_name, description "
+            "FROM class_abilities WHERE class_name = ? ORDER BY level, id",
+            (class_name,),
+        )
+        return [
+            ClassAbility(
+                class_name=r["class_name"],
+                level=r["level"],
+                ability_name=r["ability_name"],
+                description=r["description"] or "",
+            )
+            for r in rows
+        ]
 
     # ------------------------------------------------------------------
     # Races & templates

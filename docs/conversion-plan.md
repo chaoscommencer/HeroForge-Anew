@@ -483,6 +483,7 @@ Each tab in the Excel workbook maps to a `QWidget` subclass in `src/heroforge/ui
 |---|---|---|
 | Stats & Character Details | `StatsAndCharacterDetailsTab` | `tabs/stats_and_character_details.py` |
 | Race & Templates | `RaceAndTemplatesTab` | `tabs/race_and_templates.py` |
+| Classes | `ClassesTab` | `tabs/classes.py` |
 | Prestige Classes I/II/III | `PrestigeClassesTab` | `tabs/prestige_classes.py` |
 | Skills | `SkillsTab` | `tabs/skills.py` |
 | Skill Tricks | `SkillTricksTab` | `tabs/skill_tricks.py` |
@@ -645,6 +646,7 @@ The following is the complete list of sheets in `HeroForge Anew 3.5 v7.4.0.1.xls
 |---|---|
 | Stats & Character Details | PyQt tab |
 | Race & Templates | PyQt tab |
+| Classes | `ClassesTab` (base-class picker, Excel tab 1b) |
 | Prestige Classes I | PyQt tab (merged) |
 | Prestige Classes II | PyQt tab (merged) |
 | Prestige Classes III | PyQt tab (merged) |
