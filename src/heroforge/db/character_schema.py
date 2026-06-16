@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS characters (
     skin        TEXT,
     experience  INTEGER DEFAULT 0,
     notes       TEXT,
+    hit_points  INTEGER,
     created_at  TEXT,
     updated_at  TEXT
 );

@@ -6,6 +6,8 @@ Reference: PHB Chapter 8.
 from __future__ import annotations
 
 from heroforge.logic.combat import (
+    aggregate_ac_bonuses,
+    aggregate_armor_class,
     armor_class,
     base_attack_bonus,
     carrying_capacity,
@@ -162,3 +164,66 @@ class TestCarryingCapacity:
 
     def test_str_zero_treated_as_one(self) -> None:
         assert carrying_capacity(0) == carrying_capacity(1)
+
+
+class TestAggregateAcBonuses:
+    def test_same_type_bonuses_do_not_stack(self) -> None:
+        # Two armor bonuses: only the larger applies (PHB p150).
+        assert aggregate_ac_bonuses([("armor", 4), ("armor", 8)]) == 8
+
+    def test_dodge_bonuses_stack(self) -> None:
+        assert aggregate_ac_bonuses([("dodge", 1), ("dodge", 1)]) == 2
+
+    def test_untyped_and_circumstance_stack(self) -> None:
+        assert aggregate_ac_bonuses([("", 1), ("untyped", 2), ("circumstance", 3)]) == 6
+
+    def test_different_types_sum(self) -> None:
+        bonuses = [("armor", 8), ("shield", 2), ("natural", 1), ("deflection", 1)]
+        assert aggregate_ac_bonuses(bonuses) == 12
+
+    def test_penalties_always_stack(self) -> None:
+        # Two armor penalties stack even though same-type bonuses do not.
+        assert aggregate_ac_bonuses([("armor", -2), ("armor", -1)]) == -3
+
+    def test_exclude_types_dropped(self) -> None:
+        bonuses = [("armor", 8), ("deflection", 1)]
+        assert aggregate_ac_bonuses(bonuses, exclude_types={"armor"}) == 1
+
+
+class TestAggregateArmorClass:
+    def test_baseline_is_ten(self) -> None:
+        result = aggregate_armor_class(0)
+        assert (result.total, result.touch, result.flat_footed) == (10, 10, 10)
+
+    def test_full_aggregation(self) -> None:
+        # +8 armor, +2 shield, +1 natural, +1 deflection, +1 dodge, +3 Dex.
+        bonuses = [
+            ("armor", 8),
+            ("shield", 2),
+            ("natural", 1),
+            ("deflection", 1),
+            ("dodge", 1),
+        ]
+        result = aggregate_armor_class(3, bonuses)
+        # Total: 10 + 3 + 8 + 2 + 1 + 1 + 1 = 26.
+        assert result.total == 26
+        # Touch ignores armor/shield/natural: 10 + 3 + 1 + 1 = 15.
+        assert result.touch == 15
+        # Flat-footed loses Dex bonus and dodge: 10 + 8 + 2 + 1 + 1 = 22.
+        assert result.flat_footed == 22
+
+    def test_max_dex_caps_dexterity(self) -> None:
+        result = aggregate_armor_class(5, [("armor", 4)], max_dex=2)
+        # Dex capped at +2: 10 + 2 + 4 = 16.
+        assert result.total == 16
+        assert result.touch == 12
+
+    def test_size_modifier_applied(self) -> None:
+        result = aggregate_armor_class(0, size="Small")
+        assert result.total == 11
+        assert result.touch == 11
+
+    def test_flat_footed_keeps_dex_penalty(self) -> None:
+        # A negative Dex modifier still applies when flat-footed.
+        result = aggregate_armor_class(-1)
+        assert result.flat_footed == 9

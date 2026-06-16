@@ -21,13 +21,14 @@ Design notes (see ``docs/conversion-plan.md`` §8.6):
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from heroforge.logic import combat, saving_throws
 from heroforge.logic.ability_scores import ability_modifier
+from heroforge.logic.health import hit_dice_sequence, max_hit_points
 
 if TYPE_CHECKING:
     from heroforge.models.character import Character
@@ -49,6 +50,8 @@ class ClassProgression:
     fort: str = "poor"
     ref: str = "poor"
     will: str = "poor"
+    hit_die: int = 8
+    """Hit Die size for the class (PHB Chapter 3), used for HP calculation."""
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,7 @@ class DerivedStats:
     ranged_attack: int
     grapple: int
     initiative: int
+    hit_points: int
     armor_class: int
     touch_ac: int
     flat_footed_ac: int
@@ -94,6 +98,10 @@ def compute_derived_stats(
     save_bonuses: Mapping[str, int] | None = None,
     ability_adjustments: Mapping[str, int] | None = None,
     level_adjustment: int = 0,
+    ac_bonuses: Sequence[tuple[str, int]] | None = None,
+    max_dex: int | None = None,
+    hp_flat_bonus: int = 0,
+    hp_per_level_bonus: int = 0,
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
@@ -102,7 +110,7 @@ def compute_derived_stats(
                        levels drive the calculation.
         progressions:  Mapping of class name → :class:`ClassProgression`.
                        Classes absent from the mapping use the logic-layer
-                       defaults (``medium`` BAB, ``poor`` saves).
+                       defaults (``medium`` BAB, ``poor`` saves, d8 Hit Die).
         size:          Size category used for AC, attack, and grapple size
                        modifiers (PHB p149, p156).  Usually the selected race's
                        size.
@@ -118,6 +126,17 @@ def compute_derived_stats(
         level_adjustment: Total level adjustment (LA) from race + templates,
                        used to compute the effective character level
                        (``ECL = total class level + LA``; DMG p199).
+        ac_bonuses:    Optional ``(bonus_type, value)`` AC sources — worn armor,
+                       shield, natural armor, deflection, dodge, etc.  These are
+                       aggregated by bonus type (PHB p150–151) into the armor
+                       class, touch and flat-footed readouts.  Size and Dex are
+                       applied automatically and must not be included here.
+        max_dex:       Optional Max Dex Bonus cap from worn armor, applied to the
+                       Dexterity contribution to AC.
+        hp_flat_bonus: Flat hit-point bonus from feats/templates (e.g.
+                       Toughness's +3).
+        hp_per_level_bonus: Per-Hit-Die hit-point bonus from feats/templates
+                       (e.g. Improved Toughness's +1 per Hit Die).
 
     Returns:
         An immutable :class:`DerivedStats` snapshot.
@@ -154,6 +173,19 @@ def compute_derived_stats(
     base_ref = saving_throws.base_save(class_levels, "ref", save_progressions)
     base_will = saving_throws.base_save(class_levels, "will", save_progressions)
 
+    hit_die_lookup = {name: prog.hit_die for name, prog in progressions.items()}
+    hit_dice = hit_dice_sequence(character.classes, hit_die_lookup)
+    hit_points = max_hit_points(
+        hit_dice,
+        con_mod,
+        flat_bonus=hp_flat_bonus,
+        per_level_bonus=hp_per_level_bonus,
+    )
+
+    ac = combat.aggregate_armor_class(
+        dex_mod, ac_bonuses or (), size=size, max_dex=max_dex
+    )
+
     return DerivedStats(
         ability_modifiers=mods,
         effective_ability_scores=MappingProxyType(dict(scores)),
@@ -166,9 +198,10 @@ def compute_derived_stats(
         ranged_attack=combat.ranged_attack(bab, dex_mod, size=size),
         grapple=combat.grapple_modifier(bab, str_mod, size=size),
         initiative=combat.initiative(dex_mod),
-        armor_class=combat.armor_class(dex_mod, size=size),
-        touch_ac=combat.touch_ac(dex_mod, size=size),
-        flat_footed_ac=combat.flat_footed_ac(size=size),
+        hit_points=hit_points,
+        armor_class=ac.total,
+        touch_ac=ac.touch,
+        flat_footed_ac=ac.flat_footed,
         fortitude=saving_throws.fortitude(
             base_fort, con_mod, save_bonuses.get("fort", 0)
         ),

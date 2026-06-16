@@ -36,6 +36,10 @@ class Character:
     skin: str = ""
     experience: int = 0
     notes: str = ""
+    hit_points: int | None = None
+    """Manual maximum-HP override.  ``None`` means HP is auto-calculated from
+    class Hit Dice and the Constitution modifier (Stats & Character Details
+    tab); set to an integer to override that computed value."""
 
     # Related data loaded separately from join tables
     ability_scores: dict[str, int] = field(

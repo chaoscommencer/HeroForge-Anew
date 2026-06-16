@@ -996,3 +996,49 @@ class TestClassesTab:
         # The same signal must refresh saving throws (Fighter has a good Fort
         # progression: +4 at level 5 with a +0 CON modifier).
         assert stats.fortitude == 4
+
+
+class TestStatsTabHitPointsAndLevels:
+    """Issue #58: computed HP, aggregated AC, and total level / ECL on Stats."""
+
+    def _stats_tab(self, model: object) -> object:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        return StatsAndCharacterDetailsTab(model=model)
+
+    def test_hp_auto_computed_from_class_and_con(self, model: object) -> None:
+        # Fighter (d10) 3 with +2 CON: 10 + 6 + 6 + (2 * 3) = 28.
+        model.character.classes = [("Fighter", 3)]
+        model.ability_score_changed.emit("CON", 14)
+        tab = self._stats_tab(model)
+        model.derived_stats_changed.emit()
+        assert tab._hp_spin.value() == 28
+        assert tab._hp_spin.isReadOnly()
+
+    def test_total_level_and_ecl_displayed(self, model: object) -> None:
+        model.character.classes = [("Fighter", 5)]
+        tab = self._stats_tab(model)
+        model.derived_stats_changed.emit()
+        assert tab._derived_labels["total_level"].text() == "5"
+        assert tab._derived_labels["ecl"].text() == "5"
+
+    def test_manual_override_persists_to_model(self, model: object) -> None:
+        model.character.classes = [("Fighter", 2)]
+        tab = self._stats_tab(model)
+        model.derived_stats_changed.emit()
+        tab._hp_auto_check.setChecked(False)
+        assert not tab._hp_spin.isReadOnly()
+        tab._hp_spin.setValue(99)
+        assert model.character.hit_points == 99
+        # Re-enabling auto clears the override.
+        tab._hp_auto_check.setChecked(True)
+        assert model.character.hit_points is None
+
+    def test_override_restored_on_sync(self, model: object) -> None:
+        model.character.hit_points = 42
+        tab = self._stats_tab(model)
+        tab._sync_from_model()
+        assert not tab._hp_auto_check.isChecked()
+        assert tab._hp_spin.value() == 42

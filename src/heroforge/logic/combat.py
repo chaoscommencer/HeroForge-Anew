@@ -5,6 +5,9 @@ Reference: PHB Chapter 8, p135–163.
 
 from __future__ import annotations
 
+from collections.abc import Collection, Iterable
+from dataclasses import dataclass
+
 # ---------------------------------------------------------------------------
 # Size modifier tables (PHB p149, p312)
 # ---------------------------------------------------------------------------
@@ -178,6 +181,114 @@ def flat_footed_ac(
         Flat-footed AC value.
     """
     return 10 + armor + shield + _size_ac_attack_mod(size) + natural + deflect + misc
+
+
+# ---------------------------------------------------------------------------
+# Typed AC aggregation (PHB p150–151 stacking rules)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ArmorClassResult:
+    """The three Armor Class readouts derived from a set of typed bonuses."""
+
+    total: int
+    touch: int
+    flat_footed: int
+
+
+# AC bonus types ignored when computing Touch AC (PHB p137): armor, shield and
+# natural-armor bonuses do not apply against touch attacks.
+_TOUCH_EXCLUDED_AC_TYPES: frozenset[str] = frozenset(
+    {"armor", "shield", "natural", "natural armor"}
+)
+
+# AC bonus types that stack with themselves (PHB p150–151).  Every other named
+# bonus type is non-stacking, so only the single largest bonus of that type
+# applies.  Penalties (negative values) always stack regardless of type.
+_STACKING_AC_TYPES: frozenset[str] = frozenset({"untyped", "dodge", "circumstance"})
+
+
+def aggregate_ac_bonuses(
+    bonuses: Iterable[tuple[str, int]],
+    *,
+    exclude_types: Collection[str] = (),
+) -> int:
+    """Sum typed AC bonuses, honouring D&D 3.5 stacking rules.
+
+    Reference: PHB p150–151 (bonus types and stacking).
+
+    Same-type bonuses do **not** stack — only the largest of each non-stacking
+    type counts — except dodge, circumstance and untyped bonuses, which stack
+    with everything.  Penalties always stack.
+
+    Args:
+        bonuses:       Iterable of ``(bonus_type, value)`` pairs.  An empty or
+                       unknown type is treated as untyped.
+        exclude_types: Bonus types to drop entirely (used to derive Touch and
+                       Flat-Footed AC from the same source list).
+
+    Returns:
+        The aggregated bonus (may be negative).
+    """
+    excluded = {str(t).strip().lower() for t in exclude_types}
+    typed_best: dict[str, int] = {}
+    stacking_total = 0
+    for raw_type, raw_value in bonuses:
+        btype = (str(raw_type).strip().lower()) or "untyped"
+        if btype in excluded:
+            continue
+        value = int(raw_value)
+        if value < 0 or btype in _STACKING_AC_TYPES:
+            stacking_total += value
+        else:
+            typed_best[btype] = max(typed_best.get(btype, 0), value)
+    return stacking_total + sum(typed_best.values())
+
+
+def aggregate_armor_class(
+    dex_mod: int,
+    bonuses: Iterable[tuple[str, int]] = (),
+    *,
+    size: str = "Medium",
+    max_dex: int | None = None,
+) -> ArmorClassResult:
+    """Aggregate every AC source into total, touch and flat-footed values.
+
+    Reference: PHB p137 (AC, Touch AC, Flat-Footed AC).
+
+    Args:
+        dex_mod: The character's Dexterity modifier.
+        bonuses: Iterable of ``(bonus_type, value)`` AC sources — armor,
+                 shield, natural armor, deflection, dodge, etc.  Size and Dex
+                 are applied separately and must not be included here.
+        size:    Size category, supplying the size modifier (PHB p149).
+        max_dex: Optional Max Dex Bonus cap from worn armor; when set, the Dex
+                 contribution to AC is capped at this value.
+
+    Returns:
+        An :class:`ArmorClassResult` snapshot.
+    """
+    capped_dex = dex_mod if max_dex is None else min(dex_mod, max_dex)
+    size_mod = _size_ac_attack_mod(size)
+    bonus_list = list(bonuses)
+    total = 10 + capped_dex + size_mod + aggregate_ac_bonuses(bonus_list)
+    touch = (
+        10
+        + capped_dex
+        + size_mod
+        + aggregate_ac_bonuses(bonus_list, exclude_types=_TOUCH_EXCLUDED_AC_TYPES)
+    )
+    # Flat-footed loses Dexterity *bonuses* and dodge bonuses (PHB p137); a Dex
+    # penalty still applies.
+    flat_dex = min(capped_dex, 0)
+    flat = (
+        10
+        + flat_dex
+        + size_mod
+        + aggregate_ac_bonuses(bonus_list, exclude_types={"dodge"})
+    )
+    return ArmorClassResult(total=total, touch=touch, flat_footed=flat)
 
 
 # ---------------------------------------------------------------------------

@@ -38,6 +38,7 @@ def _sample_character() -> Character:
         skin="Tan",
         experience=15000,
         notes="A redemption-seeking fighter/wizard.",
+        hit_points=63,
         ability_scores={
             "STR": 16,
             "DEX": 14,
@@ -241,6 +242,7 @@ class TestSaveLoadRoundTrip:
         assert loaded.skin == char.skin
         assert loaded.experience == char.experience
         assert loaded.notes == char.notes
+        assert loaded.hit_points == char.hit_points
         assert loaded.ability_scores == char.ability_scores
         assert loaded.classes == char.classes
         assert loaded.feats == char.feats

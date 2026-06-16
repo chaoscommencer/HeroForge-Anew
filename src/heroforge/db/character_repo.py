@@ -126,8 +126,8 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
                 INSERT INTO characters (
                     name, player, campaign, alignment, deity, homeland, race,
                     templates, gender, age, height, weight, eyes, hair, skin,
-                    experience, notes, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    experience, notes, hit_points, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     character.name,
@@ -147,6 +147,7 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
                     character.skin,
                     character.experience,
                     character.notes,
+                    character.hit_points,
                     now,
                     now,
                 ),
@@ -160,7 +161,7 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
                     deity = ?, homeland = ?, race = ?, templates = ?,
                     gender = ?, age = ?, height = ?, weight = ?, eyes = ?,
                     hair = ?, skin = ?, experience = ?, notes = ?,
-                    updated_at = ?
+                    hit_points = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -181,6 +182,7 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
                     character.skin,
                     character.experience,
                     character.notes,
+                    character.hit_points,
                     _now(),
                     character.id,
                 ),
@@ -611,6 +613,11 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
         skin=row["skin"] or "",
         experience=row["experience"] or 0,
         notes=row["notes"] or "",
+        hit_points=(
+            row["hit_points"]
+            if "hit_points" in row.keys() and row["hit_points"] is not None
+            else None
+        ),
     )
 
     ability_rows = conn.execute(
