@@ -247,9 +247,10 @@ def export_character_sheet_pdf(
         from reportlab.pdfgen import canvas
     except ImportError as exc:  # pragma: no cover - exercised only without dep
         raise RuntimeError(
-            "PDF export requires the 'reportlab' package; "
-            "install it with 'pip install heroforge[pdf]' or "
-            "'pip install reportlab'."
+            "PDF export requires the 'reportlab' package; install it into the "
+            "running interpreter with the hash-pinned lockfile: "
+            "'python -m pip install --no-cache-dir --only-binary=:all: "
+            "--require-hashes -r requirements-reportlab.txt'."
         ) from exc
 
     text = export_character_sheet_text(character_data)

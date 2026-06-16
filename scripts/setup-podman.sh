@@ -29,6 +29,11 @@
 
 set -euo pipefail
 
+# Resolve the repository root from this script's location so the hash-pinned
+# requirements file can be found regardless of the caller's working directory.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 TARGET_USER="${SUDO_USER:-${USER:-$(id -un)}}"
 SUBID_COUNT=65536
 SUBID_START=100000
@@ -166,19 +171,34 @@ else
     echo "Leaving existing OCI runtime config alone (or crun absent)."
 fi
 
-# --- 5. Install podman-compose ----------------------------------------------
-# Prefer pipx (isolated) when available, else a user-site pip install. This
-# keeps podman-compose off the system Python.
+# --- 5. Install podman-compose (fallback) -----------------------------------
+# In the dev container this is already baked into the /opt/venv virtualenv at
+# image-build time (.devcontainer/Dockerfile.devcontainer-default, gated by the
+# INSTALL_PODMAN_DEPS build arg), so the `command -v` check below short-circuits
+# and this block does nothing. It remains as a fallback for STANDALONE use — when
+# the script is run on a bare host (no devcontainer image) or after a build with
+# INSTALL_PODMAN_DEPS=false. When it does run, the install is hash-pinned from
+# requirements-podman-compose.txt (--require-hashes), skips pip's download cache
+# (--no-cache-dir) and refuses sdists (--only-binary=:all:) so no build backend
+# runs at install time, matching the supply-chain posture used elsewhere in the
+# repo. pipx (preferred for isolation) cannot consume a hashed `-r` file via
+# `pipx install`, so we create the venv and then re-install the whole closure
+# with `pipx runpip ... --require-hashes`, the same two-step integrity gate as
+# Dockerfile.graphify.
+REQ_PODMAN_COMPOSE="${REPO_ROOT}/requirements-podman-compose.txt"
 if ! command -v podman-compose >/dev/null 2>&1; then
     if command -v pipx >/dev/null 2>&1; then
-        echo "Installing podman-compose via pipx ..."
-        pipx install podman-compose
+        echo "Installing podman-compose via pipx (hash-pinned) ..."
+        pipx install --pip-args='--only-binary=:all:' podman-compose
+        pipx runpip podman-compose install --no-cache-dir --only-binary=:all: \
+            --require-hashes -r "${REQ_PODMAN_COMPOSE}" --force-reinstall
     else
-        echo "Installing podman-compose via pip (--user) ..."
-        python3 -m pip install --user podman-compose
+        echo "Installing podman-compose via pip (--user, hash-pinned) ..."
+        python3 -m pip install --user --no-cache-dir --only-binary=:all: \
+            --require-hashes -r "${REQ_PODMAN_COMPOSE}"
     fi
 else
-    echo "podman-compose already installed — skipping."
+    echo "podman-compose already installed (baked into the image or present) — skipping."
 fi
 
 # --- 6. Smoke test -----------------------------------------------------------

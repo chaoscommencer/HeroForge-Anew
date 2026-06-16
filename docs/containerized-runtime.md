@@ -22,16 +22,19 @@ Reopen in Container**). The container defined in
 
 - builds [`.devcontainer/Dockerfile.devcontainer-default`](../.devcontainer/Dockerfile.devcontainer-default) — the official
   devcontainers Python 3.12 image plus the Qt/X11 system libraries PyQt6 needs,
-  the rootless-Podman runtime packages (gated by the `INSTALL_PODMAN_DEPS` build
-  arg), and the hash-pinned third-party dependencies (`requirements-pip.txt` +
-  `requirements-dev.txt`) baked into a `vscode`-owned virtual environment at
-  `/opt/venv`;
+  the rootless-Podman runtime packages **and the `podman-compose` CLI** (all
+  gated by the `INSTALL_PODMAN_DEPS` build arg), and the hash-pinned third-party
+  dependencies (`requirements-pip.txt` + `requirements-dev.txt`) baked into a
+  `vscode`-owned virtual environment at `/opt/venv`;
 - adds the **docker-in-docker** feature, so the QA Compose stack can be built and
   run from inside the Codespace;
 - on creation installs only the editable project into that venv
-  (`pip install --no-deps -e .`, since the workspace is bind-mounted at runtime
-  and absent at build time) and then
-  `scripts/setup-podman.sh` (which provisions rootless Podman + podman-compose;
+  (`/opt/venv/bin/python -m pip install --only-binary=:all: --no-deps -e .`,
+  since the workspace is bind-mounted at runtime and absent at build time) and
+  then
+  `scripts/setup-podman.sh` (which provisions the per-user rootless-Podman
+  configuration — subuid/subgid ranges, storage and runtime config — and installs
+  `podman-compose` only as a fallback if it was not baked into the image;
   it is optional, so a failure only warns), and runs as the non-root `vscode`
   user.
 
@@ -350,7 +353,10 @@ prerequisites that the script installs and configures:
   `~/.config/containers/storage.conf`. Without `/dev/fuse` Podman falls back to
   the slow `vfs` driver.
 - **`slirp4netns`** — rootless user-mode networking.
-- **`podman-compose`** — installed via `pipx` when available, else `pip --user`.
+- **`podman-compose`** — in the dev container this is baked into the `/opt/venv`
+  virtualenv at image-build time (gated by `INSTALL_PODMAN_DEPS`); the script
+  installs it (hash-pinned, via `pipx` when available else `pip --user`) only as
+  a fallback for standalone/bare-host use or an `INSTALL_PODMAN_DEPS=false` build.
 
 **Caveat:** this is rootless Podman nested inside a *privileged* docker-in-docker
 dev container — workable for QA, but expect occasional storage/cgroup friction.

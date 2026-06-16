@@ -82,9 +82,10 @@ ARG INSTALL_PODMAN_DEPS=true
 #   * catatonit        — container-init binary that `init: true` needs; bookworm
 #                        installs it at /usr/libexec/podman/catatonit (Podman's
 #                        default init_path). See setup-podman.sh section 1.
-# Per-user/identity configuration (subuid/subgid ranges, storage.conf,
-# containers.conf, podman-compose) is deliberately NOT done here — it is
-# per-user state that does not belong in a shared image layer, so it stays in
+# The podman-compose CLI (a pure-Python tool) is baked into the venv further
+# down, also gated by INSTALL_PODMAN_DEPS. Only genuinely per-user/identity
+# state (subuid/subgid ranges, storage.conf, containers.conf) is deliberately
+# NOT done here — it does not belong in a shared image layer, so it stays in
 # scripts/setup-podman.sh, whose `command -v` guards make the package installs
 # above harmless no-ops when already present.
 RUN if [ "${INSTALL_PODMAN_DEPS}" = "true" ]; then \
@@ -115,8 +116,8 @@ RUN apt-get clean \
 #     `pip install --user` into ~/.local would silently vanish behind such a
 #     mount; a venv at a system path does not.
 #   * the venv is created and owned by the unprivileged `vscode` user, and the
-#     installs run as that user (via `su vscode`), so nothing lands in root-owned
-#     paths that the runtime user could not later write to.
+#     installs run as that user (via a `USER vscode` stanza), so nothing lands in
+#     root-owned paths that the runtime user could not later write to.
 # The editable project itself (`-e .`) is deliberately NOT installed here: it
 # links to the workspace checkout, which is bind-mounted at runtime and absent
 # during `docker build`. It stays in devcontainer.json's postCreateCommand, which
@@ -139,16 +140,37 @@ ENV VENV_PATH=${VENV_PATH}
 # for login shells too, so every entry path lands on /opt/venv consistently.
 ENV PATH="${VENV_PATH}/bin:${PATH}"
 
-# requirements-pip.txt (verified bootstrap pip) and requirements-dev.txt (the
-# hash-pinned dev environment) are the only two pip inputs baked in; both live in
-# the build context (not excluded by .dockerignore).
-COPY requirements-pip.txt requirements-dev.txt /tmp/reqs/
+# The pip inputs baked in, all hash-pinned and living in the build context (not
+# excluded by .dockerignore):
+#   * requirements-pip.txt          — the verified bootstrap pip.
+#   * requirements-dev.txt          — the hash-pinned dev environment.
+#   * requirements-podman-compose.txt — the podman-compose CLI, installed into
+#     this same venv ONLY when INSTALL_PODMAN_DEPS=true (it pairs with the
+#     rootless-Podman apt packages above). Its deps (pyyaml, python-dotenv) are
+#     absent from requirements-dev.txt, so co-locating it in /opt/venv raises no
+#     version conflict, and the venv already isolates it from the system Python
+#     (the original isolation goal of scripts/setup-podman.sh's pipx path). This
+#     replaces that script's postCreate install; the script keeps a self-skipping
+#     fallback for standalone (non-devcontainer) use.
+#
+# The installs run as the unprivileged `vscode` user via a `USER vscode` stanza
+# (the idiomatic Docker way) rather than `su vscode -c "..."`: there is no nested
+# shell string to hand-quote, the steps are `&&`-chained so a failed install
+# aborts the build natively (no `set -e` needed), and `COPY --chown` plus a
+# pre-created venv dir give correct ownership at copy/create time without a
+# recursive `chown -R`. `USER root` is restored afterwards so the remaining build
+# steps (and the final image, per devcontainer.json's `remoteUser`) run as root.
+RUN mkdir -p "${VENV_PATH}" && chown vscode:vscode "${VENV_PATH}"
+COPY --chown=vscode:vscode requirements-pip.txt requirements-dev.txt requirements-podman-compose.txt /tmp/reqs/
+USER vscode
 RUN python -m venv "${VENV_PATH}" \
-    && chown -R vscode:vscode "${VENV_PATH}" /tmp/reqs \
-    && su vscode -c "set -eu; \
-        '${VENV_PATH}/bin/python' -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-pip.txt; \
-        '${VENV_PATH}/bin/python' -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-dev.txt" \
-    && rm -rf /tmp/reqs
+    && "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-pip.txt \
+    && "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-dev.txt \
+    && if [ "${INSTALL_PODMAN_DEPS}" = "true" ]; then \
+           "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-podman-compose.txt; \
+       fi
+USER root
+RUN rm -rf /tmp/reqs
 
 # Make the venv win in *login* shells too. The base image's
 # /etc/profile.d/00-restore-env.sh re-prepends the system Python to $PATH, so an
