@@ -613,7 +613,9 @@ class GameDataRepository:
         name_list = list(names)
         if not name_list:
             return []
-        normalized_names = [n.casefold() for n in name_list]
+        normalized_names = [n.lower() for n in name_list]
+        # Deduplicate query params to keep the SQL ``IN`` list compact; output
+        # ordering and duplicates are restored from ``normalized_names`` below.
         unique_normalized_names = list(dict.fromkeys(normalized_names))
         placeholders = ", ".join("?" for _ in unique_normalized_names)
         rows = self._query(
@@ -624,7 +626,7 @@ class GameDataRepository:
         )
         by_name: dict[str, Template] = {}
         for r in rows:
-            by_name[r["name"].casefold()] = Template(
+            by_name[r["name"].lower()] = Template(
                 id=r["id"],
                 name=r["name"],
                 cr_adjustment=r["cr_adjustment"] or 0.0,
