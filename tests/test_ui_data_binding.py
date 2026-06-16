@@ -848,3 +848,6 @@ class TestClassesTab:
 
         stats = model.derived_stats()
         assert stats.base_attack_bonus == 5
+        # The same signal must refresh saving throws (Fighter has a good Fort
+        # progression: +4 at level 5 with a +0 CON modifier).
+        assert stats.fortitude == 4
