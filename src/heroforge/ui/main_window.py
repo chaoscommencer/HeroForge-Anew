@@ -602,13 +602,13 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _construct_custom_dialog(self, dialog_cls: type[QDialog]) -> QDialog:
-        """Construct a custom-content dialog, injecting the model when accepted.
+        """Construct a custom-content dialog, injecting the model at construction time.
 
         Custom-content dialogs that persist their input (e.g. the Custom
         Familiar dialog) declare a ``model`` constructor parameter; those are
-        given the live :class:`CharacterModel` so accepting the dialog writes
-        through to the character.  Dialogs without that parameter keep the
-        original ``parent``-only construction.
+        given the live :class:`CharacterModel` at construction so the dialog
+        can write through to the character when accepted.  Dialogs without
+        that parameter keep the original ``parent``-only construction.
         """
         params = inspect.signature(dialog_cls.__init__).parameters
         if "model" in params:
