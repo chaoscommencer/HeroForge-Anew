@@ -439,7 +439,7 @@ class TestCompanions:
 
 
 # ---------------------------------------------------------------------------
-# LG Game Log (Living Greyhawk; deprecated)
+# Game Log
 # ---------------------------------------------------------------------------
 
 
@@ -488,6 +488,11 @@ class TestGameLogTab:
         assert loaded.game_log == [
             {"timestamp": "2024-05-05 22:00", "content": "Camped for the night"}
         ]
+
+
+# ---------------------------------------------------------------------------
+# LG Game Log (Living Greyhawk; deprecated)
+# ---------------------------------------------------------------------------
 
 
 class TestLGGameLogTab:
