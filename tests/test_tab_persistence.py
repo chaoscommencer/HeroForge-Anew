@@ -485,6 +485,58 @@ class TestCompanions:
 
 
 # ---------------------------------------------------------------------------
+# Game Log
+# ---------------------------------------------------------------------------
+
+
+class TestGameLogTab:
+    def test_add_entry_persists_to_model(self, model: object) -> None:
+        from heroforge.ui.tabs.game_log import GameLogTab
+
+        tab = GameLogTab(model=model)
+        assert tab.add_entry("Rescued the villagers", timestamp="2024-04-01 10:00")
+
+        assert model.character.game_log == [
+            {"timestamp": "2024-04-01 10:00", "content": "Rescued the villagers"}
+        ]
+
+    def test_blank_entry_is_ignored(self, model: object) -> None:
+        from heroforge.ui.tabs.game_log import GameLogTab
+
+        tab = GameLogTab(model=model)
+        assert tab.add_entry("   ") is False
+        assert model.character.game_log == []
+
+    def test_clear_log_clears_model(self, model: object) -> None:
+        from heroforge.ui.tabs.game_log import GameLogTab
+
+        tab = GameLogTab(model=model)
+        tab.add_entry("Session one")
+        tab.clear_log()
+        assert model.character.game_log == []
+
+    def test_sync_from_model_populates_view(self, model: object) -> None:
+        from heroforge.ui.tabs.game_log import GameLogTab
+
+        model.character.game_log = [
+            {"timestamp": "2024-01-01 09:00", "content": "Began the journey"}
+        ]
+        tab = GameLogTab(model=model)
+        assert "Began the journey" in tab._log_view.toPlainText()
+
+    def test_entries_round_trip(self, model: object, tmp_path: Path) -> None:
+        from heroforge.ui.tabs.game_log import GameLogTab
+
+        tab = GameLogTab(model=model)
+        tab.add_entry("Camped for the night", timestamp="2024-05-05 22:00")
+
+        loaded = _round_trip(model.character, tmp_path)
+        assert loaded.game_log == [
+            {"timestamp": "2024-05-05 22:00", "content": "Camped for the night"}
+        ]
+
+
+# ---------------------------------------------------------------------------
 # LG Game Log (Living Greyhawk; deprecated)
 # ---------------------------------------------------------------------------
 
