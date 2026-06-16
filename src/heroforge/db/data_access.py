@@ -613,6 +613,8 @@ class GameDataRepository:
         name_list = list(names)
         if not name_list:
             return []
+        # Normalize once for case-insensitive matching while keeping the same
+        # sequence (including duplicates) for final output reordering.
         normalized_names = [n.lower() for n in name_list]
         # Deduplicate query params to keep the SQL ``IN`` list compact; output
         # ordering and duplicates are restored from ``normalized_names`` below.
