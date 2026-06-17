@@ -772,6 +772,21 @@ class TestCharacterSheetTabRealData:
         assert "Initiative: 3" in text
         assert "AC: 13" in text
         assert "Ref: 3" in text
+        # HP renders a real computed value, not the "?" placeholder.
+        hp_line = next(
+            (ln for ln in text.splitlines() if ln.strip().startswith("HP:")), None
+        )
+        assert hp_line is not None
+        assert "HP: ?" not in hp_line
+
+    def test_has_pdf_export_button(self, empty_model: object) -> None:
+        from PyQt6.QtWidgets import QPushButton
+
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+
+        tab = CharacterSheetTab(model=empty_model)
+        labels = {b.text() for b in tab.findChildren(QPushButton)}
+        assert "Export to PDF…" in labels
 
     def test_loaded_signal_refreshes_from_loaded_character(
         self, empty_model: object
