@@ -256,6 +256,7 @@ CREATE TABLE IF NOT EXISTS vestiges (
     id                  INTEGER PRIMARY KEY,
     name                TEXT UNIQUE NOT NULL,
     level               INTEGER,
+    vestige_level       INTEGER,
     sign                TEXT,
     influence           TEXT,
     granted_abilities   TEXT,

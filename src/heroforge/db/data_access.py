@@ -230,6 +230,9 @@ class Vestige:
     """Binding DC level of the vestige, or ``None`` if not recorded in the source."""
     source: str | None
     """Sourcebook abbreviation, or ``None`` for unsourced/core vestiges."""
+    vestige_level: int | None = None
+    """The vestige's own level (1–8), which governs the minimum binder level
+    required to bind it (Tome of Magic p25).  ``None`` when not recorded."""
 
 
 @dataclass(frozen=True)
@@ -1292,7 +1295,8 @@ class GameDataRepository:
         fragment, params = self._source_filter("source", sources)
         where = f"WHERE {fragment}" if fragment else ""
         rows = self._query(
-            f"SELECT name, level, source FROM vestiges {where} ORDER BY name",
+            f"SELECT name, level, vestige_level, source FROM vestiges {where} "
+            "ORDER BY name",
             params,
         )
         return [
@@ -1300,6 +1304,9 @@ class GameDataRepository:
                 name=r["name"],
                 level=int(r["level"]) if r["level"] is not None else None,
                 source=r["source"] or None,
+                vestige_level=(
+                    int(r["vestige_level"]) if r["vestige_level"] is not None else None
+                ),
             )
             for r in rows
             if r["name"]
