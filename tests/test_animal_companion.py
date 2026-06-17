@@ -60,18 +60,18 @@ def test_companion_progression_lookup_by_level() -> None:
 def test_cumulative_special_qualities() -> None:
     """Special qualities accumulate across tiers in acquisition order."""
     assert cumulative_special_qualities(0) == ()
-    assert cumulative_special_qualities(1) == ("Link", "share spells")
-    assert cumulative_special_qualities(5) == ("Link", "share spells", "Evasion")
+    assert cumulative_special_qualities(1) == ("Link", "Share Spells")
+    assert cumulative_special_qualities(5) == ("Link", "Share Spells", "Evasion")
     assert cumulative_special_qualities(9) == (
         "Link",
-        "share spells",
+        "Share Spells",
         "Evasion",
         "Devotion",
         "Multiattack",
     )
-    # 12th–14th adds nothing new; Improved evasion appears at 15th.
+    # 12th–14th adds nothing new; Improved Evasion appears at 15th.
     assert cumulative_special_qualities(13) == cumulative_special_qualities(11)
-    assert "Improved evasion" in cumulative_special_qualities(15)
+    assert "Improved Evasion" in cumulative_special_qualities(15)
 
 
 def test_effective_druid_level_full_druid() -> None:
@@ -230,6 +230,32 @@ def test_tab_manual_entry_not_overwritten_by_progression(qapp: object) -> None:
 # Database seeding: the progression table and row headings live in the game DB
 # and are read back through the repository rather than hardcoded at runtime.
 # ---------------------------------------------------------------------------
+
+
+def test_progression_parsed_from_workbook(tmp_path: Path) -> None:
+    """The progression is read from the workbook, not from the in-code constant.
+
+    Seeding from the reference workbook must reproduce the canonical PHB p36
+    tiers, proving the data is sourced from the *Animal Companion* sheet rather
+    than hardcoded.
+    """
+    from heroforge.db.seed import _DEFAULT_WORKBOOK, _read_companion_progression
+
+    if not _DEFAULT_WORKBOOK.exists():
+        import pytest
+
+        pytest.skip("reference workbook not available")
+
+    parsed = _read_companion_progression(_DEFAULT_WORKBOOK)
+    assert parsed == STANDARD_COMPANION_PROGRESSION
+
+
+def test_progression_falls_back_when_workbook_missing(tmp_path: Path) -> None:
+    """A missing workbook falls back to the in-code transcription."""
+    from heroforge.db.seed import _read_companion_progression
+
+    missing = tmp_path / "does-not-exist.xlsm"
+    assert _read_companion_progression(missing) == STANDARD_COMPANION_PROGRESSION
 
 
 def test_seed_and_repository_round_trip(tmp_path: Path) -> None:

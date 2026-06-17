@@ -61,16 +61,21 @@ class CompanionProgression:
     special: str = ""
 
 
-# The canonical PHB p36 standard-companion table, keyed on effective druid
-# level.  The ``special`` column lists only the *newly gained* quality for the
-# tier; earlier qualities persist (see :func:`cumulative_special_qualities`).
+# Offline fallback for the standard-companion progression (PHB p36), keyed on
+# effective druid level.  This is a faithful transcription of the workbook's
+# *Animal Companion* tab progression table (``HeroForge Anew 3.5 v7.4.0.1.xlsm``
+# tab 9, columns "Level"–"Abilities"); the workbook is the seeding source of
+# truth (see :func:`heroforge.db.seed.seed_companion_progression`) and this
+# constant is only used when the database is unseeded or the workbook is
+# unavailable.  The ``special`` column lists only the *newly gained* quality for
+# the tier; earlier qualities persist (see :func:`cumulative_special_qualities`).
 STANDARD_COMPANION_PROGRESSION: tuple[CompanionProgression, ...] = (
-    CompanionProgression(1, 2, 0, 0, 0, 1, "Link, share spells"),
+    CompanionProgression(1, 2, 0, 0, 0, 1, "Link, Share Spells"),
     CompanionProgression(3, 5, 2, 2, 1, 2, "Evasion"),
     CompanionProgression(6, 8, 4, 4, 2, 3, "Devotion"),
     CompanionProgression(9, 11, 6, 6, 3, 4, "Multiattack"),
     CompanionProgression(12, 14, 8, 8, 4, 5),
-    CompanionProgression(15, 17, 10, 10, 5, 6, "Improved evasion"),
+    CompanionProgression(15, 17, 10, 10, 5, 6, "Improved Evasion"),
     CompanionProgression(18, 20, 12, 12, 6, 7),
 )
 
@@ -152,9 +157,9 @@ def cumulative_special_qualities(
     """Return every special quality a companion has gained by *effective_level*.
 
     The PHB ``Special`` column is cumulative: a 9th-level druid's companion has
-    Link, share spells, Evasion, Devotion *and* Multiattack.  Each tier's entry
-    may list several comma-separated qualities (e.g. ``"Link, share spells"``);
-    they are split into individual qualities here.
+    Link, Share Spells, Evasion, Devotion *and* Multiattack.  Each tier's entry
+    may list several qualities separated by a comma or semicolon (e.g.
+    ``"Link, Share Spells"``); they are split into individual qualities here.
 
     Args:
         effective_level: The master's effective druid level.
@@ -172,7 +177,7 @@ def cumulative_special_qualities(
             break
         if not tier.special:
             continue
-        for quality in tier.special.split(","):
+        for quality in re.split(r"[;,]", tier.special):
             cleaned = quality.strip()
             if cleaned:
                 qualities.append(cleaned)

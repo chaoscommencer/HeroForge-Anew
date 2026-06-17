@@ -1049,11 +1049,12 @@ class GameDataRepository:
     def get_companion_progression_records(self) -> list[CompanionProgression]:
         """Return the standard animal-companion progression tiers (PHB p36).
 
-        Data is read from the ``companion_progression`` table (seeded from
-        :data:`heroforge.logic.animal_companion.STANDARD_COMPANION_PROGRESSION`),
-        ordered as the workbook lists them.  Returns an empty list when the
-        database is unavailable or the table has not been seeded yet; callers can
-        fall back to the in-code constant.
+        Data is read from the ``companion_progression`` table, which is seeded
+        from the reference workbook's *Animal Companion* sheet (see
+        :func:`heroforge.db.seed.seed_companion_progression`), ordered as the
+        workbook lists them.  Returns an empty list when the database is
+        unavailable or the table has not been seeded yet; callers can fall back
+        to the in-code constant.
         """
         rows = self._query(
             "SELECT min_level, max_level, bonus_hd, natural_armor, "
