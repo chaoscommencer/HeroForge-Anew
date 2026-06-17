@@ -285,6 +285,143 @@ class TestMissingWorkbook:
         assert count == 0
 
 
+class TestSeedAllWorkbookLoading:
+    def test_seed_all_loads_workbook_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db_path = tmp_path / "seed.db"
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        workbook_path = tmp_path / "reference.xlsm"
+        workbook_path.write_bytes(b"placeholder")
+
+        class _DummyWorkbook:
+            closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        created: list[_DummyWorkbook] = []
+        load_calls: list[dict[str, object]] = []
+
+        def fake_load_workbook(file_path: str, **kwargs: object) -> _DummyWorkbook:
+            load_calls.append({"path": file_path, **kwargs})
+            new_wb = _DummyWorkbook()
+            created.append(new_wb)
+            return new_wb
+
+        workbook_args: dict[str, object | None] = {}
+
+        monkeypatch.setattr(seed.openpyxl, "load_workbook", fake_load_workbook)
+        monkeypatch.setattr(seed, "seed_weapons", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(seed, "seed_creatures", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(seed, "seed_tables", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            seed, "seed_familiar_bonuses", lambda *_args, **_kwargs: None
+        )
+        monkeypatch.setattr(seed, "seed_classes", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            seed,
+            "seed_weapon_damage",
+            lambda _conn, _path, workbook=None: workbook_args.setdefault(
+                "weapon", workbook
+            ),
+        )
+        monkeypatch.setattr(
+            seed,
+            "seed_class_spellcasting_info",
+            lambda _conn, _path, workbook=None: workbook_args.setdefault(
+                "spellcasting", workbook
+            ),
+        )
+        monkeypatch.setattr(
+            seed,
+            "seed_workbook",
+            lambda _conn, _path, workbook=None: workbook_args.setdefault(
+                "workbook", workbook
+            ),
+        )
+        monkeypatch.setattr(
+            seed,
+            "seed_skill_synergies",
+            lambda _conn, _path, workbook=None: workbook_args.setdefault(
+                "synergies", workbook
+            ),
+        )
+        monkeypatch.setattr(
+            seed,
+            "seed_psionic_progression",
+            lambda _conn, _path, workbook=None: workbook_args.setdefault(
+                "psionic", workbook
+            ),
+        )
+
+        seed.seed_all(db_path=db_path, data_dir=data_dir, workbook_path=workbook_path)
+
+        # The workbook is parsed at most once per openpyxl mode: one
+        # value-only load (shared by the value-based seeders) and one
+        # formula-mode load (shared by the formula-based seeders).
+        assert len(load_calls) == 2
+        data_only_flags = sorted(bool(call.get("data_only")) for call in load_calls)
+        assert data_only_flags == [False, True]
+        # Value-based seeders share the same value-only workbook object.
+        values_wb = workbook_args["weapon"]
+        assert values_wb is not None
+        assert workbook_args["spellcasting"] is values_wb
+        assert workbook_args["workbook"] is values_wb
+        # Formula-based seeders share the same formula-mode workbook object,
+        # distinct from the value-only one.
+        formulas_wb = workbook_args["synergies"]
+        assert formulas_wb is not None
+        assert workbook_args["psionic"] is formulas_wb
+        assert formulas_wb is not values_wb
+        # Every workbook opened by seed_all is closed before returning.
+        assert all(w.closed for w in created)
+
+    def test_seed_all_closes_partial_resources_when_workbook_load_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db_path = tmp_path / "seed.db"
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        workbook_path = tmp_path / "reference.xlsm"
+        workbook_path.write_bytes(b"placeholder")
+
+        class _DummyWorkbook:
+            closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        class _DummyConnection:
+            closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        first_workbook = _DummyWorkbook()
+        dummy_conn = _DummyConnection()
+        load_calls = 0
+
+        def fake_load_workbook(_file_path: str, **_kwargs: object) -> _DummyWorkbook:
+            nonlocal load_calls
+            load_calls += 1
+            if load_calls == 1:
+                return first_workbook
+            raise ValueError("failed to parse formula workbook")
+
+        monkeypatch.setattr(seed, "initialize_database", lambda _db_path: dummy_conn)
+        monkeypatch.setattr(seed.openpyxl, "load_workbook", fake_load_workbook)
+
+        with pytest.raises(ValueError, match="failed to parse formula workbook"):
+            seed.seed_all(
+                db_path=db_path, data_dir=data_dir, workbook_path=workbook_path
+            )
+
+        assert first_workbook.closed
+        assert dummy_conn.closed
+
+
 class TestWeaponDamageMatrix:
     """The size-aware ``weapon_damage`` matrix replaces the in-code constant."""
 

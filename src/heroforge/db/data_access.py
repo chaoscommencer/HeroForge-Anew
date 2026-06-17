@@ -75,6 +75,20 @@ class SpellSlots:
 
 
 @dataclass(frozen=True)
+class DomainInfo:
+    """A cleric domain from the ``domains`` table.
+
+    ``domain_spells`` is a tuple of nine spell names (indices 0–8 correspond to
+    spell levels 1–9); empty strings indicate no domain spell at that level.
+    Reference: PHB Chapter 11 (domain descriptions).
+    """
+
+    name: str
+    granted_power: str
+    domain_spells: tuple[str, ...]  # length 9, indices 0-8 → levels 1-9
+
+
+@dataclass(frozen=True)
 class ArmorItem:
     """An armor or shield entry from the ``armor`` table."""
 
@@ -270,6 +284,8 @@ class ClassInfo:
     ref_progression: str
     will_progression: str
     skill_points_per_level: int
+    spellcasting_ability: str | None
+    caster_type: str | None
     source: str
 
 
@@ -457,7 +473,8 @@ class GameDataRepository:
         rows = self._query(
             "SELECT name, is_prestige, hit_die, bab_progression, "
             "fort_progression, ref_progression, will_progression, "
-            f"skill_points_per_level, source FROM classes {where} ORDER BY name",
+            "skill_points_per_level, spellcasting_ability, caster_type, "
+            f"source FROM classes {where} ORDER BY name",
             params,
         )
         return [
@@ -470,6 +487,8 @@ class GameDataRepository:
                 ref_progression=r["ref_progression"] or "poor",
                 will_progression=r["will_progression"] or "poor",
                 skill_points_per_level=r["skill_points_per_level"] or 2,
+                spellcasting_ability=r["spellcasting_ability"],
+                caster_type=r["caster_type"],
                 source=r["source"] or "",
             )
             for r in rows
@@ -483,6 +502,39 @@ class GameDataRepository:
             (class_name,),
         )
         return [r["skill_name"] for r in rows]
+
+    def get_spellcasting_abilities(self) -> dict[str, str]:
+        """Return a mapping of class name → spellcasting ability (INT/WIS/CHA).
+
+        Only classes with a non-NULL ``spellcasting_ability`` are included;
+        non-caster classes are absent from the result.  Returns an empty dict
+        when the database is unavailable or the column is not yet populated.
+
+        Reference: PHB Chapter 3 class descriptions; supplement class entries.
+        """
+        rows = self._query(
+            "SELECT name, spellcasting_ability FROM classes "
+            "WHERE spellcasting_ability IS NOT NULL "
+            "ORDER BY name"
+        )
+        return {r["name"]: r["spellcasting_ability"] for r in rows}
+
+    def get_caster_types(self) -> dict[str, str]:
+        """Return a mapping of class name → caster type string.
+
+        Caster type is one of ``'full'``, ``'three_quarter'``, or ``'half'``.
+        Only classes with a non-NULL ``caster_type`` are included.  Returns an
+        empty dict when the database is unavailable or the column is not yet
+        populated.
+
+        Reference: PHB Chapter 3 class descriptions; supplement class entries.
+        """
+        rows = self._query(
+            "SELECT name, caster_type FROM classes "
+            "WHERE caster_type IS NOT NULL "
+            "ORDER BY name"
+        )
+        return {r["name"]: r["caster_type"] for r in rows}
 
     def class_proficiencies(self, class_name: str) -> list[str]:
         """Return the weapon/armor proficiencies granted by *class_name*.
@@ -727,6 +779,68 @@ class GameDataRepository:
         return [
             SpellSlots(r["caster_level"], r["spell_level"], r["count"]) for r in rows
         ]
+
+    def list_spell_names(self) -> list[str]:
+        """Return all spell names ordered alphabetically.
+
+        Used by the spell-selection picker in the Spells tab so the user can
+        choose from the full seeded catalogue rather than typing free text.
+        Reference: PHB Chapters 10-11 (spell lists).
+        """
+        rows = self._query("SELECT name FROM spells ORDER BY name")
+        return [r["name"] for r in rows]
+
+    def list_domains(self) -> list[DomainInfo]:
+        """Return all domain entries ordered by name.
+
+        Each :class:`DomainInfo` includes the nine domain-spell slots
+        (one per spell level 1-9).  Empty strings signal "no domain spell at
+        this level" and are preserved to keep indexing simple.
+        Reference: PHB Chapter 11 (domain descriptions).
+        """
+        rows = self._query(
+            "SELECT name, granted_power, spell_1, spell_2, spell_3, spell_4, "
+            "spell_5, spell_6, spell_7, spell_8, spell_9 "
+            "FROM domains ORDER BY name"
+        )
+        return [
+            DomainInfo(
+                name=r["name"],
+                granted_power=r["granted_power"] or "",
+                domain_spells=tuple(r[f"spell_{i}"] or "" for i in range(1, 10)),
+            )
+            for r in rows
+            if r["name"]
+        ]
+
+    def get_domain(self, name: str) -> DomainInfo | None:
+        """Return the :class:`DomainInfo` for *name*, or ``None`` if not found.
+
+        Reference: PHB Chapter 11 (domain descriptions).
+        """
+        rows = self._query(
+            "SELECT name, granted_power, spell_1, spell_2, spell_3, spell_4, "
+            "spell_5, spell_6, spell_7, spell_8, spell_9 "
+            "FROM domains WHERE name = ? COLLATE NOCASE",
+            (name,),
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return DomainInfo(
+            name=r["name"],
+            granted_power=r["granted_power"] or "",
+            domain_spells=tuple(r[f"spell_{i}"] or "" for i in range(1, 10)),
+        )
+
+    def list_deities(self) -> list[str]:
+        """Return all deity names ordered alphabetically.
+
+        Used to populate the deity picker in the Spells tab.
+        Reference: PHB Chapter 6 (religion).
+        """
+        rows = self._query("SELECT name FROM deities ORDER BY name")
+        return [r["name"] for r in rows]
 
     def psionic_progressions(self) -> dict[str, ManifesterInfo]:
         """Return manifesting-class metadata keyed by class name.

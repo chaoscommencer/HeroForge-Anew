@@ -44,10 +44,48 @@ def seeded_db(tmp_path: Path) -> Path:
         conn.executemany(
             "INSERT INTO classes (name, is_prestige, hit_die, bab_progression, "
             "fort_progression, ref_progression, will_progression, "
-            "skill_points_per_level, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "skill_points_per_level, spellcasting_ability, caster_type, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                ("Wizard", 0, 4, "slow", "poor", "poor", "good", 2, "PHB"),
-                ("Arcane Archer", 1, 8, "fast", "poor", "good", "poor", 4, "DMG"),
+                (
+                    "Wizard",
+                    0,
+                    4,
+                    "slow",
+                    "poor",
+                    "poor",
+                    "good",
+                    2,
+                    "INT",
+                    "full",
+                    "PHB",
+                ),
+                (
+                    "Cleric",
+                    0,
+                    8,
+                    "medium",
+                    "good",
+                    "poor",
+                    "good",
+                    2,
+                    "WIS",
+                    "full",
+                    "PHB",
+                ),
+                (
+                    "Arcane Archer",
+                    1,
+                    8,
+                    "fast",
+                    "poor",
+                    "good",
+                    "poor",
+                    4,
+                    None,
+                    None,
+                    "DMG",
+                ),
             ],
         )
         conn.executemany(
@@ -218,8 +256,63 @@ class TestSpellsTab:
 
         tab = SpellsTab(model=model)
         tab._class_combo.setCurrentText("Wizard")
-        assert tab._slot_spins[0].value() == 3
-        assert tab._slot_spins[1].value() == 2
+        assert tab._slot_base_labels[0].text() == "3"
+        assert tab._slot_total_labels[0].text() == "3"
+        assert tab._slot_base_labels[1].text() == "2"
+        assert tab._slot_total_labels[1].text() == "2"
+
+    def test_slots_column_header_matches_total_values(self, model: object) -> None:
+        from PyQt6.QtWidgets import QLabel
+
+        from heroforge.ui.tabs.spells import SpellsTab
+
+        tab = SpellsTab(model=model)
+        labels = {label.text() for label in tab.findChildren(QLabel)}
+        assert "<b>Total (Base + Bonus)</b>" in labels
+
+    def test_slot_fallback_uses_progression_not_above_class_level(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.spells import SpellsTab
+
+        db_path = model.game_data().db_path
+        assert db_path is not None
+        conn = initialize_database(db_path)
+        try:
+            conn.execute(
+                "INSERT INTO classes (name, is_prestige, hit_die, bab_progression, "
+                "fort_progression, ref_progression, will_progression, "
+                "skill_points_per_level, spellcasting_ability, caster_type, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "Paladin",
+                    0,
+                    10,
+                    "fast",
+                    "good",
+                    "poor",
+                    "poor",
+                    2,
+                    "CHA",
+                    "half",
+                    "PHB",
+                ),
+            )
+            conn.execute(
+                "INSERT INTO spells_per_day (class_name, caster_level, spell_level, slots) "
+                "VALUES (?, ?, ?, ?)",
+                ("Paladin", 4, 1, 1),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        model.character.classes = [("Paladin", 1)]
+        tab = SpellsTab(model=model)
+        tab._class_combo.setCurrentText("Paladin")
+
+        assert tab._slot_base_labels[1].text() == "—"
+        assert tab._slot_total_labels[1].text() == "—"
 
     def test_reflects_database_content_not_hardcoded_list(self, model: object) -> None:
         from heroforge.ui.tabs.spells import SpellsTab
@@ -233,6 +326,64 @@ class TestSpellsTab:
         assert classes == {"Cleric", "Wizard"}
         assert "Sorcerer" not in classes
         assert "Bard" not in classes
+
+    def test_derived_stats_refresh_updates_bonus_slots(self, model: object) -> None:
+        from heroforge.ui.tabs.spells import SpellsTab
+
+        model.character.classes = [("Wizard", 1)]
+        model.character.ability_scores["INT"] = 10
+        tab = SpellsTab(model=model)
+        tab._class_combo.setCurrentText("Wizard")
+
+        assert tab._slot_total_labels[1].text() == "2"
+
+        model.ability_score_changed.emit("INT", 14)
+
+        assert tab._slot_total_labels[1].text() == "3"
+
+    def test_unknown_spellcasting_ability_returns_no_bonus(self, model: object) -> None:
+        from heroforge.ui.tabs.spells import SpellsTab
+
+        model.character.ability_scores["INT"] = 18
+        tab = SpellsTab(model=model)
+
+        assert tab._ability_mod_for_class("Unknown Class") == 0
+
+    def test_prepared_tab_labels_new_spell_controls(self, model: object) -> None:
+        from PyQt6.QtWidgets import QLabel
+
+        from heroforge.ui.tabs.spells import SpellsTab
+
+        tab = SpellsTab(model=model)
+        labels = {label.text() for label in tab.findChildren(QLabel)}
+
+        assert "New Spell:" in labels
+        assert "Level:" in labels
+
+    def test_remove_spell_deletes_selected_rows_from_end(self, model: object) -> None:
+        from PyQt6.QtWidgets import QAbstractItemView
+
+        from heroforge.ui.tabs.spells import SpellsTab
+
+        model.character.spells_prepared = [
+            {"class_name": "Wizard", "spell_level": 1, "spell_name": "Magic Missile"},
+            {"class_name": "Wizard", "spell_level": 2, "spell_name": "Invisibility"},
+            {"class_name": "Wizard", "spell_level": 3, "spell_name": "Fireball"},
+        ]
+        tab = SpellsTab(model=model)
+        tab._prepared_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.MultiSelection
+        )
+        tab._prepared_list.item(0).setSelected(True)
+        tab._prepared_list.item(2).setSelected(True)
+
+        tab._on_remove_spell()
+
+        assert model.character.spells_prepared == [
+            {"class_name": "Wizard", "spell_level": 2, "spell_name": "Invisibility"}
+        ]
+        assert tab._prepared_list.count() == 1
+        assert tab._prepared_list.item(0).text() == "[Wizard] Lv2: Invisibility"
 
 
 class TestSourceSelectDialog:
@@ -1022,7 +1173,7 @@ class TestClassesTab:
         tab = ClassesTab(model=model)
         names = {tab._avail_list.item(i).text() for i in range(tab._avail_list.count())}
         # Only base classes appear; the prestige class is excluded.
-        assert names == {"Fighter", "Wizard"}
+        assert names == {"Cleric", "Fighter", "Wizard"}
         assert "Arcane Archer" not in names
 
     def test_add_class_persists_levels(self, model: object) -> None:

@@ -218,6 +218,45 @@ class TestInitializeDatabase:
         assert frozenset(_EXPECTED_TABLES).issubset(existing)
         conn2.close()
 
+    def test_existing_classes_table_gains_spellcasting_columns(
+        self, tmp_path: Path
+    ) -> None:
+        db_path = tmp_path / "old-classes.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE classes ("
+            "id INTEGER PRIMARY KEY, "
+            "name TEXT UNIQUE NOT NULL, "
+            "is_prestige INTEGER DEFAULT 0, "
+            "hit_die INTEGER, "
+            "bab_progression TEXT, "
+            "fort_progression TEXT, "
+            "ref_progression TEXT, "
+            "will_progression TEXT, "
+            "skill_points_per_level INTEGER, "
+            "source TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO classes "
+            "(name, hit_die, bab_progression, fort_progression, ref_progression, "
+            "will_progression, skill_points_per_level, source) "
+            "VALUES ('Wizard', 4, 'slow', 'poor', 'poor', 'good', 2, 'PHB')"
+        )
+        conn.commit()
+        conn.close()
+
+        conn2 = initialize_database(db_path)
+        columns = {
+            row[1] for row in conn2.execute("PRAGMA table_info(classes)").fetchall()
+        }
+        assert "spellcasting_ability" in columns
+        assert "caster_type" in columns
+        row = conn2.execute("SELECT name, source FROM classes").fetchone()
+        assert row is not None
+        assert row[0] == "Wizard"
+        assert row[1] == "PHB"
+        conn2.close()
+
 
 class TestAllTablesExist:
     @pytest.fixture(autouse=True)

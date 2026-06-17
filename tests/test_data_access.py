@@ -636,3 +636,300 @@ class TestClasses:
         conn.close()
         repo = GameDataRepository(db_path)
         assert repo.list_classes() == []
+
+
+class TestSpellMethods:
+    """Tests for list_spell_names, list_domains, get_domain, list_deities."""
+
+    @pytest.fixture()
+    def spell_repo(self, tmp_path: Path) -> GameDataRepository:
+        """A repository with hand-seeded domain, deity, and spell data."""
+        db_path = tmp_path / "spells.db"
+        conn = initialize_database(db_path)
+        try:
+            conn.executemany(
+                "INSERT INTO spells (name, school) VALUES (?, ?)",
+                [
+                    ("Fireball", "Evocation"),
+                    ("Cure Light Wounds", "Conjuration"),
+                    ("Magic Missile", "Evocation"),
+                ],
+            )
+            conn.executemany(
+                "INSERT INTO domains "
+                "(name, granted_power, spell_1, spell_2, spell_3, spell_4, spell_5,"
+                " spell_6, spell_7, spell_8, spell_9) VALUES "
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        "Fire",
+                        "Turn or destroy water creatures as a good cleric turns undead.",
+                        "Burning Hands",
+                        "Produce Flame",
+                        "Resist Energy",
+                        "Wall of Fire",
+                        "Fire Shield",
+                        "Fire Seeds",
+                        "Fire Storm",
+                        "Incendiary Cloud",
+                        "Elemental Swarm",
+                    ),
+                    (
+                        "Air",
+                        "Turn or destroy earth creatures.",
+                        "Obscuring Mist",
+                        "Wind Wall",
+                        "Gaseous Form",
+                        "Air Walk",
+                        "Control Winds",
+                        "Chain Lightning",
+                        "Control Weather",
+                        "Whirlwind",
+                        "Elemental Swarm",
+                    ),
+                ],
+            )
+            conn.executemany(
+                "INSERT INTO deities (name, alignment, domains, favored_weapon) "
+                "VALUES (?, ?, ?, ?)",
+                [
+                    ("Pelor", "NG", "Good,Healing,Strength,Sun", "Heavy Mace"),
+                    ("Nerull", "NE", "Death,Evil,Trickery", "Scythe"),
+                ],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return GameDataRepository(db_path)
+
+    def test_list_spell_names(self, spell_repo: GameDataRepository) -> None:
+        names = spell_repo.list_spell_names()
+        assert names == ["Cure Light Wounds", "Fireball", "Magic Missile"]
+
+    def test_list_spell_names_empty(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "empty2.db"
+        conn = initialize_database(db_path)
+        conn.close()
+        repo = GameDataRepository(db_path)
+        assert repo.list_spell_names() == []
+
+    def test_list_domains_returns_all(self, spell_repo: GameDataRepository) -> None:
+        domains = spell_repo.list_domains()
+        assert len(domains) == 2
+        names = [d.name for d in domains]
+        assert "Air" in names
+        assert "Fire" in names
+
+    def test_domain_spells_length(self, spell_repo: GameDataRepository) -> None:
+        domains = {d.name: d for d in spell_repo.list_domains()}
+        fire = domains["Fire"]
+        assert isinstance(fire.domain_spells, tuple)
+        assert len(fire.domain_spells) == 9
+        assert fire.domain_spells[0] == "Burning Hands"
+        assert fire.domain_spells[8] == "Elemental Swarm"
+
+    def test_domain_granted_power(self, spell_repo: GameDataRepository) -> None:
+        domains = {d.name: d for d in spell_repo.list_domains()}
+        fire = domains["Fire"]
+        assert "water creatures" in fire.granted_power
+
+    def test_get_domain_found(self, spell_repo: GameDataRepository) -> None:
+        domain = spell_repo.get_domain("Fire")
+        assert domain is not None
+        assert domain.name == "Fire"
+        assert isinstance(domain.domain_spells, tuple)
+        assert domain.domain_spells[0] == "Burning Hands"
+
+    def test_get_domain_case_insensitive(self, spell_repo: GameDataRepository) -> None:
+        domain = spell_repo.get_domain("fire")
+        assert domain is not None
+        assert domain.name == "Fire"
+
+    def test_get_domain_not_found(self, spell_repo: GameDataRepository) -> None:
+        assert spell_repo.get_domain("Nonexistent") is None
+
+    def test_list_deities(self, spell_repo: GameDataRepository) -> None:
+        names = spell_repo.list_deities()
+        assert names == ["Nerull", "Pelor"]
+
+    def test_list_deities_empty(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "empty3.db"
+        conn = initialize_database(db_path)
+        conn.close()
+        repo = GameDataRepository(db_path)
+        assert repo.list_deities() == []
+
+
+class TestSpellcastingClassData:
+    """Tests for get_spellcasting_abilities() and get_caster_types().
+
+    Reference: PHB Chapter 3 class descriptions; supplement class entries.
+    Spellcasting ability and caster type are stored in the ``classes`` table
+    (seeded by seed_class_spellcasting_info) rather than hard-coded in Python.
+    """
+
+    @pytest.fixture()
+    def spellcasting_repo(self, tmp_path: Path) -> GameDataRepository:
+        """A repository seeded with a handful of spellcasting classes."""
+        db_path = tmp_path / "spellcasting.db"
+        conn = initialize_database(db_path)
+        try:
+            conn.executemany(
+                "INSERT INTO classes "
+                "(name, hit_die, bab_progression, fort_progression, "
+                "ref_progression, will_progression, skill_points_per_level, "
+                "spellcasting_ability, caster_type, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        "Wizard",
+                        4,
+                        "slow",
+                        "poor",
+                        "poor",
+                        "good",
+                        2,
+                        "INT",
+                        "full",
+                        "PHB",
+                    ),
+                    (
+                        "Cleric",
+                        8,
+                        "medium",
+                        "good",
+                        "poor",
+                        "good",
+                        2,
+                        "WIS",
+                        "full",
+                        "PHB",
+                    ),
+                    (
+                        "Sorcerer",
+                        4,
+                        "slow",
+                        "poor",
+                        "poor",
+                        "good",
+                        2,
+                        "CHA",
+                        "full",
+                        "PHB",
+                    ),
+                    (
+                        "Bard",
+                        6,
+                        "medium",
+                        "poor",
+                        "good",
+                        "good",
+                        6,
+                        "CHA",
+                        "three_quarter",
+                        "PHB",
+                    ),
+                    (
+                        "Paladin",
+                        10,
+                        "fast",
+                        "good",
+                        "poor",
+                        "poor",
+                        2,
+                        "WIS",
+                        "half",
+                        "PHB",
+                    ),
+                    (
+                        "Ranger",
+                        8,
+                        "fast",
+                        "good",
+                        "good",
+                        "poor",
+                        6,
+                        "WIS",
+                        "half",
+                        "PHB",
+                    ),
+                    (
+                        "Fighter",
+                        10,
+                        "fast",
+                        "good",
+                        "poor",
+                        "poor",
+                        2,
+                        None,
+                        None,
+                        "PHB",
+                    ),
+                    (
+                        "Barbarian",
+                        12,
+                        "fast",
+                        "good",
+                        "poor",
+                        "poor",
+                        4,
+                        None,
+                        None,
+                        "PHB",
+                    ),
+                ],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return GameDataRepository(db_path)
+
+    def test_spellcasting_abilities_core_casters(
+        self, spellcasting_repo: GameDataRepository
+    ) -> None:
+        abilities = spellcasting_repo.get_spellcasting_abilities()
+        assert abilities["Wizard"] == "INT"
+        assert abilities["Cleric"] == "WIS"
+        assert abilities["Sorcerer"] == "CHA"
+        assert abilities["Bard"] == "CHA"
+        assert abilities["Paladin"] == "WIS"
+        assert abilities["Ranger"] == "WIS"
+
+    def test_non_casters_absent_from_spellcasting_abilities(
+        self, spellcasting_repo: GameDataRepository
+    ) -> None:
+        abilities = spellcasting_repo.get_spellcasting_abilities()
+        assert "Fighter" not in abilities
+        assert "Barbarian" not in abilities
+
+    def test_caster_types_full(self, spellcasting_repo: GameDataRepository) -> None:
+        caster_types = spellcasting_repo.get_caster_types()
+        assert caster_types["Wizard"] == "full"
+        assert caster_types["Cleric"] == "full"
+        assert caster_types["Sorcerer"] == "full"
+
+    def test_caster_types_three_quarter(
+        self, spellcasting_repo: GameDataRepository
+    ) -> None:
+        caster_types = spellcasting_repo.get_caster_types()
+        assert caster_types["Bard"] == "three_quarter"
+
+    def test_caster_types_half(self, spellcasting_repo: GameDataRepository) -> None:
+        caster_types = spellcasting_repo.get_caster_types()
+        assert caster_types["Paladin"] == "half"
+        assert caster_types["Ranger"] == "half"
+
+    def test_non_casters_absent_from_caster_types(
+        self, spellcasting_repo: GameDataRepository
+    ) -> None:
+        caster_types = spellcasting_repo.get_caster_types()
+        assert "Fighter" not in caster_types
+        assert "Barbarian" not in caster_types
+
+    def test_spellcasting_abilities_empty_when_no_db(self, tmp_path: Path) -> None:
+        repo = GameDataRepository(tmp_path / "missing.db")
+        assert repo.get_spellcasting_abilities() == {}
+
+    def test_caster_types_empty_when_no_db(self, tmp_path: Path) -> None:
+        repo = GameDataRepository(tmp_path / "missing.db")
+        assert repo.get_caster_types() == {}

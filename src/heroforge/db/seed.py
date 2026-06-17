@@ -1329,7 +1329,9 @@ def _seed_workbook_table(
 
 
 def seed_workbook(
-    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+    conn: sqlite3.Connection,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
+    workbook: openpyxl.Workbook | None = None,
 ) -> None:
     """Seed every workbook-backed table from the reference ``.xlsm`` file.
 
@@ -1338,21 +1340,25 @@ def seed_workbook(
     :data:`_WORKBOOK_TABLES`.  If the workbook is missing the function logs a
     warning and returns without modifying any tables.
     """
-    workbook_path = Path(workbook_path)
-    if not workbook_path.exists():
-        logger.warning(
-            "Workbook not found at %s – skipping workbook-backed tables",
-            workbook_path,
-        )
-        return
+    wb = workbook
+    owns_workbook = wb is None
+    if wb is None:
+        workbook_path = Path(workbook_path)
+        if not workbook_path.exists():
+            logger.warning(
+                "Workbook not found at %s – skipping workbook-backed tables",
+                workbook_path,
+            )
+            return
+        logger.info("Loading workbook %s", workbook_path.name)
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
 
-    logger.info("Loading workbook %s", workbook_path.name)
-    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
     try:
         for spec in _WORKBOOK_TABLES:
             _seed_workbook_table(conn, wb, spec)
     finally:
-        wb.close()
+        if owns_workbook:
+            wb.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1420,7 +1426,9 @@ def _extract_weapon_damage(wb: object) -> list[tuple[object, ...]]:
 
 
 def seed_weapon_damage(
-    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+    conn: sqlite3.Connection,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
+    workbook: openpyxl.Workbook | None = None,
 ) -> None:
     """Seed the *weapon_damage* table from the workbook damage-by-size matrix.
 
@@ -1429,15 +1437,17 @@ def seed_weapon_damage(
     constant.  If the workbook is missing the function logs a warning and leaves
     the table untouched.
     """
-    workbook_path = Path(workbook_path)
-    if not workbook_path.exists():
-        logger.warning(
-            "Workbook not found at %s – skipping weapon_damage matrix",
-            workbook_path,
-        )
-        return
-
-    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
+    wb = workbook
+    owns_workbook = wb is None
+    if wb is None:
+        workbook_path = Path(workbook_path)
+        if not workbook_path.exists():
+            logger.warning(
+                "Workbook not found at %s – skipping weapon_damage matrix",
+                workbook_path,
+            )
+            return
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
     try:
         rows = _extract_weapon_damage(wb)
     except KeyError:
@@ -1447,7 +1457,8 @@ def seed_weapon_damage(
         )
         return
     finally:
-        wb.close()
+        if owns_workbook:
+            wb.close()
 
     if not rows:
         logger.warning(
@@ -1478,25 +1489,31 @@ def seed_weapon_damage(
 
 
 def seed_psionic_progression(
-    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+    conn: sqlite3.Connection,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
+    workbook: openpyxl.Workbook | None = None,
 ) -> None:
     """Seed the *psionic_progression* table from the "Psionic Info" sheet.
 
     Replaces the table in full with the per-class power-point-per-day and
     powers-known progressions transcribed from the workbook (Excel tab 7b),
     including each class's key ability.  The workbook is loaded in formula mode
-    so the key-ability formulas in column G are readable.  If the workbook is
+    so the key-ability formulas in column G are readable.  Callers may pass an
+    already-open formula-mode ``workbook`` to avoid re-parsing the ``.xlsm``;
+    when omitted the workbook is loaded (and closed) here.  If the workbook is
     missing the function logs a warning and leaves the table untouched.
     """
-    workbook_path = Path(workbook_path)
-    if not workbook_path.exists():
-        logger.warning(
-            "Workbook not found at %s – skipping psionic_progression",
-            workbook_path,
-        )
-        return
-
-    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
+    wb = workbook
+    owns_workbook = wb is None
+    if wb is None:
+        workbook_path = Path(workbook_path)
+        if not workbook_path.exists():
+            logger.warning(
+                "Workbook not found at %s – skipping psionic_progression",
+                workbook_path,
+            )
+            return
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
     try:
         rows = _extract_psionic_progression(wb)
     except KeyError:
@@ -1506,7 +1523,8 @@ def seed_psionic_progression(
         )
         return
     finally:
-        wb.close()
+        if owns_workbook:
+            wb.close()
 
     if not rows:
         logger.warning(
@@ -2127,24 +2145,30 @@ def _extract_skill_synergies(wb: object) -> list[tuple[object, ...]]:
 
 
 def seed_skill_synergies(
-    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+    conn: sqlite3.Connection,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
+    workbook: openpyxl.Workbook | None = None,
 ) -> None:
     """Seed the *skill_synergies* table from the workbook "Synergy" column.
 
     The pairs are parsed from cell formulas (see :func:`_extract_skill_synergies`),
-    so the workbook is opened with ``data_only=False`` to expose them.  If the
+    so the workbook is opened with ``data_only=False`` to expose them.  Callers
+    may pass an already-open formula-mode ``workbook`` to avoid re-parsing the
+    ``.xlsm``; when omitted the workbook is loaded (and closed) here.  If the
     workbook is missing the function logs a warning and leaves the table
     untouched.
     """
-    workbook_path = Path(workbook_path)
-    if not workbook_path.exists():
-        logger.warning(
-            "Workbook not found at %s – skipping skill_synergies",
-            workbook_path,
-        )
-        return
-
-    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
+    wb = workbook
+    owns_workbook = wb is None
+    if wb is None:
+        workbook_path = Path(workbook_path)
+        if not workbook_path.exists():
+            logger.warning(
+                "Workbook not found at %s – skipping skill_synergies",
+                workbook_path,
+            )
+            return
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
     try:
         rows = _extract_skill_synergies(wb)
     except KeyError:
@@ -2154,7 +2178,8 @@ def seed_skill_synergies(
         )
         return
     finally:
-        wb.close()
+        if owns_workbook:
+            wb.close()
 
     if not rows:
         logger.warning(
@@ -2431,6 +2456,155 @@ def seed_companion_progression(
 
 
 # ---------------------------------------------------------------------------
+# Spellcasting class data extraction from the reference workbook
+# ---------------------------------------------------------------------------
+
+# 0-based column indices in the "Spells per Day" sheet that identify the
+# caster progression archetype for a class.  These are fixed across all
+# sections of the sheet and determined by the original workbook layout:
+#   index 1  (2nd column)  – Bard-like (limited, ≤ 6th level)   → three_quarter
+#   index 9  (10th column) – Cleric-like (full 9 spell levels)   → full
+#   index 20 (21st column) – Paladin-like (CL + 4 spell levels)  → half
+# Index 31 (32nd column) holds "Standard Prestige Good/Poor" archetypes,
+# which are not mapped to a caster type here.
+_SPD_PARTIAL_CASTER_COL: int = 1
+_SPD_FULL_CASTER_COL: int = 9
+_SPD_HALF_CASTER_COL: int = 20
+
+# Strings that appear in the "Spells per Day" header rows but are NOT
+# individual class names (archetype labels and sub-header tokens).
+_SPD_NON_CLASS_HEADERS: frozenset[str] = frozenset(
+    {
+        "CL",
+        "Standard Prestige Good",
+        "Standard Prestige Poor",
+    }
+)
+
+
+def _extract_spellcasting_class_data(
+    wb: openpyxl.Workbook,
+) -> dict[str, tuple[str, str]]:
+    """Extract spellcasting ability and caster type for each class in *wb*.
+
+    Reads two sheets from the reference workbook:
+
+    * **"Spell Info"** – column 0 holds the full class name; column 7 holds
+      the spellcasting ability key (``'Wis'``, ``'Int'``, ``'Cha'``, …).
+      Values are upper-cased before storage (e.g. ``'WIS'``).
+
+    * **"Spells per Day"** – class names appear as section headers in fixed
+      column positions; the column position identifies the caster archetype:
+      col 1 → ``'three_quarter'``, col 9 → ``'full'``, col 20 → ``'half'``.
+
+    Only classes that appear in *both* sheets are returned.
+
+    Returns:
+        ``{class_name: (spellcasting_ability, caster_type)}``
+    """
+    sheet_titles = {ws.title for ws in wb.worksheets}
+
+    # --- Step 1: spellcasting ability from "Spell Info" ---
+    ability_map: dict[str, str] = {}
+    if "Spell Info" in sheet_titles:
+        ws_si = wb["Spell Info"]
+        for row_idx, row in enumerate(ws_si.iter_rows(values_only=True)):
+            if row_idx < 3:
+                # row 0 = column-number row, row 1 = header, row 2 = sub-header
+                continue
+            class_name = row[0]
+            stat = row[7]  # "Stat" column – e.g. 'Wis', 'Int', 'Cha'
+            if (
+                isinstance(class_name, str)
+                and class_name
+                and isinstance(stat, str)
+                and stat
+            ):
+                ability_map[class_name] = stat.upper()
+
+    # --- Step 2: caster type from "Spells per Day" column positions ---
+    caster_type_map: dict[str, str] = {}
+    if "Spells per Day" in sheet_titles:
+        ws_spd = wb["Spells per Day"]
+        col_ctype_pairs = (
+            (_SPD_PARTIAL_CASTER_COL, "three_quarter"),
+            (_SPD_FULL_CASTER_COL, "full"),
+            (_SPD_HALF_CASTER_COL, "half"),
+        )
+        for row in ws_spd.iter_rows(values_only=True):
+            for col_idx, ctype in col_ctype_pairs:
+                if col_idx < len(row):
+                    val = row[col_idx]
+                    if isinstance(val, str) and val not in _SPD_NON_CLASS_HEADERS:
+                        caster_type_map[val] = ctype
+
+    # --- Step 3: combine – emit only entries present in both sheets ---
+    return {
+        cls: (ability_map[cls], caster_type_map[cls])
+        for cls in ability_map
+        if cls in caster_type_map
+    }
+
+
+def seed_class_spellcasting_info(
+    conn: sqlite3.Connection,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
+    workbook: openpyxl.Workbook | None = None,
+) -> None:
+    """Update the ``classes`` table with spellcasting ability and caster type.
+
+    Reads the reference workbook to extract, for each spellcasting class:
+
+    * ``spellcasting_ability`` (e.g. ``'WIS'``, ``'INT'``, ``'CHA'``) – from
+      the ``'Stat'`` column in the workbook's **"Spell Info"** sheet.
+    * ``caster_type`` (``'full'`` / ``'three_quarter'`` / ``'half'``) –
+      inferred from the column position in which the class appears as a
+      section header in the **"Spells per Day"** sheet:
+      col 1 → ``'three_quarter'``, col 9 → ``'full'``, col 20 → ``'half'``.
+
+    Rows not yet present in the ``classes`` table are silently skipped so this
+    seeder runs safely before or after :func:`seed_classes`.  If the workbook
+    file is absent the function logs a warning and returns without error.
+
+    Reference: workbook sheets "Spell Info" and "Spells per Day".
+    """
+    wb = workbook
+    owns_workbook = wb is None
+    if wb is None:
+        workbook_path = Path(workbook_path)
+        if not workbook_path.exists():
+            logger.warning(
+                "Workbook not found at %s – skipping spellcasting class info",
+                workbook_path,
+            )
+            return
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
+    try:
+        spellcasting_data = _extract_spellcasting_class_data(wb)
+    finally:
+        if owns_workbook:
+            wb.close()
+
+    updated = 0
+    for class_name, (spellcasting_ability, caster_type) in spellcasting_data.items():
+        try:
+            result = conn.execute(
+                """
+                UPDATE classes
+                SET spellcasting_ability = ?, caster_type = ?
+                WHERE name = ?
+                """,
+                (spellcasting_ability, caster_type, class_name),
+            )
+            updated += result.rowcount
+        except sqlite3.Error as exc:
+            logger.debug("Skipping spellcasting info for %r: %s", class_name, exc)
+
+    conn.commit()
+    logger.info("Class spellcasting info: updated %d rows", updated)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -2450,22 +2624,44 @@ def seed_all(
     """
     db_path = Path(db_path)
     data_dir = Path(data_dir)
+    workbook_path = Path(workbook_path)
 
     logger.info("Seeding database at %s from data dir %s", db_path, data_dir)
     conn = initialize_database(db_path)
+    wb_values: openpyxl.Workbook | None = None
+    wb_formulas: openpyxl.Workbook | None = None
+    try:
+        if workbook_path.exists():
+            logger.info("Loading workbook %s", workbook_path.name)
+            wb_values = openpyxl.load_workbook(
+                str(workbook_path), read_only=True, data_only=True
+            )
+            wb_formulas = openpyxl.load_workbook(
+                str(workbook_path), read_only=True, data_only=False
+            )
+    except Exception:
+        if wb_values is not None:
+            wb_values.close()
+        conn.close()
+        raise
 
     try:
-        seed_weapon_damage(conn, workbook_path)
+        seed_weapon_damage(conn, workbook_path, workbook=wb_values)
         seed_weapons(conn, data_dir)
         seed_creatures(conn, data_dir)
         seed_tables(conn, data_dir)
         seed_familiar_bonuses(conn)
         seed_companion_progression(conn, workbook_path)
         seed_classes(conn, data_dir)
-        seed_workbook(conn, workbook_path)
-        seed_skill_synergies(conn, workbook_path)
-        seed_psionic_progression(conn, workbook_path)
+        seed_class_spellcasting_info(conn, workbook_path, workbook=wb_values)
+        seed_workbook(conn, workbook_path, workbook=wb_values)
+        seed_skill_synergies(conn, workbook_path, workbook=wb_formulas)
+        seed_psionic_progression(conn, workbook_path, workbook=wb_formulas)
     finally:
+        if wb_values is not None:
+            wb_values.close()
+        if wb_formulas is not None:
+            wb_formulas.close()
         conn.close()
 
     logger.info("Seeding complete.")
