@@ -308,8 +308,10 @@ def compute_derived_stats(
         ranged_attack=combat.ranged_attack(
             bab, dex_mod, size=size, misc=buff_net.get("ranged", 0)
         ),
-        grapple=combat.grapple_modifier(bab, str_mod, size=size)
-        + buff_net.get("grapple", 0),
+        grapple=(
+            combat.grapple_modifier(bab, str_mod, size=size)
+            + buff_net.get("grapple", 0)
+        ),
         initiative=combat.initiative(dex_mod, misc=buff_net.get("initiative", 0)),
         hit_points=hit_points,
         armor_class=ac.total,
