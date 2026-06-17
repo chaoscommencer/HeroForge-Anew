@@ -362,6 +362,30 @@ class TestArmorTab:
         # ACP: -6 + -2 = -8
         assert tab._acp_lbl.text() == "-8"
 
+    def test_derived_ac_ignores_armor_special_ability_bonus_equivalent(
+        self, model: object
+    ) -> None:
+        model.character.ability_scores["DEX"] = 14  # +2, capped to 1 by Full Plate
+        model.character.equipment = [
+            {"slot": "Body Armor", "item_name": "Full Plate"},
+            {"slot": "Shield", "item_name": "Heavy Steel Shield"},
+        ]
+        model.character.enhancements = [
+            {
+                "target": "Armor",
+                "bonus_type": "Fortification",
+                "value": 1,
+                "notes": "",
+            }
+        ]
+
+        stats = model.derived_stats()
+
+        # Fortification's +1 is a pricing equivalent, not an AC bonus.
+        assert stats.armor_class == 21
+        assert stats.touch_ac == 11
+        assert stats.flat_footed_ac == 20
+
     def test_equipment_persisted_with_slots(self, model: object) -> None:
         from heroforge.ui.tabs.armor import ArmorTab
 

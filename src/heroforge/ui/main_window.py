@@ -375,9 +375,12 @@ class CharacterModel(QObject):
         """Collect typed AC bonuses and the Max Dex cap for the active character.
 
         Aggregates worn body armor and shield (resolved from the seeded armor
-        catalogue and the character's custom armor), magic armor enhancement
-        bonuses, and the race's natural armor.  The lowest Max Dex Bonus of any
-        worn item caps the Dexterity contribution to AC (PHB p136).
+        catalogue and the character's custom armor) plus the race's natural
+        armor. The enhancements tab currently stores magic armor special
+        abilities as bonus-equivalent pricing data, not an armor's actual +X
+        enhancement bonus, so those entries are intentionally excluded here. The
+        lowest Max Dex Bonus of any worn item caps the Dexterity contribution to
+        AC (PHB p136).
         """
         bonuses: list[tuple[str, int]] = []
         if natural_armor:
@@ -391,13 +394,6 @@ class CharacterModel(QObject):
             if name:
                 catalog.setdefault(name, _armor_item_from_entry(entry))
 
-        # Magic armor enhancement bonuses stack with the worn armor's bonus.
-        armor_enhancement = sum(
-            int(e.get("value", 0) or 0)
-            for e in self._character.enhancements
-            if e.get("target") == "Armor"
-        )
-
         caps: list[int] = []
         armor_total = 0
         shield_total = 0
@@ -409,7 +405,7 @@ class CharacterModel(QObject):
             if item is None:
                 continue
             if slot == "Body Armor":
-                armor_total += item.ac_bonus + armor_enhancement
+                armor_total += item.ac_bonus
             else:
                 shield_total += item.ac_bonus
             if item.max_dex_bonus is not None:
