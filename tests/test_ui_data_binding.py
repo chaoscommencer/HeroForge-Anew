@@ -358,7 +358,7 @@ class TestSpellsTab:
         labels = {label.text() for label in tab.findChildren(QLabel)}
 
         assert "New Spell:" in labels
-        assert "  Level:" in labels
+        assert "Level:" in labels
 
     def test_remove_spell_deletes_selected_rows_from_end(self, model: object) -> None:
         from PyQt6.QtWidgets import QAbstractItemView

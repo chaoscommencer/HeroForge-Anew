@@ -77,16 +77,17 @@ class SpellsTab(QWidget):
 
         # ── Top summary row ──────────────────────────────────────────
         top_row = QHBoxLayout()
+        top_row.setSpacing(8)
         top_row.addWidget(QLabel("Spellcasting Class:"))
         self._class_combo = QComboBox()
         self._class_combo.currentTextChanged.connect(self._on_class_changed)
         top_row.addWidget(self._class_combo)
 
-        top_row.addWidget(QLabel("  Caster Level:"))
+        top_row.addWidget(QLabel("Caster Level:"))
         self._cl_label = QLabel("0")
         top_row.addWidget(self._cl_label)
 
-        top_row.addWidget(QLabel("  Arcane Spell Failure:"))
+        top_row.addWidget(QLabel("Arcane Spell Failure:"))
         self._asf_label = QLabel("0%")
         top_row.addWidget(self._asf_label)
         top_row.addStretch()
@@ -124,7 +125,8 @@ class SpellsTab(QWidget):
 
         for lvl in range(10):
             row = QHBoxLayout()
-            row.addWidget(QLabel(f"  {lvl}:"), 1)
+            row.setSpacing(8)
+            row.addWidget(QLabel(f"{lvl}:"), 1)
             base_lbl = QLabel("—")
             total_lbl = QLabel("—")
             self._slot_base_labels[lvl] = base_lbl
@@ -187,12 +189,13 @@ class SpellsTab(QWidget):
         layout = QVBoxLayout(widget)
 
         add_row = QHBoxLayout()
+        add_row.setSpacing(8)
         add_row.addWidget(QLabel("New Spell:"))
         add_row.addWidget(QLabel("Class:"))
         self._prep_class_combo = QComboBox()
         add_row.addWidget(self._prep_class_combo)
 
-        add_row.addWidget(QLabel("  Level:"))
+        add_row.addWidget(QLabel("Level:"))
         self._prep_level_spin = QSpinBox()
         self._prep_level_spin.setRange(0, 9)
         add_row.addWidget(self._prep_level_spin)
