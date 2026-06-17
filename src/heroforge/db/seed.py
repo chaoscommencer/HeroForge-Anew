@@ -1325,7 +1325,7 @@ def _seed_workbook_table(
 def seed_workbook(
     conn: sqlite3.Connection,
     workbook_path: str | Path = _DEFAULT_WORKBOOK,
-    workbook: object | None = None,
+    workbook: openpyxl.Workbook | None = None,
 ) -> None:
     """Seed every workbook-backed table from the reference ``.xlsm`` file.
 
@@ -1422,7 +1422,7 @@ def _extract_weapon_damage(wb: object) -> list[tuple[object, ...]]:
 def seed_weapon_damage(
     conn: sqlite3.Connection,
     workbook_path: str | Path = _DEFAULT_WORKBOOK,
-    workbook: object | None = None,
+    workbook: openpyxl.Workbook | None = None,
 ) -> None:
     """Seed the *weapon_damage* table from the workbook damage-by-size matrix.
 
@@ -1485,7 +1485,7 @@ def seed_weapon_damage(
 def seed_psionic_progression(
     conn: sqlite3.Connection,
     workbook_path: str | Path = _DEFAULT_WORKBOOK,
-    workbook: object | None = None,
+    workbook: openpyxl.Workbook | None = None,
 ) -> None:
     """Seed the *psionic_progression* table from the "Psionic Info" sheet.
 
@@ -2141,7 +2141,7 @@ def _extract_skill_synergies(wb: object) -> list[tuple[object, ...]]:
 def seed_skill_synergies(
     conn: sqlite3.Connection,
     workbook_path: str | Path = _DEFAULT_WORKBOOK,
-    workbook: object | None = None,
+    workbook: openpyxl.Workbook | None = None,
 ) -> None:
     """Seed the *skill_synergies* table from the workbook "Synergy" column.
 
@@ -2329,7 +2329,7 @@ def _extract_spellcasting_class_data(
 def seed_class_spellcasting_info(
     conn: sqlite3.Connection,
     workbook_path: str | Path = _DEFAULT_WORKBOOK,
-    workbook: object | None = None,
+    workbook: openpyxl.Workbook | None = None,
 ) -> None:
     """Update the ``classes`` table with spellcasting ability and caster type.
 
