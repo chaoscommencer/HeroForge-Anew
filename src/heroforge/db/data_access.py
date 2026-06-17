@@ -34,6 +34,7 @@ from heroforge.logic.familiar import (
     FamiliarMasterAbility,
     describe_bonus,
 )
+from heroforge.logic.incarnum import IncarnumProgression
 from heroforge.logic.psionics import ManifesterInfo
 from heroforge.models.race import Race
 from heroforge.models.template import Template
@@ -867,6 +868,50 @@ class GameDataRepository:
             pp_per_day = tuple(levels.get(i, 0) for i in range(max_level + 1))
             result[cls] = ManifesterInfo(
                 key_ability=key_ability[cls], pp_per_day=pp_per_day
+            )
+        return result
+
+    def incarnum_progressions(self) -> dict[str, IncarnumProgression]:
+        """Return meldshaping-class progressions keyed by class name.
+
+        Builds a :class:`IncarnumProgression` per class from the
+        ``incarnum_progression`` and ``incarnum_chakra`` tables (seeded from the
+        workbook's "Soulmelds" sheet), with ``essentia``/``soulmelds`` indexed
+        by class level and ``chakra_unlocks`` mapping each chakra to its minimum
+        binding level.  Feeds
+        :func:`heroforge.logic.incarnum.compute_incarnum`.
+        """
+        prog_rows = self._query(
+            "SELECT class_name, class_level, essentia, soulmelds "
+            "FROM incarnum_progression ORDER BY class_name, class_level"
+        )
+        essentia_by_level: dict[str, dict[int, int]] = {}
+        soulmelds_by_level: dict[str, dict[int, int]] = {}
+        for r in prog_rows:
+            cls = r["class_name"]
+            essentia_by_level.setdefault(cls, {})[r["class_level"]] = r["essentia"]
+            soulmelds_by_level.setdefault(cls, {})[r["class_level"]] = r["soulmelds"]
+
+        chakra_rows = self._query(
+            "SELECT class_name, chakra, min_level FROM incarnum_chakra "
+            "ORDER BY class_name, min_level, chakra"
+        )
+        chakra_by_class: dict[str, dict[str, int]] = {}
+        for r in chakra_rows:
+            chakra_by_class.setdefault(r["class_name"], {})[r["chakra"]] = r[
+                "min_level"
+            ]
+
+        result: dict[str, IncarnumProgression] = {}
+        for cls, levels in essentia_by_level.items():
+            max_level = max(levels)
+            essentia = tuple(levels.get(i, 0) for i in range(max_level + 1))
+            melds = soulmelds_by_level.get(cls, {})
+            soulmelds = tuple(melds.get(i, 0) for i in range(max_level + 1))
+            result[cls] = IncarnumProgression(
+                essentia=essentia,
+                soulmelds=soulmelds,
+                chakra_unlocks=chakra_by_class.get(cls, {}),
             )
         return result
 
