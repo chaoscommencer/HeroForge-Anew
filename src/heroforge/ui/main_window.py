@@ -29,7 +29,7 @@ from heroforge.db.character_repo import (
 )
 from heroforge.db.data_access import ArmorItem, GameDataRepository
 from heroforge.env_paths import dir_from_env
-from heroforge.logic import race_templates
+from heroforge.logic import race_templates, vestiges
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
 from heroforge.logic.equipment import DEFAULT_LAND_SPEED, speed_ignores_encumbrance
 from heroforge.logic.familiar import (
@@ -51,6 +51,7 @@ from heroforge.ui.dialogs.template_info import TemplateInfoDialog
 from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
 from heroforge.ui.tabs.armor import ArmorTab
 from heroforge.ui.tabs.attacks import AttacksTab
+from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
 from heroforge.ui.tabs.buffs import BuffsTab
 from heroforge.ui.tabs.character_sheet import CharacterSheetTab
 from heroforge.ui.tabs.classes import ClassesTab
@@ -383,6 +384,16 @@ class CharacterModel(QObject):
             if race is not None and race.base_land_speed > 0
             else DEFAULT_LAND_SPEED
         )
+        # Apply always-on granted-ability bonuses from bound binder vestiges
+        # (Tome of Magic): ability-score adjustments stack with the race/template
+        # adjustments, and AC bonuses join the typed AC sources.
+        bound_vestiges = vestiges.bound_vestige_names(self._character)
+        vestige_abilities = vestiges.ability_adjustments(bound_vestiges)
+        if vestige_abilities:
+            adjustments = dict(adjustments)
+            for ability, value in vestige_abilities.items():
+                adjustments[ability] = adjustments.get(ability, 0) + value
+        ac_bonuses = list(ac_bonuses) + vestiges.ac_bonuses(bound_vestiges)
         hp_flat, hp_per_level = self._hit_point_bonuses()
         # Magic-item bonus specs on character.equipment and the effects of the
         # active Tome of Battle stances on character.maneuvers are stacked
@@ -619,6 +630,7 @@ class MainWindow(QMainWindow):
         ("Magic Equipment", MagicEquipmentTab),
         ("Buffs", BuffsTab),
         ("Soulmelds", SoulmeldsTab),
+        ("Binder Vestiges", BinderVestigesTab),
         ("Spells", SpellsTab),
         ("Psionics", PsionicsTab),
         ("Animal Companion", AnimalCompanionTab),
