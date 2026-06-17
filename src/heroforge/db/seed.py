@@ -998,6 +998,133 @@ def _extract_psionic_progression(wb: object) -> list[tuple[object, ...]]:
     return rows
 
 
+_INCARNUM_SHEET = "Soulmelds"
+
+#: ``TblClassEssentia`` (essentia per class level) and ``TblClassMelds``
+#: (soulmelds shapeable per class level) on the "Soulmelds" sheet.  Both are
+#: laid out with a class name in the header row and one value per level (0-20)
+#: in the rows beneath.  See the workbook's defined names of the same names.
+_INCARNUM_ESSENTIA_RANGE = "AN1:AS22"
+_INCARNUM_MELDS_RANGE = "AT1:AW22"
+
+#: Chakra-unlock formulas live in columns Z (Incarnate), AA (Soulborn) and
+#: AB (Totemist), rows 30-39, each of the form
+#: ``=IF(OR(...,<ClassLvl>>=N,...),"<Chakra>","")``.  The Totem chakra for
+#: Totemist is the separate formula in ``AE29``.  Mapping each class to the
+#: column holding its own unlock rule and the level variable used in that rule
+#: lets us recover the minimum binding level per chakra straight from the
+#: workbook rather than hard-coding the Magic of Incarnum class tables.
+_INCARNUM_CHAKRA_COLUMNS: dict[str, tuple[str, str]] = {
+    # class name -> (column letter, level-variable token)
+    "Incarnate": ("Z", "IncLvl"),
+    "Soulborn": ("AA", "SbnLvl"),
+    "Totemist": ("AB", "TotmLvl"),
+}
+_INCARNUM_CHAKRA_ROWS = range(30, 40)
+_INCARNUM_TOTEM_CELL = "AE29"
+_INCARNUM_TOTEM_CLASS = "Totemist"
+
+
+def _extract_incarnum_progression(wb: object) -> list[tuple[object, ...]]:
+    """Extract per-class essentia / soulmeld progressions from the workbook.
+
+    Reads ``TblClassEssentia`` and ``TblClassMelds`` on the "Soulmelds" sheet
+    (Excel tab 8).  Returns ``(class_name, class_level, essentia, soulmelds)``
+    tuples for levels 0-20, transcribed directly from those tables so the
+    Python build matches the spreadsheet (Magic of Incarnum class tables).
+    """
+    ws = wb[_INCARNUM_SHEET]  # type: ignore[index]
+    essentia = _read_incarnum_class_table(ws, _INCARNUM_ESSENTIA_RANGE)
+    melds = _read_incarnum_class_table(ws, _INCARNUM_MELDS_RANGE)
+
+    rows: list[tuple[object, ...]] = []
+    for class_name, values in essentia.items():
+        meld_values = melds.get(class_name, {})
+        for level, essentia_value in values.items():
+            rows.append(
+                (
+                    class_name,
+                    level,
+                    essentia_value,
+                    meld_values.get(level, 0),
+                )
+            )
+    return rows
+
+
+def _read_incarnum_class_table(
+    ws: object, cell_range: str
+) -> dict[str, dict[int, int]]:
+    """Return ``{class_name: {level: value}}`` for a class/level lookup table.
+
+    The header row names each class column; subsequent rows hold one value per
+    class level starting at level 0.  Blank class headers are skipped.
+    """
+    block = list(ws[cell_range])  # type: ignore[index]
+    if not block:
+        return {}
+    header = [_cell_value(c) for c in block[0]]
+    result: dict[str, dict[int, int]] = {name: {} for name in header if name.strip()}
+    for level, row in enumerate(block[1:]):
+        for col_idx, cell in enumerate(row):
+            name = header[col_idx].strip() if col_idx < len(header) else ""
+            if not name:
+                continue
+            value = _optional_int(cell.value)
+            if value is not None:
+                result[name][level] = value
+    return result
+
+
+def _extract_incarnum_chakra(wb: object) -> list[tuple[object, ...]]:
+    """Extract per-class chakra-bind unlock levels from the workbook.
+
+    Each meldshaping class opens its body chakras for binding at set class
+    levels (Magic of Incarnum).  Those thresholds are encoded in the chakra
+    unlock formulas of the "Soulmelds" sheet; this reads the class-specific
+    ``<ClassLvl>>=N`` term and the quoted chakra name out of each formula.
+    Returns ``(class_name, chakra, min_level)`` tuples.
+    """
+    ws = wb[_INCARNUM_SHEET]  # type: ignore[index]
+    rows: list[tuple[object, ...]] = []
+    for class_name, (column, level_token) in _INCARNUM_CHAKRA_COLUMNS.items():
+        for row in _INCARNUM_CHAKRA_ROWS:
+            formula = ws[f"{column}{row}"].value  # type: ignore[index]
+            parsed = _parse_incarnum_chakra_formula(formula, level_token)
+            if parsed is not None:
+                chakra, min_level = parsed
+                rows.append((class_name, chakra, min_level))
+
+    totem = _parse_incarnum_chakra_formula(
+        ws[_INCARNUM_TOTEM_CELL].value,  # type: ignore[index]
+        _INCARNUM_CHAKRA_COLUMNS[_INCARNUM_TOTEM_CLASS][1],
+    )
+    if totem is not None:
+        chakra, min_level = totem
+        rows.append((_INCARNUM_TOTEM_CLASS, chakra, min_level))
+    return rows
+
+
+def _parse_incarnum_chakra_formula(
+    formula: object, level_token: str
+) -> tuple[str, int] | None:
+    """Return ``(chakra, min_level)`` from a chakra-unlock formula, or ``None``.
+
+    Looks for the ``<level_token>>=N`` term (e.g. ``IncLvl>=4``) and the quoted
+    chakra name that the formula yields when satisfied.  Returns ``None`` when
+    the class does not open that chakra on its own (the term is absent).
+    """
+    if not isinstance(formula, str):
+        return None
+    level_match = re.search(rf"{re.escape(level_token)}>=(\d+)", formula)
+    if level_match is None:
+        return None
+    chakra_match = re.search(r'"([A-Za-z]+)"\s*,\s*""', formula)
+    if chakra_match is None:
+        return None
+    return chakra_match.group(1), int(level_match.group(1))
+
+
 # ---------------------------------------------------------------------------
 # Workbook table registry
 #
@@ -1550,6 +1677,90 @@ def seed_psionic_progression(
             skipped += 1
     conn.commit()
     logger.info("psionic_progression: inserted %d rows, skipped %d", inserted, skipped)
+
+
+def seed_incarnum_progression(
+    conn: sqlite3.Connection,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
+    workbook: openpyxl.Workbook | None = None,
+) -> None:
+    """Seed the *incarnum_progression* and *incarnum_chakra* tables.
+
+    Replaces both tables in full with the per-class essentia / soulmeld
+    progressions (``TblClassEssentia`` / ``TblClassMelds``) and the per-class
+    chakra-bind unlock levels transcribed from the workbook's "Soulmelds" sheet
+    (Excel tab 8, Magic of Incarnum).  The workbook is loaded in formula mode so
+    the chakra-unlock formulas are readable; callers may pass an already-open
+    formula-mode ``workbook`` to avoid re-parsing the ``.xlsm``.  If the
+    workbook is missing the function logs a warning and leaves the tables
+    untouched (the logic layer falls back to its in-code constants).
+    """
+    wb = workbook
+    owns_workbook = wb is None
+    if wb is None:
+        workbook_path = Path(workbook_path)
+        if not workbook_path.exists():
+            logger.warning(
+                "Workbook not found at %s – skipping incarnum_progression",
+                workbook_path,
+            )
+            return
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
+    try:
+        progression_rows = _extract_incarnum_progression(wb)
+        chakra_rows = _extract_incarnum_chakra(wb)
+    except KeyError:
+        logger.warning(
+            "Sheet %r not found in workbook – skipping incarnum_progression",
+            _INCARNUM_SHEET,
+        )
+        return
+    finally:
+        if owns_workbook:
+            wb.close()
+
+    if not progression_rows:
+        logger.warning(
+            "No incarnum_progression rows extracted from workbook – "
+            "leaving tables untouched"
+        )
+        return
+
+    conn.execute("DELETE FROM incarnum_progression")
+    conn.execute("DELETE FROM incarnum_chakra")
+    inserted = 0
+    skipped = 0
+    for values in progression_rows:
+        try:
+            conn.execute(
+                "INSERT INTO incarnum_progression "
+                "(class_name, class_level, essentia, soulmelds) "
+                "VALUES (?, ?, ?, ?)",
+                values,
+            )
+            inserted += 1
+        except sqlite3.Error as exc:
+            logger.debug("Skipping incarnum_progression row %r: %s", values, exc)
+            skipped += 1
+    chakra_inserted = 0
+    for values in chakra_rows:
+        try:
+            conn.execute(
+                "INSERT INTO incarnum_chakra (class_name, chakra, min_level) "
+                "VALUES (?, ?, ?)",
+                values,
+            )
+            chakra_inserted += 1
+        except sqlite3.Error as exc:
+            logger.debug("Skipping incarnum_chakra row %r: %s", values, exc)
+    conn.commit()
+    logger.info(
+        "incarnum_progression: inserted %d rows, skipped %d; "
+        "incarnum_chakra: inserted %d rows",
+        inserted,
+        skipped,
+        chakra_inserted,
+    )
 
 
 def _load_medium_weapon_damage(conn: sqlite3.Connection) -> dict[int, str]:
@@ -2657,6 +2868,7 @@ def seed_all(
         seed_workbook(conn, workbook_path, workbook=wb_values)
         seed_skill_synergies(conn, workbook_path, workbook=wb_formulas)
         seed_psionic_progression(conn, workbook_path, workbook=wb_formulas)
+        seed_incarnum_progression(conn, workbook_path, workbook=wb_formulas)
     finally:
         if wb_values is not None:
             wb_values.close()

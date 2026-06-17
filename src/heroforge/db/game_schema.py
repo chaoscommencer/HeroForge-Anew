@@ -244,6 +244,27 @@ CREATE TABLE IF NOT EXISTS incarnum_abilities (
     description TEXT
 );
 
+-- Per-class essentia and soulmeld progression (Magic of Incarnum), seeded
+-- from the workbook's "Soulmelds" sheet (TblClassEssentia / TblClassMelds).
+CREATE TABLE IF NOT EXISTS incarnum_progression (
+    id              INTEGER PRIMARY KEY,
+    class_name      TEXT NOT NULL,
+    class_level     INTEGER NOT NULL,
+    essentia        INTEGER NOT NULL DEFAULT 0,
+    soulmelds       INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(class_name, class_level)
+);
+
+-- Minimum class level at which a meldshaping class can bind a soulmeld to each
+-- chakra, seeded from the workbook's "Soulmelds" sheet chakra-unlock formulas.
+CREATE TABLE IF NOT EXISTS incarnum_chakra (
+    id          INTEGER PRIMARY KEY,
+    class_name  TEXT NOT NULL,
+    chakra      TEXT NOT NULL,
+    min_level   INTEGER NOT NULL,
+    UNIQUE(class_name, chakra)
+);
+
 CREATE TABLE IF NOT EXISTS variants (
     id          INTEGER PRIMARY KEY,
     name        TEXT NOT NULL,
@@ -508,6 +529,10 @@ CREATE INDEX IF NOT EXISTS idx_soulmelds_name ON soulmelds(name);
 CREATE INDEX IF NOT EXISTS idx_buffs_name     ON buffs(name);
 CREATE INDEX IF NOT EXISTS idx_psionic_progression_class
     ON psionic_progression(class_name);
+CREATE INDEX IF NOT EXISTS idx_incarnum_progression_class
+    ON incarnum_progression(class_name);
+CREATE INDEX IF NOT EXISTS idx_incarnum_chakra_class
+    ON incarnum_chakra(class_name);
 """
 
 # Derived at import time so the table/index sets always stay in sync with the

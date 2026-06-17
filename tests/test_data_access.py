@@ -76,6 +76,27 @@ def seeded_repo(tmp_path: Path) -> GameDataRepository:
             ],
         )
         conn.executemany(
+            "INSERT INTO incarnum_progression "
+            "(class_name, class_level, essentia, soulmelds) VALUES (?, ?, ?, ?)",
+            [
+                ("Incarnate", 0, 0, 0),
+                ("Incarnate", 1, 1, 2),
+                ("Incarnate", 2, 2, 3),
+                ("Totemist", 0, 0, 0),
+                ("Totemist", 1, 1, 2),
+                ("Totemist", 2, 2, 3),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO incarnum_chakra (class_name, chakra, min_level) "
+            "VALUES (?, ?, ?)",
+            [
+                ("Incarnate", "Crown", 2),
+                ("Totemist", "Totem", 2),
+                ("Totemist", "Crown", 5),
+            ],
+        )
+        conn.executemany(
             "INSERT INTO vestiges (name, level, source) VALUES (?, ?, ?)",
             [
                 ("Acererak", 8, "ToM"),
@@ -263,6 +284,34 @@ class TestIncarnumAbilities:
         conn.close()
         repo = GameDataRepository(db_path)
         assert repo.list_incarnum_abilities() == []
+
+
+class TestIncarnumProgressions:
+    def test_builds_progression_per_class(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        progressions = seeded_repo.incarnum_progressions()
+        assert set(progressions) == {"Incarnate", "Totemist"}
+
+    def test_essentia_and_soulmelds_indexed_by_level(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        incarnate = seeded_repo.incarnum_progressions()["Incarnate"]
+        # Levels 0-2 seeded as essentia 0/1/2 and soulmelds 0/2/3.
+        assert incarnate.essentia == (0, 1, 2)
+        assert incarnate.soulmelds == (0, 2, 3)
+
+    def test_chakra_unlocks_mapped(self, seeded_repo: GameDataRepository) -> None:
+        progressions = seeded_repo.incarnum_progressions()
+        assert progressions["Incarnate"].chakra_unlocks == {"Crown": 2}
+        assert progressions["Totemist"].chakra_unlocks == {"Totem": 2, "Crown": 5}
+
+    def test_empty_when_no_data(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "empty.db"
+        conn = initialize_database(db_path)
+        conn.close()
+        repo = GameDataRepository(db_path)
+        assert repo.incarnum_progressions() == {}
 
 
 class TestVestiges:
