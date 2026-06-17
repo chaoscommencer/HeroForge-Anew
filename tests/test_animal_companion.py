@@ -336,9 +336,10 @@ def test_seed_and_repository_round_trip(tmp_path: Path) -> None:
     db_path = tmp_path / "game.db"
     conn = initialize_database(db_path)
     try:
-        seed_companion_progression(conn)
+        missing_workbook = tmp_path / "does-not-exist.xlsm"
+        seed_companion_progression(conn, workbook_path=missing_workbook)
         # Idempotent: a second seeding must not duplicate rows.
-        seed_companion_progression(conn)
+        seed_companion_progression(conn, workbook_path=missing_workbook)
     finally:
         conn.close()
 
