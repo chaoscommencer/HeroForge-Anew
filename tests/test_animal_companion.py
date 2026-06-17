@@ -212,6 +212,32 @@ def test_tab_applies_progression_on_species_and_relevel(qapp: object) -> None:
     assert tab._eff_level_label.text() == "3"
 
 
+def test_entry_persists_when_only_natural_armor_set(qapp: object) -> None:
+    """An entry with only a natural_armor value must not be dropped by the guard.
+
+    Regression for the missing ``natural_armor`` check in ``_entry()``: if a
+    user sets Natural Armor (e.g. via progression) but leaves name, species,
+    HD, and HP at their defaults the entry must still be persisted.
+    """
+    from heroforge.ui.main_window import CharacterModel
+    from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
+
+    model = CharacterModel()
+    tab = AnimalCompanionTab(model=model)
+
+    # Leave everything at defaults except Natural Armor.
+    tab._na_spin.setValue(4)
+    tab._sync_to_model()
+
+    entries = [c for c in model.character.companions if c["companion_type"] == "animal"]
+    assert len(entries) == 1, "entry must be persisted when natural_armor is non-zero"
+
+    import json
+
+    notes = json.loads(entries[0]["notes"])
+    assert notes["natural_armor"] == 4
+
+
 def test_tab_manual_entry_not_overwritten_by_progression(qapp: object) -> None:
     """Without a recorded base species, manual stats are left untouched."""
     from heroforge.ui.main_window import CharacterModel

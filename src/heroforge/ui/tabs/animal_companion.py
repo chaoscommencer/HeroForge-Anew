@@ -203,7 +203,13 @@ class AnimalCompanionTab(QWidget):
         if self._base is not None:
             notes["base"] = self._base
         # Only persist when there's meaningful data to store.
-        if not name and not species and not notes["hd"] and notes["hp"] == 0:
+        if (
+            not name
+            and not species
+            and not notes["hd"]
+            and notes["hp"] == 0
+            and notes["natural_armor"] == 0
+        ):
             return None
         return {
             "companion_type": _COMPANION_TYPE,
