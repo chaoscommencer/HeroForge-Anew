@@ -141,7 +141,7 @@ class MagicEquipmentTab(QWidget):
                 name = entry.get("name", "")
                 if name:
                     try:
-                        weights[name] = float(entry.get("weight", 0.0) or 0.0)
+                        weights[name] = float(entry.get("weight") or 0.0)
                     except (TypeError, ValueError):
                         weights[name] = 0.0
         return weights
