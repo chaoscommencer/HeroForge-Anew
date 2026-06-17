@@ -539,10 +539,12 @@ def _extract_incarnum_abilities(wb: object) -> list[tuple[object, ...]]:
 def _extract_vestiges(wb: object) -> list[tuple[object, ...]]:
     """Extract the bindable vestige list from the ``Binder Vestiges`` sheet.
 
-    The vestige index/name/DC table occupies columns ``P``/``Q``/``R``; rows are
-    keyed by an integer index in column ``P`` with the name in column ``Q``.
-    Iteration stops at the unrelated ``Pact Augmentations`` block that reuses the
-    same columns lower down the sheet.
+    The vestige index/name/DC table occupies columns ``P``/``Q``/``R``/``S``;
+    rows are keyed by an integer index in column ``P`` with the name in column
+    ``Q``, the binding-check DC in column ``R`` and the vestige's own level
+    (1–8, used for binder level limits) in column ``S``.  Iteration stops at the
+    unrelated ``Pact Augmentations`` block that reuses the same columns lower
+    down the sheet.
     """
     rows: list[tuple[object, ...]] = []
     ws = wb["Binder Vestiges"]  # type: ignore[index]
@@ -555,7 +557,9 @@ def _extract_vestiges(wb: object) -> list[tuple[object, ...]]:
             continue
         dc_str = _col(row, "R")
         dc: int | None = int(dc_str) if _UNSIGNED_INT_RE.fullmatch(dc_str) else None
-        rows.append((name, dc, "", "", "", ""))
+        lvl_str = _col(row, "S")
+        lvl: int | None = int(lvl_str) if _UNSIGNED_INT_RE.fullmatch(lvl_str) else None
+        rows.append((name, dc, lvl, "", "", "", ""))
     return rows
 
 
@@ -1191,7 +1195,15 @@ _WORKBOOK_TABLES: tuple[_WorkbookTable, ...] = (
     _WorkbookTable(
         "vestiges",
         "Binder Vestiges",
-        ("name", "level", "sign", "influence", "granted_abilities", "source"),
+        (
+            "name",
+            "level",
+            "vestige_level",
+            "sign",
+            "influence",
+            "granted_abilities",
+            "source",
+        ),
         _extract_vestiges,
         unique_by=("name",),
     ),

@@ -76,11 +76,12 @@ def seeded_repo(tmp_path: Path) -> GameDataRepository:
             ],
         )
         conn.executemany(
-            "INSERT INTO vestiges (name, level, source) VALUES (?, ?, ?)",
+            "INSERT INTO vestiges (name, level, vestige_level, source) "
+            "VALUES (?, ?, ?, ?)",
             [
-                ("Acererak", 8, "ToM"),
-                ("Aym", 4, "ToM"),
-                ("Leraje", 3, None),
+                ("Acererak", 8, 5, "ToM"),
+                ("Aym", 4, 1, "ToM"),
+                ("Leraje", 3, 1, None),
             ],
         )
         conn.executemany(
@@ -275,6 +276,7 @@ class TestVestiges:
         acererak = next(v for v in vestiges if v.name == "Acererak")
         assert acererak.level == 8
         assert acererak.source == "ToM"
+        assert acererak.vestige_level == 5
 
     def test_null_source_is_none(self, seeded_repo: GameDataRepository) -> None:
         vestiges = seeded_repo.list_vestiges()

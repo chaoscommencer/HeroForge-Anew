@@ -186,7 +186,7 @@ class TestWorkbookSeeding:
                 for r in conn.execute("SELECT name, type FROM marshal_auras")
             }
             vestige = conn.execute(
-                "SELECT level FROM vestiges WHERE name = ?", ("Amon",)
+                "SELECT level, vestige_level FROM vestiges WHERE name = ?", ("Amon",)
             ).fetchone()
             incarnum = conn.execute(
                 "SELECT name, description FROM incarnum_abilities WHERE name = ?",
@@ -204,6 +204,7 @@ class TestWorkbookSeeding:
         assert marshal.get("Hardy Soldiers") == "Major"
         assert vestige is not None
         assert vestige["level"] == 20  # Amon's binding DC per the workbook
+        assert vestige["vestige_level"] == 1  # Amon is a 1st-level vestige
         assert incarnum is not None
         assert incarnum["description"].startswith("Your speed is increased")
         assert racial is not None
