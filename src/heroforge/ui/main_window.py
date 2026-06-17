@@ -27,7 +27,7 @@ from heroforge.db.character_repo import (
     load_character_from_file,
     save_character_to_file,
 )
-from heroforge.db.data_access import GameDataRepository
+from heroforge.db.data_access import ArmorItem, GameDataRepository
 from heroforge.env_paths import dir_from_env
 from heroforge.logic import race_templates
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
@@ -79,6 +79,10 @@ from heroforge.ui.tabs.traits_and_flaws import TraitsAndFlawsTab
 
 logger = logging.getLogger(__name__)
 
+# Em dash used by the workbook/data export to denote an empty ("no limit")
+# numeric cell, e.g. an armor entry with no maximum Dex bonus.
+_EMPTY_CELL_SENTINEL = "—"
+
 
 def _default_save_dir() -> str:
     """Return the directory the Open/Save dialogs should default to.
@@ -109,6 +113,33 @@ def _default_save_dir() -> str:
 # ---------------------------------------------------------------------------
 # CharacterModel – central data bus
 # ---------------------------------------------------------------------------
+
+
+def _armor_item_from_entry(entry: Mapping[str, object]) -> ArmorItem:
+    """Build an :class:`ArmorItem` from a character ``custom_armor`` mapping.
+
+    Mirrors the Armor tab's resolution so AC aggregation on the Stats tab sees
+    the same stats for user-defined armor/shields not present in the catalogue.
+    """
+    raw_maxdex = entry.get("max_dex_bonus")
+    try:
+        max_dex = (
+            None
+            if raw_maxdex in (None, "", _EMPTY_CELL_SENTINEL)
+            else int(raw_maxdex)  # type: ignore[arg-type]
+        )
+    except (TypeError, ValueError):
+        max_dex = None
+    return ArmorItem(
+        name=str(entry.get("name", "")),
+        type=str(entry.get("type", "Armor")),
+        ac_bonus=int(entry.get("ac_bonus", 0) or 0),  # type: ignore[arg-type]
+        max_dex_bonus=max_dex,
+        check_penalty=int(entry.get("check_penalty", 0) or 0),  # type: ignore[arg-type]
+        arcane_spell_failure=int(entry.get("arcane_spell_failure", 0) or 0),  # type: ignore[arg-type]
+        weight=float(entry.get("weight", 0) or 0),  # type: ignore[arg-type]
+        source="",
+    )
 
 
 class CharacterModel(QObject):
@@ -322,6 +353,9 @@ class CharacterModel(QObject):
         adjustments = race_templates.ability_adjustments(race, templates)
         level_adjustment = race_templates.total_level_adjustment(race, templates)
         size = race.size if race is not None else "Medium"
+        natural_armor = race.natural_armor if race is not None else 0
+        ac_bonuses, max_dex = self._armor_class_sources(natural_armor)
+        hp_flat, hp_per_level = self._hit_point_bonuses()
         return compute_derived_stats(
             self._character,
             progressions,
@@ -329,7 +363,68 @@ class CharacterModel(QObject):
             ability_adjustments=adjustments,
             level_adjustment=level_adjustment,
             size=size,
+            ac_bonuses=ac_bonuses,
+            max_dex=max_dex,
+            hp_flat_bonus=hp_flat,
+            hp_per_level_bonus=hp_per_level,
         )
+
+    def _armor_class_sources(
+        self, natural_armor: int
+    ) -> tuple[list[tuple[str, int]], int | None]:
+        """Collect typed AC bonuses and the Max Dex cap for the active character.
+
+        Aggregates worn body armor and shield (resolved from the seeded armor
+        catalogue and the character's custom armor) plus the race's natural
+        armor. The enhancements tab currently stores magic armor special
+        abilities as bonus-equivalent pricing data, not an armor's actual +X
+        enhancement bonus, so those entries are intentionally excluded here. The
+        lowest Max Dex Bonus of any worn item caps the Dexterity contribution to
+        AC (PHB p136).
+        """
+        bonuses: list[tuple[str, int]] = []
+        if natural_armor:
+            bonuses.append(("natural", int(natural_armor)))
+
+        catalog: dict[str, ArmorItem] = {}
+        if self._game_data.available:
+            catalog = {a.name: a for a in self._game_data.list_armor()}
+        for entry in self._character.custom_armor:
+            name = entry.get("name", "")
+            if name:
+                catalog.setdefault(name, _armor_item_from_entry(entry))
+
+        caps: list[int] = []
+        for entry in self._character.equipment:
+            slot = entry.get("slot")
+            if slot not in ("Body Armor", "Shield"):
+                continue
+            # Treat a missing 'equipped' key as True for backward compatibility
+            # with saves that pre-date the column; skip items that are explicitly
+            # unequipped (equipped=0/False).
+            if not entry.get("equipped", True):
+                continue
+            item = catalog.get(entry.get("item_name", ""))
+            if item is None:
+                continue
+            bonus_type = "armor" if slot == "Body Armor" else "shield"
+            bonuses.append((bonus_type, item.ac_bonus))
+            if item.max_dex_bonus is not None:
+                caps.append(item.max_dex_bonus)
+
+        max_dex = min(caps) if caps else None
+        return bonuses, max_dex
+
+    def _hit_point_bonuses(self) -> tuple[int, int]:
+        """Return ``(flat_bonus, per_level_bonus)`` HP contributions from feats.
+
+        Toughness grants a flat +3 hit points; Improved Toughness grants +1 hit
+        point per Hit Die (PHB p101, CW p101).
+        """
+        feats = {str(f).strip().lower() for f in self._character.feats}
+        flat = 3 if "toughness" in feats else 0
+        per_level = 1 if "improved toughness" in feats else 0
+        return flat, per_level
 
     @property
     def character(self) -> Character:

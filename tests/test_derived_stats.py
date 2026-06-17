@@ -128,3 +128,68 @@ class TestRaceTemplateAdjustments:
         assert stats.level_adjustment == 0
         assert stats.effective_character_level == 0
         assert stats.effective_ability_scores["STR"] == 12
+
+
+class TestHitPoints:
+    def test_no_classes_means_zero_hp(self) -> None:
+        assert compute_derived_stats(Character()).hit_points == 0
+
+    def test_hp_from_class_hit_die_and_con(self) -> None:
+        char = _character(CON=14)
+        char.classes = [("Fighter", 3)]
+        progressions = {"Fighter": ClassProgression("Fighter", hit_die=10)}
+        # Fighter 3 (d10): 10 + 6 + 6 = 22, +2 Con per HD (×3) = 28.
+        assert compute_derived_stats(char, progressions).hit_points == 28
+
+    def test_unknown_class_uses_default_d8(self) -> None:
+        char = Character()
+        char.classes = [("Homebrew", 2)]
+        # d8 default: 8 (max) + 5 (avg) = 13.
+        assert compute_derived_stats(char).hit_points == 13
+
+    def test_feat_bonuses_increase_hp(self) -> None:
+        char = Character()
+        char.classes = [("Fighter", 2)]
+        progressions = {"Fighter": ClassProgression("Fighter", hit_die=10)}
+        stats = compute_derived_stats(
+            char, progressions, hp_flat_bonus=3, hp_per_level_bonus=1
+        )
+        # (10 + 1) + (6 + 1) + 3 flat = 21.
+        assert stats.hit_points == 21
+
+    def test_manual_hit_points_override_takes_precedence(self) -> None:
+        char = Character(hit_points=99)
+        char.classes = [("Fighter", 2)]
+        progressions = {"Fighter": ClassProgression("Fighter", hit_die=10)}
+        assert compute_derived_stats(char, progressions).hit_points == 99
+
+
+class TestAggregatedArmorClass:
+    def test_ac_bonuses_aggregated_by_type(self) -> None:
+        stats = compute_derived_stats(
+            _character(DEX=12),
+            ac_bonuses=[("armor", 8), ("shield", 2), ("natural", 1)],
+        )
+        # 10 + 1 (Dex) + 8 + 2 + 1 = 22.
+        assert stats.armor_class == 22
+        # Touch ignores armor/shield/natural: 10 + 1 = 11.
+        assert stats.touch_ac == 11
+        # Flat-footed loses Dex bonus: 10 + 8 + 2 + 1 = 21.
+        assert stats.flat_footed_ac == 21
+
+    def test_max_dex_caps_armor_class(self) -> None:
+        stats = compute_derived_stats(
+            _character(DEX=18),
+            ac_bonuses=[("armor", 5)],
+            max_dex=2,
+        )
+        # Dex (+4) capped at +2: 10 + 2 + 5 = 17.
+        assert stats.armor_class == 17
+
+    def test_same_type_bonuses_do_not_stack(self) -> None:
+        stats = compute_derived_stats(
+            Character(),
+            ac_bonuses=[("deflection", 1), ("deflection", 3)],
+        )
+        # Only the larger deflection bonus applies: 10 + 3 = 13.
+        assert stats.armor_class == 13

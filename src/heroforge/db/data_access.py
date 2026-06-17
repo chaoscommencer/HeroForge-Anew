@@ -413,13 +413,14 @@ class GameDataRepository:
     def class_progressions(self) -> dict[str, ClassProgression]:
         """Return a mapping of class name → :class:`ClassProgression`.
 
-        Supplies the BAB and saving-throw progression types used to compute a
-        character's derived combat/save values.  ``NULL`` columns fall back to
-        the D&D defaults (``medium`` BAB, ``poor`` saves).
+        Supplies the BAB, saving-throw progression types, and Hit Die used to
+        compute a character's derived combat/save/HP values.  ``NULL`` columns
+        fall back to the D&D defaults (``medium`` BAB, ``poor`` saves, d8 Hit
+        Die).
         """
         rows = self._query(
             "SELECT name, bab_progression, fort_progression, "
-            "ref_progression, will_progression FROM classes"
+            "ref_progression, will_progression, hit_die FROM classes"
         )
         return {
             r["name"]: ClassProgression(
@@ -428,6 +429,7 @@ class GameDataRepository:
                 fort=r["fort_progression"] or "poor",
                 ref=r["ref_progression"] or "poor",
                 will=r["will_progression"] or "poor",
+                hit_die=r["hit_die"] or 8,
             )
             for r in rows
         }

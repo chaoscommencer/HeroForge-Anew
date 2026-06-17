@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -61,6 +62,7 @@ class StatsAndCharacterDetailsTab(QWidget):
     ) -> None:
         super().__init__(parent)
         self._model = model
+        self._computed_hp = 0
         self._ability_spinboxes: dict[str, QSpinBox] = {}
         self._modifier_labels: dict[str, QLabel] = {}
         self._build_ui()
@@ -206,8 +208,19 @@ class StatsAndCharacterDetailsTab(QWidget):
         form = QFormLayout(box)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
+        # Hit Points: auto-computed from class Hit Dice + CON by default, with an
+        # opt-in manual override (mirrors the workbook's editable HP cell).
+        hp_row = QHBoxLayout()
         self._hp_spin = QSpinBox()
         self._hp_spin.setRange(0, 9999)
+        self._hp_auto_check = QCheckBox("Auto")
+        self._hp_auto_check.setChecked(True)
+        self._hp_auto_check.setToolTip(
+            "Auto-calculate HP from class Hit Dice and the Constitution "
+            "modifier.  Uncheck to enter a manual value."
+        )
+        hp_row.addWidget(self._hp_spin)
+        hp_row.addWidget(self._hp_auto_check)
         self._speed_spin = QSpinBox()
         self._speed_spin.setRange(0, 999)
         self._speed_spin.setValue(30)
@@ -218,13 +231,16 @@ class StatsAndCharacterDetailsTab(QWidget):
         self._xp_spin.setSingleStep(100)
         self._next_level_label = QLabel("1000")
 
-        form.addRow("Hit Points:", self._hp_spin)
+        form.addRow("Hit Points:", hp_row)
         form.addRow("Base Speed:", self._speed_spin)
         form.addRow("Initiative Mod:", self._init_label)
         form.addRow("Experience:", self._xp_spin)
         form.addRow("XP for Next Level:", self._next_level_label)
 
         self._xp_spin.valueChanged.connect(self._update_next_level)
+        self._hp_auto_check.toggled.connect(self._on_hp_auto_toggled)
+        self._hp_spin.valueChanged.connect(self._on_hp_value_changed)
+        self._apply_hp_auto_state()
         return box
 
     def _build_derived_group(self) -> QGroupBox:
@@ -234,6 +250,8 @@ class StatsAndCharacterDetailsTab(QWidget):
 
         self._derived_labels: dict[str, QLabel] = {}
         rows = [
+            ("total_level", "Total Level:"),
+            ("ecl", "Effective Character Level:"),
             ("bab", "Base Attack Bonus:"),
             ("melee", "Melee Attack:"),
             ("ranged", "Ranged Attack:"),
@@ -265,7 +283,11 @@ class StatsAndCharacterDetailsTab(QWidget):
         if not self._model:
             return
         stats = self._model.derived_stats()
+        self._computed_hp = stats.hit_points
+        self._refresh_hp_display()
         self._init_label.setText(self._signed(stats.initiative))
+        self._derived_labels["total_level"].setText(str(stats.total_level))
+        self._derived_labels["ecl"].setText(str(stats.effective_character_level))
         self._derived_labels["bab"].setText(self._signed(stats.base_attack_bonus))
         self._derived_labels["melee"].setText(self._signed(stats.melee_attack))
         self._derived_labels["ranged"].setText(self._signed(stats.ranged_attack))
@@ -280,6 +302,53 @@ class StatsAndCharacterDetailsTab(QWidget):
         self._derived_labels["carry"].setText(f"{light} / {medium} / {heavy} lb.")
         # Race is owned by the Race & Templates tab; mirror it read-only here.
         self._race_edit.setText(self._model.character.race)
+
+    # ------------------------------------------------------------------
+    # Hit points (auto-calculated with optional manual override)
+    # ------------------------------------------------------------------
+
+    def _apply_hp_auto_state(self) -> None:
+        """Enable/disable manual HP entry based on the Auto checkbox."""
+        auto = self._hp_auto_check.isChecked()
+        # In auto mode the spinbox shows the computed value read-only.
+        self._hp_spin.setReadOnly(auto)
+        self._hp_spin.setButtonSymbols(
+            QSpinBox.ButtonSymbols.NoButtons
+            if auto
+            else QSpinBox.ButtonSymbols.UpDownArrows
+        )
+
+    def _refresh_hp_display(self) -> None:
+        """Show the computed HP (auto) or persisted override (manual)."""
+        if self._hp_auto_check.isChecked():
+            value = self._computed_hp
+        else:
+            char = self._model.character if self._model else None
+            value = char.hit_points if (char and char.hit_points is not None) else 0
+        self._hp_spin.blockSignals(True)
+        self._hp_spin.setValue(int(value))
+        self._hp_spin.blockSignals(False)
+
+    def _on_hp_auto_toggled(self, _checked: bool) -> None:
+        self._apply_hp_auto_state()
+        if self._model:
+            if self._hp_auto_check.isChecked():
+                new_value = None
+            else:
+                # Seed the override with the current computed value.
+                new_value = int(self._computed_hp)
+            if self._model.character.hit_points != new_value:
+                self._model.character.hit_points = new_value
+                self._model.derived_stats_changed.emit()
+        self._refresh_hp_display()
+
+    def _on_hp_value_changed(self, value: int) -> None:
+        # Only manual edits matter; auto mode mirrors the computed value.
+        if self._model and not self._hp_auto_check.isChecked():
+            new_value = int(value)
+            if self._model.character.hit_points != new_value:
+                self._model.character.hit_points = new_value
+                self._model.derived_stats_changed.emit()
 
     def _refresh_point_buy(self) -> None:
         """Update the point-buy summary against the configured budget.
@@ -391,3 +460,10 @@ class StatsAndCharacterDetailsTab(QWidget):
             sign = "+" if mod >= 0 else ""
             self._modifier_labels[ab].setText(f"{sign}{mod}")
         self._refresh_point_buy()
+        # Restore HP auto/override state: a stored value means manual override.
+        override = char.hit_points if char else None
+        self._hp_auto_check.blockSignals(True)
+        self._hp_auto_check.setChecked(override is None)
+        self._hp_auto_check.blockSignals(False)
+        self._apply_hp_auto_state()
+        self._refresh_hp_display()
