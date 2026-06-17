@@ -5,6 +5,8 @@ Reference: PHB p176 (Bonus Types and Stacking).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 # Bonus types that stack with themselves and with everything else.
 STACKABLE_BONUS_TYPES: set[str] = {"dodge", "circumstance", "racial", "untyped"}
 
@@ -120,6 +122,35 @@ def effective_bonus(bonuses: dict[str, dict[str, int]], stat: str) -> int:
         else:
             total += max(amounts)
     return total
+
+
+def aggregate_bonuses(
+    records: Iterable[tuple[str, str, str, int]],
+) -> dict[str, int]:
+    """Collapse buff ``(source, bonus_type, stat, amount)`` records into nets.
+
+    Each record is an independent bonus source.  Records are grouped by target
+    *stat* and the net bonus for each stat is computed with the standard
+    stacking rules (see :func:`effective_bonus`): stackable types (dodge,
+    circumstance, racial, untyped) sum, while every other named type contributes
+    only its single largest value.
+
+    Reference: PHB p176.
+
+    Args:
+        records: Iterable of ``(source, bonus_type, stat, amount)`` tuples.
+                 *source* only needs to be unique per record so that two equal
+                 sources do not collapse into one before stacking is evaluated.
+
+    Returns:
+        Mapping of ``stat`` → net effective bonus.
+    """
+    tracking: dict[str, dict[str, int]] = {}
+    for index, (source, bonus_type, stat, amount) in enumerate(records):
+        # Combine the caller-supplied source with the record index so identical
+        # sources stay distinct and same-type non-stacking bonuses take the max.
+        apply_buff(tracking, f"{source}#{index}", bonus_type, stat, int(amount))
+    return {stat: effective_bonus(tracking, stat) for stat in tracking}
 
 
 def temporary_hp_total(temp_hp_grants: list[int]) -> int:

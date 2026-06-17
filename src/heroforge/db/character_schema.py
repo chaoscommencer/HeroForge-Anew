@@ -132,7 +132,15 @@ CREATE TABLE IF NOT EXISTS character_buffs (
     character_id    INTEGER NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
     buff_name       TEXT NOT NULL,
     active          INTEGER DEFAULT 1,
+    bonus_type      TEXT,
+    target_stat     TEXT,
+    amount          INTEGER DEFAULT 0,
     parameters      TEXT
+    -- bonus_type / target_stat / amount describe the typed bonus a buff
+    -- contributes (e.g. morale +1 to attack).  They drive the stacking math in
+    -- heroforge.logic.buffs so active buffs flow into the derived combat/save
+    -- readouts.  All three are optional: a buff with no bonus data is purely a
+    -- tracking entry and contributes nothing to derived stats.
     -- No UNIQUE constraint on (character_id, buff_name): the same buff can be
     -- active from multiple sources simultaneously (e.g. two castings of Bless
     -- from different allies).  Duplicate rows are intentional and preserve the
