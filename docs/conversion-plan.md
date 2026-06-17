@@ -418,9 +418,12 @@ Each VBA function or macro is converted to a standalone, pure Python function in
 
 | Function | Description | Source |
 |---|---|---|
-| `available_forms(character)` | Creatures the character can wild shape into | PHB p37 |
-| `apply_wild_shape(character, creature)` | Replace relevant stats with creature stats | PHB p37 |
-| `revert_wild_shape(character)` | Restore original stats | PHB p37 |
+| `druid_wild_shape_level(classes)` | Druid class level governing Wild Shape | PHB p37 |
+| `available_forms(druid_level, creatures)` | Creatures the druid can wild shape into | PHB p37 |
+| `apply_wild_shape(base_scores, creature)` | Replace physical ability scores with the form's | PHB p37 |
+| `wild_shape_ability_adjustments(base_scores, creature)` | Replacement STR/DEX/CON deltas for derived stats | PHB p37 |
+| `revert_wild_shape(original_scores)` | Restore original ability scores | PHB p37 |
+| `active_form_name(companions)` | Name of the active form persisted on the character | PHB p37 |
 
 #### `logic/buffs.py`
 
@@ -502,6 +505,7 @@ Each tab in the Excel workbook maps to a `QWidget` subclass in `src/heroforge/ui
 | Psionic Info | `PsionicsTab` | `tabs/psionics.py` |
 | Animal Companion | `AnimalCompanionTab` | `tabs/animal_companion.py` |
 | Familiar | `FamiliarTab` | `tabs/familiar.py` |
+| Wild Shape | `WildShapeTab` | `tabs/wild_shape.py` |
 | Character Sheet I–V | `CharacterSheetTab` | `tabs/character_sheet.py` |
 | Table Tent | `TableTentTab` | `tabs/table_tent.py` |
 | Game Log | `GameLogTab` | `tabs/game_log.py` |
@@ -666,6 +670,7 @@ The following is the complete list of sheets in `HeroForge Anew 3.5 v7.4.0.1.xls
 | Soulmelds | PyQt tab |
 | Animal Companion | PyQt tab |
 | Familiar | PyQt tab |
+| Wild Shape | PyQt tab |
 | Character Sheet I | PyQt tab (merged) |
 | Character Sheet II | PyQt tab (merged) |
 | Character Sheet III | PyQt tab (merged) |
