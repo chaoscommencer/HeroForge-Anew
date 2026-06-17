@@ -224,6 +224,7 @@ class TestSaveLoadRoundTrip:
         char = _sample_character()
         cid = save_character(conn, char)
         loaded = load_character(conn, cid)
+        assert loaded.name == char.name
         assert loaded.player == char.player
         assert loaded.campaign == char.campaign
         assert loaded.alignment == char.alignment
