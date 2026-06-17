@@ -5,7 +5,8 @@ Reference: PHB Chapter 8, p135–163.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable
+import re
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 
 # ---------------------------------------------------------------------------
@@ -397,6 +398,177 @@ def damage_bonus(
             return str_mod // 2
         return str_mod
     return str_mod
+
+
+# ---------------------------------------------------------------------------
+# Iterative attacks, two-weapon fighting, and weapon damage
+# ---------------------------------------------------------------------------
+
+
+def iterative_attack_count(bab: int) -> int:
+    """Return the number of attacks granted by a Base Attack Bonus.
+
+    Reference: PHB p139 ("Attacks of Opportunity" / full attack); a creature
+    gains one extra attack for every 5 points of base attack bonus above the
+    first, so BAB +6 grants 2 attacks, +11 grants 3, and +16 grants 4.
+
+    Args:
+        bab: Base attack bonus.
+
+    Returns:
+        Number of melee/ranged attacks available on a full attack (minimum 1).
+    """
+    if bab <= 1:
+        return 1
+    return 1 + (bab - 1) // 5
+
+
+def iterative_attacks(attack_bonus: int, bab: int) -> list[int]:
+    """Return the full iterative attack progression for a full attack.
+
+    Reference: PHB p139. Each iterative attack after the first takes a
+    cumulative -5 penalty, while the number of attacks is governed by *bab*
+    (see :func:`iterative_attack_count`).
+
+    Args:
+        attack_bonus: The total bonus for the first attack (typically
+            ``BAB + ability modifier + size modifier + misc``).
+        bab:          Base attack bonus, used to decide how many attacks the
+            character receives.
+
+    Returns:
+        A list of attack bonuses, highest first, e.g. ``[11, 6, 1]``.
+    """
+    count = iterative_attack_count(bab)
+    return [attack_bonus - 5 * index for index in range(count)]
+
+
+@dataclass(frozen=True)
+class TwoWeaponPenalties:
+    """The attack-roll penalties for fighting with two weapons (PHB p160)."""
+
+    primary: int
+    off_hand: int
+
+
+def two_weapon_penalties(
+    off_hand_light: bool = False,
+    has_two_weapon_fighting: bool = False,
+) -> TwoWeaponPenalties:
+    """Return the primary- and off-hand attack penalties for two-weapon fighting.
+
+    Reference: PHB p160 (Table: Two-Weapon Fighting Penalties).
+
+    Base penalties are -6 (primary) / -10 (off hand).  A light off-hand weapon
+    lessens both penalties by 2.  The Two-Weapon Fighting feat further reduces
+    the primary-hand penalty by 2 and the off-hand penalty by 6.
+
+    Args:
+        off_hand_light:          ``True`` if the off-hand weapon is light.
+        has_two_weapon_fighting: ``True`` if the character has the Two-Weapon
+            Fighting feat.
+
+    Returns:
+        A :class:`TwoWeaponPenalties` with the ``primary`` and ``off_hand``
+        penalties (both non-positive).
+    """
+    primary = -6
+    off_hand = -10
+    if off_hand_light:
+        primary += 2
+        off_hand += 2
+    if has_two_weapon_fighting:
+        primary += 2
+        off_hand += 6
+    return TwoWeaponPenalties(primary=primary, off_hand=off_hand)
+
+
+def off_hand_attacks(
+    off_hand_bonus: int,
+    *,
+    improved: bool = False,
+    greater: bool = False,
+) -> list[int]:
+    """Return the off-hand attack progression for two-weapon fighting.
+
+    Reference: PHB p160 (Improved/Greater Two-Weapon Fighting).
+
+    A two-weapon fighter gets one off-hand attack.  Improved Two-Weapon
+    Fighting grants a second off-hand attack at a -5 penalty, and Greater
+    Two-Weapon Fighting grants a third at -10.
+
+    Args:
+        off_hand_bonus: The off-hand weapon's first-attack bonus, already
+            including the two-weapon-fighting penalty.
+        improved:       ``True`` if the character has Improved Two-Weapon
+            Fighting.
+        greater:        ``True`` if the character has Greater Two-Weapon
+            Fighting.
+
+    Returns:
+        A list of off-hand attack bonuses, highest first.
+    """
+    attacks = [off_hand_bonus]
+    if improved or greater:
+        attacks.append(off_hand_bonus - 5)
+    if greater:
+        attacks.append(off_hand_bonus - 10)
+    return attacks
+
+
+def format_attack_line(bonuses: Sequence[int]) -> str:
+    """Format a sequence of attack bonuses as a ``+6/+1`` style string.
+
+    Args:
+        bonuses: Attack bonuses, highest first.
+
+    Returns:
+        A slash-separated, sign-prefixed string (e.g. ``"+11/+6/+1"``).
+    """
+    return "/".join(f"+{b}" if b >= 0 else str(b) for b in bonuses)
+
+
+_WEAPON_DICE_RE = re.compile(r"\d+\s*d\s*\d+", re.IGNORECASE)
+
+
+def weapon_base_dice(damage: str) -> str:
+    """Extract the dice expression (e.g. ``1d8``) from a weapon damage string.
+
+    Any trailing static modifier (such as ``+3``) is dropped so the dice can be
+    recombined with a freshly computed Strength/enhancement bonus.
+
+    Args:
+        damage: A weapon damage string such as ``"1d8"`` or ``"1d8+3"``.
+
+    Returns:
+        The normalised dice expression, or the trimmed input if no dice are
+        found.
+    """
+    match = _WEAPON_DICE_RE.search(damage or "")
+    if match:
+        return match.group(0).replace(" ", "").lower()
+    return (damage or "").strip()
+
+
+def weapon_damage(dice: str, damage_modifier: int = 0) -> str:
+    """Combine a dice expression with a static damage modifier for display.
+
+    Reference: PHB p138 (Damage = weapon dice + Strength and other modifiers).
+
+    Args:
+        dice:            The weapon dice expression (e.g. ``"1d8"``).
+        damage_modifier: The total static bonus to add (Strength damage,
+            enhancement bonus, etc.).  May be negative.
+
+    Returns:
+        A display string such as ``"1d8+3"``, ``"1d8-1"`` or ``"1d8"``.
+    """
+    base = weapon_base_dice(dice)
+    if damage_modifier > 0:
+        return f"{base}+{damage_modifier}"
+    if damage_modifier < 0:
+        return f"{base}{damage_modifier}"
+    return base
 
 
 def carrying_capacity(str_score: int) -> tuple[int, int, int]:
