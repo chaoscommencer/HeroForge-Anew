@@ -215,10 +215,10 @@ class BinderVestigesTab(QWidget):
                 name = str(entry.get("vestige_name", "")).strip()
                 if not name:
                     continue
-                level = entry.get("level")
-                if level is None:
-                    level = catalogue.get(name)
+                vestige_level = entry.get("level")
+                if vestige_level is None:
+                    vestige_level = catalogue.get(name)
                 bound = bool(entry.get("bound", True))
-                self._list.addItem(self._make_item(name, level, bound))
+                self._list.addItem(self._make_item(name, vestige_level, bound))
         self._list.blockSignals(False)
         self._update_limit_label()

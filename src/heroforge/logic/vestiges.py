@@ -69,7 +69,7 @@ class VestigeEffect:
 # ``Class Abilities`` sheet:
 #
 #   * Eligor's Strength   (E4587): "+4 bonus to strength".
-#   * Eligor's Resiliance (E4588): "+3 enhancement bonus to natural armor".
+#   * Eligor's Resiliance [sic] (E4588): "+3 enhancement bonus to natural armor".
 #   * Paimon's Dexterity  (E4625-ish): "+4 bonus to Dexterity".
 #
 # Only constant, unconditional bonuses to an ability score or AC appear here;
