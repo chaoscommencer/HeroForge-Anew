@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 def character_sheet_data(
     character: Character,
     derived: DerivedStats | None = None,
+    *,
+    speed: int | None = None,
 ) -> dict:  # type: ignore[type-arg]
     """Build the :func:`export_character_sheet_text` payload for *character*.
 
@@ -23,6 +25,12 @@ def character_sheet_data(
     the optional :class:`~heroforge.logic.derived_stats.DerivedStats` snapshot
     into the flat ``dict`` the text exporter expects, so combat fields render
     real computed values instead of placeholders.
+
+    When *derived* is supplied the character's maximum hit points are included
+    as ``"hp"``.  When *speed* (the character's base land speed in feet) is
+    supplied it is included as ``"speed"``; the UI sources it from the selected
+    race so the sheet shows the real movement rate instead of the 30 ft.
+    default.
     """
     data: dict = {  # type: ignore[type-arg]
         "name": character.name,
@@ -52,6 +60,7 @@ def character_sheet_data(
     if derived is not None:
         data.update(
             {
+                "hp": derived.hit_points,
                 "initiative": derived.initiative,
                 "bab": derived.base_attack_bonus,
                 "fort": derived.fortitude,
@@ -62,6 +71,8 @@ def character_sheet_data(
                 "flat_footed_ac": derived.flat_footed_ac,
             }
         )
+    if speed is not None:
+        data["speed"] = speed
     return data
 
 
@@ -301,13 +312,15 @@ TABLE_TENT_WIDTH = 60
 def table_tent_data(
     character: Character,
     derived: DerivedStats | None = None,
+    *,
+    speed: int | None = None,
 ) -> dict:  # type: ignore[type-arg]
     """Build the :func:`export_table_tent_text` payload for *character*.
 
     The Table Tent currently reuses the full :func:`character_sheet_data`
     payload so both exporters share a single model→dict bridge.
     """
-    return character_sheet_data(character, derived)
+    return character_sheet_data(character, derived, speed=speed)
 
 
 def _signed(value: object) -> str:

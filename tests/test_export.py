@@ -94,12 +94,33 @@ class TestCharacterSheetData:
         assert data["fort"] == derived.fortitude
         assert data["ref"] == derived.reflex
         assert data["will"] == derived.will
+        assert data["hp"] == derived.hit_points
+
+    def test_includes_speed_when_supplied(self) -> None:
+        character = _populated_character()
+
+        data = character_sheet_data(character, speed=40)
+
+        assert data["speed"] == 40
+
+    def test_includes_hp_and_speed_together(self) -> None:
+        character = _populated_character()
+        progressions = {
+            "Fighter": ClassProgression("Fighter", "fast", "good", "poor", "poor")
+        }
+        derived = compute_derived_stats(character, progressions)
+
+        data = character_sheet_data(character, derived, speed=30)
+
+        assert data["hp"] == derived.hit_points
+        assert data["speed"] == 30
 
     def test_omits_combat_block_without_derived(self) -> None:
         data = character_sheet_data(_populated_character())
 
-        for key in ("bab", "initiative", "ac", "fort", "ref", "will"):
+        for key in ("bab", "initiative", "ac", "fort", "ref", "will", "hp"):
             assert key not in data
+        assert "speed" not in data
 
 
 class TestExportCharacterSheetText:
@@ -112,7 +133,9 @@ class TestExportCharacterSheetText:
         }
         derived = compute_derived_stats(character, progressions)
 
-        text = export_character_sheet_text(character_sheet_data(character, derived))
+        text = export_character_sheet_text(
+            character_sheet_data(character, derived, speed=40)
+        )
 
         assert "Aragorn" in text
         assert "Fighter 5" in text
@@ -122,6 +145,9 @@ class TestExportCharacterSheetText:
         # Real computed combat numbers, not the "?" placeholders.
         assert f"BAB: {derived.base_attack_bonus}" in text
         assert f"Initiative: {derived.initiative}" in text
+        # HP and Speed render real values, not the "?"/default placeholders.
+        assert f"HP: {derived.hit_points}" in text
+        assert "Speed: 40 ft." in text
         # The BAB/saves line renders real computed numbers, not "?" placeholders.
         bab_line = next(
             (ln for ln in text.splitlines() if ln.strip().startswith("BAB:")), None
