@@ -94,6 +94,13 @@ STANCE_EFFECTS: tuple[StanceEffect, ...] = (
         "untyped",
         "against bull rush, trip, grapple and overrun",
     ),
+    StanceEffect(
+        "Roots of the Mountain",
+        2,
+        KIND_SAVE,
+        "Fortitude",
+        "against bull rush, trip, grapple and overrun",
+    ),
     # Diamond Mind — Stance of Clarity (ToB p62): +2 dodge AC, but only against a
     # single chosen opponent.
     StanceEffect(
