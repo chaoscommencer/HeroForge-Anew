@@ -1,0 +1,79 @@
+# Dependabot configuration for HeroForge-Anew.
+#
+# Keeps the project's dependencies up to date across every ecosystem used in the
+# repository. Each `updates` entry tells Dependabot which package manager to use
+# and which directory to scan. See:
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+version: 2
+updates:
+  # --- Python (pip) ---------------------------------------------------------
+  # Picks up the project + dev/optional dependencies declared in pyproject.toml,
+  # and the hash-pinned bootstrap pip in requirements-pip.txt (consumed by
+  # Dockerfile.graphify). Dependabot scans every requirements-style .txt file in
+  # this directory, so when a new pip is released it opens a PR that bumps both
+  # the version and the --hash in requirements-pip.txt.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "chore"
+    labels:
+      - "dependencies"
+      - "python"
+
+  # --- GitHub Actions -------------------------------------------------------
+  # Keeps the actions used by the workflows under .github/workflows/ current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "chore"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  # --- Dev Containers -------------------------------------------------------
+  # Updates the features pinned in .devcontainer/devcontainer.json.
+  - package-ecosystem: "devcontainers"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "chore"
+    labels:
+      - "dependencies"
+      - "devcontainers"
+
+  # --- Docker (runtime / QA + tooling images) -------------------------------
+  # Tracks the base images in every root Dockerfile and docker-compose.yml.
+  # Dependabot matches all files whose name contains "Dockerfile" in this
+  # directory, so Dockerfile, Dockerfile.display and Dockerfile.graphify (the
+  # isolated graphify knowledge-graph builder) are all covered by this one entry.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "chore"
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # --- Docker (development container image) ----------------------------------
+  # Tracks the base image pinned in .devcontainer/Dockerfile.
+  - package-ecosystem: "docker"
+    directory: "/.devcontainer"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "chore"
+    labels:
+      - "dependencies"
+      - "docker"

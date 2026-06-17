@@ -1,0 +1,115 @@
+# Podman-only Compose override for the HeroForge-Anew QA stack.
+#
+# scripts/run-gui.sh layers this file on top of docker-compose.yml (via a second
+# `-f`) ONLY when the detected engine is Podman. It papers over two behavioural
+# gaps in the rootless Podman that Debian bookworm ships (4.3.1), which the
+# devcontainer's scripts/setup-podman.sh installs:
+#
+#   * podman-compose on podman < 4.4 cannot evaluate
+#     `depends_on: condition: service_healthy`; it prints
+#     "Ignored ... condition check due to podman ... doesn't support healthy!"
+#     and starts the app WITHOUT waiting for the display to be ready. The app's
+#     start-up is instead gated by a small shell loop (below) that waits for the
+#     shared X11 socket to appear before launching the Qt GUI — restoring the
+#     ordering guarantee the health gate provides on Docker.
+#
+#   * rootless Podman schedules container healthchecks with transient *systemd
+#     user* timers, but this dev container runs no user systemd session, so any
+#     healthcheck'd container logs "unable to get systemd connection to remove
+#     healthchecks: ... no such file or directory" when the timer is registered
+#     or removed (most visibly on `down`). Both services' healthchecks are
+#     therefore disabled below. Combined with the point above, this means the
+#     inherited healthchecks are simply turned off under Podman and left intact
+#     under Docker (which uses no systemd timers and honours the gate).
+#
+#   * podman-compose puts every service in a shared Podman *pod* by default. The
+#     two containers here communicate only through the shared X11 socket volume,
+#     and the app runs with `network_mode: none`, so the pod's shared network
+#     namespace provides nothing. The `x-podman: in_pod: false` extension below
+#     skips the pod, which also keeps `down` output to the real, named resources
+#     (containers, volumes, network) instead of additionally printing a bare,
+#     unnamed pod ID for the removed pod. Docker has no pod concept and is
+#     unaffected.
+#
+# Everything else — including `init: true`, the CPU/memory/PID limits, the
+# secret, cap_drop, read_only, tmpfs, network_mode and volumes — is inherited
+# UNCHANGED from docker-compose.yml. In particular this override deliberately
+# does NOT relax the container's user namespace, because the rootless isolation
+# that mapping provides is the main reason Podman is preferred over Docker here:
+#
+#   * The app/display processes run as the image's non-root `app` user, which
+#     rootless Podman maps to an unprivileged *subordinate* UID on the host (not
+#     the workspace-owning dev user). A container escape therefore lands as an
+#     inert subuid with no access to the host workspace or credentials. Using
+#     `userns_mode: keep-id` would instead map `app` straight onto the host dev
+#     user, collapsing that protection — so it is intentionally avoided. The
+#     0600 vnc_password secret is made readable to the in-container `app` user
+#     WITHOUT keep-id by scripts/run-gui.sh, which `podman unshare chown`s the
+#     host secret file to the subuid that backs the container's `app` user (the
+#     file stays mode 0600 and becomes owned by a high subuid on the host, i.e.
+#     unreadable to other host users, yet appears app-owned inside the
+#     container).
+#
+# Two host-side prerequisites that make the inherited config work under rootless
+# Podman are installed by scripts/setup-podman.sh rather than patched here:
+#
+#   * catatonit — the container-init binary `init: true` needs. bookworm's
+#     `catatonit` package installs it at /usr/libexec/podman/catatonit (Podman's
+#     default init_path), so `init: true` is inherited unchanged and PID-1
+#     reaping works exactly as it does under Docker's bundled init.
+#   * crun — the OCI runtime that starts containers gracefully when no cgroup v2
+#     controllers are delegated to the rootless user (the default runc aborts).
+#     crun simply skips the inherited CPU/memory/PID limits it cannot enforce,
+#     so those limits are left in place (enforced under Docker, no-ops here).
+
+# Create the containers WITHOUT a shared Podman pod (see the pod bullet above):
+# the app is network_mode:none and the containers share only the X11 socket
+# volume, so the pod adds an unused infra container and netns — and a bare pod
+# ID line to `down` output. This podman-compose extension is the file-level
+# equivalent of passing `--in-pod=false` on the command line.
+x-podman:
+  in_pod: false
+
+services:
+  display:
+    # Disable the inherited healthcheck under Podman, for two reasons:
+    #   * podman-compose < 4.4 ignores the `condition: service_healthy` gate that
+    #     consumes it anyway (the app's wait-for-socket command below replaces
+    #     that ordering guarantee); and
+    #   * rootless Podman schedules healthchecks via transient *systemd user*
+    #     timers, but this dev container has no user systemd session
+    #     (XDG_RUNTIME_DIR is unset and /run/user/<uid>/systemd is absent), so
+    #     every healthcheck'd container logs
+    #     "unable to get systemd connection to remove healthchecks: ... no such
+    #     file or directory" when registering/removing the timer (notably on
+    #     `down`). Disabling the healthcheck removes that noise. Docker keeps the
+    #     healthcheck — it does not use systemd timers and honours the gate.
+    healthcheck:
+      disable: true
+
+  app:
+    # podman-compose < 4.4 cannot honour `condition: service_healthy`, so reduce
+    # the dependency to plain start ordering (display launches first) and gate
+    # the real readiness in the command below.
+    depends_on:
+      - display
+    # Disable the inherited liveness healthcheck under Podman for the same reason
+    # as the display service: with no user systemd session, rootless Podman
+    # cannot schedule the healthcheck timer and logs
+    # "unable to get systemd connection to remove healthchecks" on teardown.
+    # The probe also gates nothing under podman-compose here, so it is pure
+    # noise; Docker keeps it.
+    healthcheck:
+      disable: true
+    # Replace the image's default CMD (`python -m heroforge`) with a tiny wait
+    # loop: block until the display sidecar has created the shared X11 socket
+    # for :99 (/tmp/.X11-unix/X99), then exec the GUI. This substitutes for the
+    # service_healthy gate that podman-compose drops on this Podman version, so
+    # Qt never tries to connect to an X server that is not up yet. `exec` keeps
+    # the container's `init: true` reaper as PID 1 with Python as its sole child,
+    # so signals and shutdown still propagate cleanly.
+    command:
+      - /bin/sh
+      - -c
+      - 'while [ ! -e /tmp/.X11-unix/X99 ]; do sleep 0.5; done; exec python -m heroforge'
+

@@ -214,3 +214,42 @@ pip-log.txt
 
 #Mr Developer
 .mr.developer.cfg
+
+#############
+## HeroForge
+#############
+
+# Generated database (auto-seeded from data/ on first launch; not tracked in git
+# because it is a binary artifact that can be regenerated at any time)
+heroforge.db
+
+# Local environment file holding the QA stack's VNC_PASSWORD (and optional
+# overrides). It carries a secret and must never be committed; the tracked
+# .env.example documents the expected keys.
+.env
+!.env.example
+
+# Runtime-materialized Compose secrets (e.g. the VNC password file that
+# scripts/run-gui.sh writes from .env and mounts at /run/secrets). These carry
+# secrets and must never be committed.
+/secrets/
+
+# Python caches
+__pycache__/
+*.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Graphify knowledge-graph artifacts (regenerated from source via `graphify update .`;
+# the graph maps the codebase so AI assistants can query it instead of grepping files)
+graphify-out/
+
+# Distribution / build
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/

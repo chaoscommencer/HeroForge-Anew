@@ -1,0 +1,124 @@
+// HeroForge-Anew development container for GitHub Codespaces / VS Code Dev
+// Containers. It provides a ready-to-code Python 3.12 environment tailored for
+// PyQt6 development and Docker-in-Docker so the separate docker-compose QA stack
+// can be launched from inside the Codespace. The QA stack hosts its own viewable
+// desktop (Xvfb + noVNC) inside a sidecar container, so this editor container no
+// longer runs a remote-viewable desktop itself.
+//
+// Customize freely: swap VS Code extensions, or change the Python version via
+// .devcontainer/Dockerfile.devcontainer-default.
+{
+  "name": "HeroForge-Anew (PyQt6 Dev)",
+
+  // Build the tailored dev image (Python + Qt runtime libs).
+  "build": {
+    "dockerfile": "Dockerfile.devcontainer-default",
+    "context": "..",
+    "args": {
+      // Bake the rootless-Podman runtime packages (podman, crun, catatonit,
+      // uidmap, fuse-overlayfs, slirp4netns) into the image so the preferred
+      // Podman QA engine is ready on first boot without an apt fetch at
+      // postCreate. The Dockerfile gates the install on this flag; set it to
+      // "false" to keep the image lean when only the Docker-in-Docker QA path
+      // will be used (scripts/setup-podman.sh then installs whatever is missing
+      // at postCreate). Per-user Podman config still happens in that script.
+      "INSTALL_PODMAN_DEPS": "true"
+    }
+  },
+
+  "features": {
+    // Docker-in-Docker so the QA docker-compose stack can be built and run from
+    // within the Codespace. Compose is included. A rootless Podman alternative
+    // is preferred by scripts/run-gui.sh when present: its runtime packages are
+    // baked into the image via the INSTALL_PODMAN_DEPS build arg above, and the
+    // per-user Podman setup (subuid/subgid, storage.conf, containers.conf,
+    // podman-compose) is provisioned by the postCreateCommand below via
+    // scripts/setup-podman.sh.
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "dockerDashComposeVersion": "v2"
+    }
+  },
+
+  // noVNC desktop published by the QA Compose stack's display sidecar on 6080
+  // (loopback). It only serves a desktop while `scripts/run-gui.sh` is running.
+  "forwardPorts": [6080],
+  "portsAttributes": {
+    "6080": {
+      "label": "HeroForge GUI (noVNC via Compose)",
+      // When VS Code auto-detects the sidecar listening on 6080, show a toast
+      // notification ("application running on port 6080 is available") rather
+      // than silently forwarding it — a visible cue that the QA desktop is ready
+      // to open. Other options: "silent" (forward, no popup), "openBrowser" /
+      // "openPreview" (auto-open), "ignore" (do not forward).
+      "onAutoForward": "notify",
+      // The display sidecar's websockify is now TLS-only (--ssl-only). VS Code's
+      // port-forwarding proxy defaults to connecting to the backend over plain
+      // HTTP, which websockify rejects ("non-SSL connection received but
+      // disallowed"), surfacing as a 502 in the browser. Declaring the port as
+      // HTTPS makes the forwarder connect over TLS so the handshake succeeds.
+      "protocol": "https"
+    }
+  },
+
+  // Install the project after creation, then provision rootless Podman.
+  //
+  // The third-party dependencies are already baked into a vscode-owned virtual
+  // environment at /opt/venv by Dockerfile.devcontainer-default (the hash-pinned
+  // requirements-pip.txt + requirements-dev.txt). All that remains at postCreate
+  // is the editable project itself: `--no-deps -e .` links the bind-mounted
+  // workspace into the venv (it cannot be baked into the image because the
+  // workspace is absent during `docker build`). The venv interpreter is named
+  // explicitly (/opt/venv/bin/python) so the install targets the venv regardless
+  // of PATH ordering — no reliance on a bare `python` resolving correctly. No
+  // `--user` flag — pip refuses that inside a venv; the install lands in
+  // /opt/venv directly. --only-binary=:all: still refuses sdists so no build
+  // backend runs arbitrary code (the local editable checkout is exempt as it is
+  // not a downloaded artifact).
+  //
+  // CI (.github/workflows/ci.yml, copilot-setup-steps.yml) installs the same
+  // pinned requirements with `pip --user` on throwaway runners instead of a venv;
+  // both must be bumped together when the pins change (see the CI-PARITY NOTE in
+  // Dockerfile.devcontainer-default).
+  //
+  // scripts/setup-podman.sh (per-user rootless Podman config + podman-compose;
+  // idempotent) is OPTIONAL, so it is wrapped to be non-fatal: a failure prints
+  // a warning and container creation still succeeds. The Podman runtime packages
+  // themselves are baked into the image (INSTALL_PODMAN_DEPS build arg), so the
+  // script's apt installs are normally no-ops; it remains responsible for the
+  // per-user state and for installing any packages still missing (e.g. when the
+  // image was built with INSTALL_PODMAN_DEPS=false). Optional host-style
+  // hardening (userns-remap on the inner Docker daemon) is a separate, manual
+  // opt-in: run scripts/enable-userns-remap.sh.
+  "postCreateCommand": "/opt/venv/bin/python -m pip install --no-cache-dir --only-binary=:all: --no-deps -e . && { scripts/setup-podman.sh || echo 'warning: scripts/setup-podman.sh failed (optional); QA stack can still run via docker compose. Continuing.'; }",
+
+  // Run as the unprivileged user shipped with the base image.
+  "remoteUser": "vscode",
+
+  "customizations": {
+    "vscode": {
+      // Recommended extensions live in .vscode/extensions.json so they can be
+      // reviewed and installed manually rather than forced into the container.
+      "settings": {
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        // The dev dependencies are baked into a virtual environment at /opt/venv
+        // by Dockerfile.devcontainer-default; point VS Code's Python extension at
+        // its interpreter so test discovery, linting and the integrated terminal
+        // all use the baked environment (and the postCreate `-e .` install).
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "[python]": {
+          // NOTE: This formatter setting doesn't work without the matching
+          // `ms-python.black-formatter` extension installed, but it is
+          // included here to be picked up by the Codespaces "Set Up Codespace"
+          // command when it copies devcontainer.json into the new Codespace.
+          // The extension is recommended in .vscode/extensions.json, but not
+          // required, so this setting won't break anything if the extension
+          // isn't installed.
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  }
+}

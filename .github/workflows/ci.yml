@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master", "copilot/**"]
+  pull_request:
+    branches: ["main", "master"]
+
+jobs:
+  # Supply-chain security scan: audit the pinned dependencies for known CVEs.
+  # It scans every requirements*.txt file — requirements-lock.txt (the hash-
+  # pinned runtime tree that Dockerfile.heroforge-app installs with
+  # --require-hashes, so the exact shipped versions are checked) plus the
+  # requirements-pip*.txt CI tooling pins themselves. Runs first (the test job
+  # `needs` it) so dependencies are verified safe to install before anything
+  # installs and uses them, and so a dependency CVE is reported independently
+  # of the lint/format/test results..
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.12"
+
+      # Pin pip itself to a verified, hash-checked version first (so the tool
+      # doing the auditing is reproducible), then install pip-audit from its own
+      # hash-pinned lockfile. Both installs are --require-hashes; the pinned pip
+      # already satisfies pip-audit's own pip requirement, so the second install
+      # needs no hash for pip. Regenerate requirements-pip-audit.txt with:
+      #   pip-compile --generate-hashes --no-emit-index-url \
+      #       --output-file requirements-pip-audit.txt requirements-pip-audit.in
+      - name: Install pinned pip and pip-audit
+        run: |
+          python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-pip.txt \
+            && python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-pip-audit.txt
+
+      - name: Audit all pinned requirements for known CVEs
+        run: |
+          for req in requirements*.txt; do
+            echo "::group::pip-audit ${req}"
+            pip-audit -r "${req}"
+            echo "::endgroup::"
+          done
+
+  test:
+    runs-on: ubuntu-latest
+    # Gate the test job on a clean dependency audit so known-vulnerable
+    # dependencies are caught before they are installed and exercised.
+    needs: audit
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      # PyQt6 is a native extension: importing QtWidgets dynamically links
+      # against system OpenGL/EGL/X libraries that the default ubuntu-latest
+      # image does not ship. Without these, `from PyQt6.QtWidgets import
+      # QApplication` fails at import time with
+      #   ImportError: libEGL.so.1: cannot open shared object file
+      # which aborts pytest collection before any test runs. libegl1 provides
+      # the missing libEGL.so.1; the rest (libgl1, libxkbcommon0, libdbus-1-3)
+      # are the other shared objects PyQt6 needs to import cleanly. xvfb
+      # supplies a virtual X server so the tests run under a real windowing
+      # environment (see the "Run tests" step) rather than the offscreen stub.
+      - name: Install system libraries for PyQt6
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 \
+            libgl1 \
+            libxkbcommon0 \
+            libdbus-1-3 \
+            xvfb
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        # Hash-pinned throughout: a verified pip from requirements-pip.txt, the
+        # dev environment from requirements-dev.txt, then the project itself
+        # (--no-deps -e ., the only un-hashable piece since it is an editable
+        # local checkout). --user installs into the runner's user site (~/.local).
+        # --only-binary=:all: refuses sdists so no package's build backend can
+        # execute arbitrary code at install time (the editable -e . build is a
+        # local checkout, not a downloaded sdist, so it is unaffected).
+        run: |
+          python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-pip.txt
+          python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-dev.txt
+          python -m pip install --no-cache-dir --user --only-binary=:all: --no-deps -e .
+
+      - name: Lint with Ruff
+        run: ruff check src/
+
+      - name: Check formatting with Black
+        run: black --check src/ tests/
+
+      - name: Run tests
+        # Run under a virtual framebuffer (xvfb-run) so Qt has a real X display.
+        # -a auto-picks a free server number; the tests then exercise the GUI
+        # code in a production-like windowing environment.
+        run: xvfb-run -a pytest tests/ -v --tb=short

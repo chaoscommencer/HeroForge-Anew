@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heroforge"
+version = "8.0.0"
+description = "HeroForge Anew – D&D 3.5 character builder (Python/PyQt6 edition)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "GPL-3.0-or-later" }
+dependencies = [
+    "PyQt6>=6.6",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+pdf = [
+    "reportlab>=4.0",
+]
+dev = [
+    "pytest>=9.0",
+    "black>=26.5",
+    "ruff>=0.15",
+    "mypy>=2.1",
+    "types-openpyxl>=3.1",
+    "reportlab>=4.0",
+    "graphifyy>=0.8.39",
+]
+
+[project.scripts]
+heroforge = "main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "N"]
+ignore = ["N802", "N803"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["heroforge"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

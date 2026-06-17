@@ -1,0 +1,214 @@
+# syntax=docker/dockerfile:1
+#
+# Throwaway, network-isolated builder image for the graphify codebase knowledge
+# graph (PyPI package `graphifyy`, CLI `graphify`).
+#
+# Purpose: build `graphify-out/graph.json` for this repo WITHOUT installing
+# graphifyy or its transitive dependencies into the local dev container's Python
+# environment, and without giving the graph-building step any network access.
+# This combines two isolation layers:
+#   * a separate, disposable container (process / filesystem isolation), and
+#   * `--network none` at run time (no exfiltration surface while it walks the
+#     source tree). graphify extracts code locally with tree-sitter, so it needs
+#     no API key or network to build the graph — only the install step does.
+#
+# It is launched via scripts/build-graph.sh, which mounts the repository
+# read-only and the output directory read-write from the host, so the Copilot
+# agent running in the host dev container can read the resulting graph.
+#
+# It is a four-stage build (every network-touching step lives in a *-builder
+# stage; the final runner stage only ever COPYs and installs offline):
+#   1. base            — the shared, digest-pinned image + OCI/prune labels that
+#                        the other three stages derive from (labels inherited via FROM).
+#   2. python-builder  — installs graphifyy into an isolated pipx venv at
+#                        /opt/pipx, as a non-root user against the image's Python.
+#                        Network.
+#   3. git-builder     — downloads git as .deb packages into /git-debs. Network.
+#                        Independent of python-builder, so BuildKit can run the
+#                        two builders in parallel.
+#   4. graphify-runner — copies /opt/pipx and the git .debs from the builders,
+#                        installs git offline via dpkg, and builds the graph at
+#                        `docker run` time with networking severed.
+
+# Global ARGs (before the first FROM) so they are in scope for the base stage.
+# The prune label is supplied by scripts/build-graph.sh via --build-arg, split
+# into name and value so the `LABEL name=value` instruction parses correctly (a
+# single expanded token containing `=` is rejected as "LABEL must have two
+# arguments"). They have no defaults here on purpose, so the label is never
+# duplicated/typo-able in this file; a direct `docker build` without the args is
+# unsupported — always build via the script.
+#
+# The label-name arg is EPHEMERAL_LABEL_NAME, not ...KEY: BuildKit's
+# SecretsUsedInArgOrEnv linter flags any ARG/ENV whose NAME ends in a
+# secret-like token (KEY, TOKEN, SECRET, PASSWORD, ...). This value is a public
+# label name, not a credential, so the suffix is avoided to keep that lint clean
+# and meaningful rather than suppressed.
+ARG EPHEMERAL_LABEL_NAME
+ARG EPHEMERAL_LABEL_VALUE
+
+# =============================================================================
+# Stage 1 — base: shared digest-pinned image + image labels (OCI + prune flag)
+# =============================================================================
+# Base image pinned by digest (not just the mutable :3.12-slim-bookworm tag) so
+# the build is reproducible and resistant to tag re-pointing / supply-chain
+# tampering. This is the same digest used by Dockerfile.heroforge-app; bump it
+# deliberately to pick up upstream security updates. Pinning it ONCE here and
+# having every other stage derive `FROM base` means the digest lives in a single
+# place.
+FROM python:3.12-slim-bookworm@sha256:76d4b7b6305788c6b4c6a19d6a22a3921bf802e9af4d5e1e5bd771208dba74bf AS base
+
+# Re-declare the global ARGs to bring them into this stage's scope, then label
+# the image so scripts/build-graph.sh can prune it precisely without touching
+# unrelated images. Declaring the LABEL only here is enough: Docker images
+# inherit their parent's labels through FROM, so the python-builder, git-builder
+# and graphify-runner stages (all `FROM base`) carry it too — including the final
+# tagged image the script removes.
+ARG EPHEMERAL_LABEL_NAME
+ARG EPHEMERAL_LABEL_VALUE
+LABEL ${EPHEMERAL_LABEL_NAME}=${EPHEMERAL_LABEL_VALUE}
+
+# Standard OCI image labels, declared on the base layer so every derived stage
+# inherits them via FROM (same pattern as Dockerfile.heroforge-app). These are
+# descriptive metadata about the artifact; they are kept separate from the
+# com.heroforge.* prune flag above, which is a private control tag the cleanup
+# step matches on — OCI keys describe the image, the vendor key drives behaviour.
+LABEL org.opencontainers.image.title="HeroForge-Anew graphify builder" \
+      org.opencontainers.image.description="Throwaway, network-isolated image that builds the graphify codebase knowledge graph (graphify-out/graph.json); see scripts/build-graph.sh." \
+      org.opencontainers.image.source="https://github.com/chaoscommencer/HeroForge-Anew" \
+      org.opencontainers.image.licenses="GPL-3.0-or-later" \
+      org.opencontainers.image.base.name="docker.io/library/python:3.12-slim-bookworm"
+
+# =============================================================================
+# Stage 2 — python-builder: install graphifyy into an isolated pipx venv
+# =============================================================================
+FROM base AS python-builder
+
+# pipx installs graphifyy into its OWN dedicated virtualenv and exposes only the
+# console scripts, keeping it and its deps out of the system site-packages. Fixed,
+# relocatable paths so the whole tree can be copied verbatim into the runner:
+#   PIPX_HOME   — where the app venv lives (/opt/pipx/venvs/graphifyy)
+#   PIPX_BIN_DIR— where the `graphify` shim symlinks are placed
+# PIPX_DEFAULT_PYTHON pins the venv to the IMAGE's interpreter (3.12 under
+# /usr/local), NOT some other python pipx might find. This matters because the
+# venv records an absolute interpreter path in its bin/python symlink and script
+# shebangs; building against /usr/local/bin/python means that path also exists in
+# the runner stage (same base image), so the relocated venv stays valid. (Letting
+# an apt-installed pipx pull in the system 3.11 would bake a /usr/bin/python3.11
+# path that the runner lacks, breaking every shim.)
+#
+# PIP_NO_CACHE_DIR=1 makes the pip that pipx shells out to skip its download
+# cache, so no ~/.cache/pip is left in this builder layer (the modern equivalent
+# of the old `--no-cache-dir` flag, which can't be passed through `pipx install`
+# directly). The runner copies only /opt/pipx, so this only trims the builder.
+ENV PIPX_HOME=/opt/pipx \
+    PIPX_BIN_DIR=/opt/pipx/bin \
+    PIPX_DEFAULT_PYTHON=/usr/local/bin/python \
+    PIP_NO_CACHE_DIR=1
+
+# Create an unprivileged build user that owns the pipx tree, so pip and pipx run
+# as non-root. Besides being good hygiene, this is what removes pip's "Running
+# pip as the 'root' user ..." warning at the source rather than suppressing it.
+RUN useradd --create-home --uid 1001 builder \
+    && mkdir -p /opt/pipx/bin \
+    && chown -R builder:builder /opt/pipx
+USER builder
+
+# Bootstrap pipx into the build user's site with pip (against the image's 3.12,
+# as non-root → no warning), then have pipx install graphifyy into /opt/pipx.
+# tree-sitter grammars ship as prebuilt wheels, so no compiler/sdist build step
+# is required. --no-cache-dir keeps pip's download cache out of every layer.
+#
+# Every install here is hash-pinned for supply-chain integrity: --require-hashes
+# makes pip refuse to install unless each downloaded wheel's sha256 matches a
+# digest recorded in the corresponding committed lockfile, consistent with the
+# digest-pinned base image. Each lockfile is generated from a one-line *.in
+# source with `pip-compile --generate-hashes` so Dependabot / CI can track and
+# update the pins automatically (CI's audit job also scans every requirements*.txt).
+# Every install also passes --only-binary=:all: so pip refuses sdists and no
+# package's build backend can execute arbitrary code at install time (the closest
+# equivalent to `npm --ignore-scripts`); it is forwarded into the pipx bootstrap
+# via --pip-args so even that throwaway resolve is wheels-only.
+#
+# Because --require-hashes is all-or-nothing — every requirement resolved in an
+# invocation must carry a hash — and a package named on the *command line* is
+# always treated as its own unpinned requirement (so pip rejects it under
+# --require-hashes), the four steps are:
+#   1. pip   — install a hash-pinned pip from requirements-pip.txt (the artifact
+#              that bootstraps everything else is verified first).
+#   2. pipx  — install a hash-pinned pipx (+ its deps) from requirements-pipx.txt.
+#   3. pipx install graphifyy — create the /opt/pipx venv and expose the
+#              `graphify`/`graphify-mcp` console scripts. This bootstrap resolve
+#              cannot itself be hash-checked (graphifyy is a command-line spec),
+#              but --pip-args='--only-binary=:all:' keeps it wheels-only (no sdist
+#              code executes), and step 4 immediately re-verifies the whole closure.
+#   4. pipx runpip graphifyy install --require-hashes -r requirements-graphifyy.txt
+#              --force-reinstall — re-install graphifyy AND its entire transitive
+#              tree *inside* that venv with every wheel cryptographically verified,
+#              overwriting whatever step 3 resolved. This is the actual integrity
+#              gate: a tampered or version-drifted artifact fails the build (pipx
+#              propagates pip's non-zero exit). runpip is pipx's supported way to
+#              run pip in an existing pipx venv, which is what lets a hashed
+#              -r file (rather than an unpinnable command-line spec) drive it.
+COPY requirements-pip.txt requirements-pipx.txt requirements-graphifyy.txt /tmp/
+RUN python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r /tmp/requirements-pip.txt \
+    && python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r /tmp/requirements-pipx.txt \
+    && python -m pipx install --pip-args='--only-binary=:all:' graphifyy \
+    && python -m pipx runpip graphifyy install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/requirements-graphifyy.txt --force-reinstall
+
+# =============================================================================
+# Stage 3 — git-builder: download git as offline-installable .deb packages
+# =============================================================================
+FROM base AS git-builder
+
+# Acquire git here as downloadable .deb packages rather than a live install, so
+# the runner stage can install it offline from a COPY and never runs apt itself.
+# graphify uses git solely to stamp the graph with the current `git rev-parse
+# HEAD` commit (export._git_head); extraction itself needs no git. --download-only
+# fetches git plus any of its dependencies not already present in this base image
+# into the apt cache; those exact .debs are gathered into /git-debs for the runner.
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y --download-only git \
+    && mkdir -p /git-debs \
+    && cp /var/cache/apt/archives/*.deb /git-debs/ \
+    && rm -rf /var/lib/apt/lists/*
+
+# =============================================================================
+# Stage 4 — graphify-runner: copy-only, build the graph at run time (no network)
+# =============================================================================
+FROM base AS graphify-runner
+
+# Install git from the .debs gathered in git-builder, with NO network and NO
+# apt-get update — dpkg installs the local packages offline. This keeps the runner
+# stage free of any network-touching step, while still giving graphify the git
+# binary it uses to stamp the graph with the source commit hash. The base image
+# already satisfies git's common library deps, so the copied set is git plus only
+# what this base lacks; the .debs are removed after install to keep the layer lean.
+COPY --from=git-builder /git-debs /tmp/git-debs
+RUN dpkg -i /tmp/git-debs/*.deb \
+    && rm -rf /tmp/git-debs
+
+# Copy graphifyy's isolated pipx venv from python-builder. /opt/pipx holds the
+# dedicated virtualenv (with graphifyy + its deps) and the `graphify` shim under
+# /opt/pipx/bin; nothing was installed into this image's system site-packages.
+# The venv was built against /usr/local/bin/python (this same base image), so its
+# recorded interpreter path is valid here. Adding /opt/pipx/bin to PATH puts the
+# `graphify` command on PATH for any UID (the script runs this container as the
+# host user via --user), and the tree is world-readable as copied.
+COPY --from=python-builder /opt/pipx /opt/pipx
+ENV PATH=/opt/pipx/bin:$PATH
+
+# /src is where scripts/build-graph.sh bind-mounts the repository (read-only),
+# with the writable graphify-out/ output directory mounted over /src/graphify-out.
+# HOME points at a writable, ephemeral location so any graphify cache/config has
+# somewhere to go even though the repo itself is mounted read-only; the script
+# backs /tmp with a tmpfs and runs the container as the host UID/GID so the
+# generated graph is owned by — and readable to — the host dev-container user.
+WORKDIR /src
+ENV HOME=/tmp \
+    PYTHONUNBUFFERED=1
+
+# Build the graph at run time (not build time) so it can be driven with
+# `--network none` and write into the host-mounted output directory. CMD (not
+# ENTRYPOINT) keeps the image easy to poke at: `docker run ... graphify query ...`
+# overrides it to query an already-built graph without rebuilding.
+CMD ["graphify", "update", "."]

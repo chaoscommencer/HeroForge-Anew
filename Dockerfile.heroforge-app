@@ -1,0 +1,212 @@
+# syntax=docker/dockerfile:1
+#
+# Singular runtime image for the HeroForge-Anew PyQt6 desktop application.
+#
+# This image is built and launched via docker-compose.yml (or its podman
+# equivalent) for QA "developer-in-the-loop" testing. This container runs ONLY
+# the Qt application; it draws into the virtual X server hosted by the separate
+# `display` sidecar (see Dockerfile.display) over a shared /tmp/.X11-unix socket
+# volume, and that sidecar serves the viewable desktop over noVNC. No host X
+# server is involved.
+#
+# It is intentionally separate from the development container defined under
+# .devcontainer/ — that one is for editing/linting/testing the code, while this
+# one exists purely to *run* the application in an isolated, reproducible way.
+#
+# It is a multi-stage build:
+#   * the `base` stage pins the digest-locked python image once and carries the
+#     OCI image labels, so every later stage derives from a single shared base,
+#   * the `builder` stage runs pip (and its build/cache machinery) to install the
+#     third-party wheels AND the application's own package into an isolated
+#     prefix, then
+#   * the final stage copies ONLY those installed packages onto a fresh runtime
+#     image.
+# This keeps pip's caches/metadata and the resolver out of the shipped image, so
+# the runtime layer carries just the Qt system libraries and the installed
+# Python packages — a smaller image and a smaller attack surface.
+
+# =============================================================================
+# Stage 1 — base: shared digest-pinned image + image labels
+# =============================================================================
+# Base image pinned by digest (not just the mutable :3.12-slim-bookworm tag) so
+# the build is reproducible and resistant to tag re-pointing / supply-chain
+# tampering. Bump the digest deliberately to pick up upstream security updates.
+# Pinning it ONCE here and having every other stage derive `FROM base` keeps the
+# digest in a single place, so a bump can never drift between the builder and the
+# final runtime stage.
+FROM python:3.12-slim-bookworm@sha256:76d4b7b6305788c6b4c6a19d6a22a3921bf802e9af4d5e1e5bd771208dba74bf AS base
+
+# Standard OCI image labels applied on the base layer. Docker images inherit
+# their parent's labels through FROM, so declaring them ONCE here means both the
+# builder stage and the final tagged runtime image (each `FROM base`) carry them
+# — `docker inspect`/`podman inspect` surfaces them on the shipped image without
+# repeating the LABEL block per stage.
+LABEL org.opencontainers.image.title="HeroForge-Anew" \
+      org.opencontainers.image.description="HeroForge Anew – D&D 3.5 character builder (Python/PyQt6 edition); QA runtime image driven by docker-compose.yml." \
+      org.opencontainers.image.source="https://github.com/Heliomance/HeroForge-Anew" \
+      org.opencontainers.image.licenses="GPL-3.0-or-later" \
+      org.opencontainers.image.base.name="docker.io/library/python:3.12-slim-bookworm"
+
+# =============================================================================
+# Stage 2 — builder: install third-party deps and the app package into /install
+# =============================================================================
+FROM base AS builder
+
+WORKDIR /app
+
+# Step 1 — third-party dependencies.
+# These are installed from requirements-lock.txt, a fully-resolved, hash-pinned
+# lockfile generated from pyproject.toml's project.dependencies (the exact
+# command is recorded in the lockfile header). pyproject.toml is still copied
+# here because step 2 below installs the app itself with `-e .`, which reads it.
+#
+# Security — supply-chain integrity:
+#   * --require-hashes makes pip refuse to install unless every downloaded
+#     wheel's sha256 matches a hash recorded in the lockfile. This pins the whole
+#     transitive dependency tree to exact, verified artifacts (a tampered or
+#     re-pointed PyPI file fails the build), consistent with the digest-pinned
+#     base image. --require-hashes is all-or-nothing, so the lockfile carries a
+#     hash for every requirement including the transitive ones.
+#   * --only-binary=:all: forces pip to install prebuilt wheels and refuse to
+#     build any downloaded sdist. pip has no npm-style pre/post-install hooks, so
+#     the ONLY place third-party code can execute during install is an sdist's
+#     build backend (e.g. setup.py). Refusing sdists removes that arbitrary-code-
+#     execution surface, making this the closest equivalent to `npm
+#     --ignore-scripts`.
+#
+# Regenerate the lockfile after changing dependencies in pyproject.toml:
+#   pip-compile --generate-hashes --no-emit-index-url \
+#       --output-file requirements-lock.txt pyproject.toml
+#
+# Installed under --prefix=/install so the whole dependency tree can be copied
+# into the final stage in one layer.
+#
+# The pip bootstrap itself is hash-pinned too: instead of `pip install --upgrade
+# pip` (which fetches whatever pip is newest, unverified), it installs the exact
+# pip recorded in requirements-pip.txt with --require-hashes. --user places that
+# pinned pip in the build user's site (here root's, /root/.local), where
+# `python -m pip` prefers it for the subsequent deps install; it is never copied
+# into the final image (only /install is), which is fine since the runtime image
+# never runs pip. --only-binary=:all: refuses sdists (no build backend executes).
+# This mirrors the bootstrap in Dockerfile.graphify.
+COPY pyproject.toml requirements-pip.txt requirements-lock.txt ./
+RUN python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-pip.txt \
+    && python -m pip install --no-cache-dir --only-binary=:all: --require-hashes \
+        --prefix=/install -r requirements-lock.txt
+
+# Step 2 — the application's own package.
+# Install heroforge into the same /install prefix so it ships as a proper
+# installed distribution (dist-info metadata + the `heroforge` console script)
+# that is copied into the final image alongside the dependencies — not merely
+# importable via a PYTHONPATH env var. The editable (-e) install records ONLY a
+# .pth pointing at /app/src; it never copies the sources, so the actual code is
+# still supplied at runtime by the docker-compose bind mount over /app/src (a
+# bare run without that mount has no app code, by design).
+#
+# src/ is provided to just this build step via a transient BuildKit bind mount.
+# The mount is read-write because setuptools' egg_info step writes a
+# src/heroforge.egg-info directory into the source tree during the editable build
+# (a read-only mount fails with "Cannot update time stamp of directory"). Those
+# writes land only in BuildKit's ephemeral mount, which it discards — the host
+# src/ is untouched and no source is baked into the image. --no-deps is used
+# because the third-party dependencies were already installed in step 1.
+RUN --mount=type=bind,source=src,target=/app/src,rw \
+    python -m pip install --no-cache-dir --no-deps -e . --prefix=/install
+
+# =============================================================================
+# Stage 3 — final runtime image
+# =============================================================================
+# Same digest-pinned base as the builder stage (via the shared `base` stage), so
+# the runtime layer inherits the pinned digest and the OCI labels declared above.
+FROM base
+
+# --- System libraries required by PyQt6 / Qt at runtime ----------------------
+# Qt links against a number of shared X11 / OpenGL / XCB / font libraries even
+# when it only ever talks to a forwarded X server. They are installed without
+# recommended extras to keep the image lean; apt metadata is removed afterwards.
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        libgl1 \
+        libegl1 \
+        libglib2.0-0 \
+        libdbus-1-3 \
+        libfontconfig1 \
+        libfreetype6 \
+        libx11-6 \
+        libx11-xcb1 \
+        libxcb1 \
+        libxcb-cursor0 \
+        libxcb-glx0 \
+        libxcb-icccm4 \
+        libxcb-image0 \
+        libxcb-keysyms1 \
+        libxcb-randr0 \
+        libxcb-render0 \
+        libxcb-render-util0 \
+        libxcb-shape0 \
+        libxcb-shm0 \
+        libxcb-sync1 \
+        libxcb-util1 \
+        libxcb-xfixes0 \
+        libxcb-xinerama0 \
+        libxcb-xkb1 \
+        libxkbcommon0 \
+        libxkbcommon-x11-0 \
+        libxext6 \
+        libxrender1 \
+        libsm6 \
+        libice6 \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Unprivileged application user -------------------------------------------
+# The GUI runs as a non-root user for security. UID/GID are build args so they
+# can be aligned with the host/devcontainer user, which keeps ownership of the
+# bind-mounted workspace and access to the shared X11 socket sane.
+ARG APP_UID=1000
+ARG APP_GID=1000
+# The login shell is given as the absolute path /bin/bash (not /usr/bin/env
+# bash) because useradd --shell writes the value verbatim into /etc/passwd, and
+# login/exec runs it directly with no $PATH lookup — so it must be a real path.
+# (`/usr/bin/env bash` is only meaningful in a script shebang.) The absolute
+# path is both required here and the more deterministic/safer choice.
+RUN groupadd --gid "${APP_GID}" app \
+    && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --shell /bin/bash app
+
+# --- Installed Python packages (deps + the app) ------------------------------
+# Copy ONLY what was installed into /install in the builder stage onto this fresh
+# image (merging into /usr/local, where this base image's Python looks): the
+# third-party dependencies plus the heroforge editable distribution (its .pth and
+# dist-info metadata and the `heroforge` console script). pip itself, its caches
+# and the resolver stay behind in the builder and never ship in the runtime image.
+COPY --from=builder /install /usr/local
+
+# WORKDIR creates /app owned by root; chown it to the unprivileged app user so
+# the application can write into it. The seeded game database and character
+# saves live under /app/userdata (HEROFORGE_DATA_DIR, see src/heroforge/app.py),
+# which docker-compose backs with the persistent `heroforge-data` named volume.
+# Creating that directory here owned by app:app matters: a named volume inherits
+# the ownership/permissions of the image directory it covers on first use, so
+# without this the volume would mount root-owned and the non-root app user could
+# not create the database file in it.
+WORKDIR /app
+RUN chown app:app /app \
+    && mkdir -p /app/userdata \
+    && chown app:app /app/userdata
+USER app
+
+# QT_X11_NO_MITSHM disables the MIT-SHM X extension, which does not work across
+# the container boundary; PYTHONUNBUFFERED surfaces logs immediately for QA.
+# DISPLAY :99 targets the virtual X server in the `display` sidecar, reached via
+# the shared /tmp/.X11-unix socket volume defined in docker-compose.yml.
+# No PYTHONPATH is needed: the editable install copied from the builder writes a
+# .pth that puts /app/src on the import path, so `python -m heroforge` resolves
+# once the docker-compose bind mount populates /app/src at runtime.
+ENV QT_X11_NO_MITSHM=1 \
+    PYTHONUNBUFFERED=1 \
+    DISPLAY=:99
+
+# CMD (not ENTRYPOINT) is used so this QA image stays easy to poke at: a bare
+# `docker run heroforge-anew:dev <cmd>` overrides it to drop into a shell or run
+# the test suite for debugging, while docker-compose.yml still launches the GUI
+# by default. docker-compose can override it with `command:` if ever needed.
+CMD ["python", "-m", "heroforge"]
