@@ -8,6 +8,8 @@ base creature stats.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from heroforge.logic.animal_companion import (
     STANDARD_COMPANION_PROGRESSION,
     adjust_hit_dice,
@@ -230,16 +232,14 @@ def test_tab_manual_entry_not_overwritten_by_progression(qapp: object) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_seed_and_repository_round_trip(tmp_path: object) -> None:
+def test_seed_and_repository_round_trip(tmp_path: Path) -> None:
     """Seeded progression tiers and labels are read back via the repository."""
-    from pathlib import Path
-
     from heroforge.db.data_access import GameDataRepository
     from heroforge.db.schema import initialize_database
     from heroforge.db.seed import seed_companion_progression
     from heroforge.logic.animal_companion import COMPANION_PROGRESSION_LABELS
 
-    db_path = Path(str(tmp_path)) / "game.db"
+    db_path = tmp_path / "game.db"
     conn = initialize_database(db_path)
     try:
         seed_companion_progression(conn)
@@ -256,14 +256,12 @@ def test_seed_and_repository_round_trip(tmp_path: object) -> None:
     assert labels == {e.field_key: e.label for e in COMPANION_PROGRESSION_LABELS}
 
 
-def test_repository_empty_when_unseeded(tmp_path: object) -> None:
+def test_repository_empty_when_unseeded(tmp_path: Path) -> None:
     """An unseeded database yields empty results so callers fall back."""
-    from pathlib import Path
-
     from heroforge.db.data_access import GameDataRepository
     from heroforge.db.schema import initialize_database
 
-    db_path = Path(str(tmp_path)) / "game.db"
+    db_path = tmp_path / "game.db"
     initialize_database(db_path).close()
 
     repo = GameDataRepository(db_path)
@@ -271,19 +269,15 @@ def test_repository_empty_when_unseeded(tmp_path: object) -> None:
     assert repo.get_companion_progression_labels() == {}
 
 
-def test_tab_reads_progression_and_labels_from_db(
-    qapp: object, tmp_path: object
-) -> None:
+def test_tab_reads_progression_and_labels_from_db(qapp: object, tmp_path: Path) -> None:
     """The tab sources its progression table and row headings from the DB."""
-    from pathlib import Path
-
     from heroforge.db.data_access import GameDataRepository
     from heroforge.db.schema import initialize_database
     from heroforge.db.seed import seed_companion_progression
     from heroforge.ui.main_window import CharacterModel
     from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
 
-    db_path = Path(str(tmp_path)) / "game.db"
+    db_path = tmp_path / "game.db"
     conn = initialize_database(db_path)
     try:
         seed_companion_progression(conn)
