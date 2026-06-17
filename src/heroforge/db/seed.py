@@ -462,7 +462,8 @@ def _is_magic_item_name(value: object) -> bool:
     text = str(value).strip()
     if not text:
         return False
-    # Section headers start with a hyphen/dash; the "(none)" placeholder and any
+    # Section headers start with a dash — hyphen-minus (U+002D), en-dash
+    # (U+2013) or em-dash (U+2014); the "(none)" placeholder and any
     # parenthetical labels start with "(".
     return not text.startswith(("-", "\u2013", "\u2014", "("))
 

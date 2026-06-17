@@ -45,7 +45,7 @@ def aggregate_typed_bonuses(bonuses: Iterable[tuple[str, int]]) -> int:
     typed_best: dict[str, int] = {}
     stacking_total = 0
     for raw_type, raw_value in bonuses:
-        btype = (str(raw_type).strip().lower()) or "untyped"
+        btype = str(raw_type).strip().lower() or "untyped"
         value = int(raw_value)
         if value < 0 or btype in _STACKING_BONUS_TYPES:
             stacking_total += value
@@ -85,8 +85,9 @@ def _item_bonus_specs(item: dict) -> list[dict]:  # type: ignore[type-arg]
     """Return the list of bonus specs declared on an equipment *item*.
 
     An item may declare a single bonus via top-level ``target``/``bonus_type``/
-    ``value`` keys, and/or a ``bonuses`` list of such dicts.  Unequipped items
-    (``equipped`` explicitly false) contribute nothing.
+    ``value`` keys, and/or a ``bonuses`` list of such dicts.  Items are treated
+    as equipped by default; only items with ``equipped`` explicitly set to a
+    falsey value contribute nothing.
     """
     if not item.get("equipped", True):
         return []
