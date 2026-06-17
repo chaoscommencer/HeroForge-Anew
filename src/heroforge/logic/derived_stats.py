@@ -102,6 +102,7 @@ def compute_derived_stats(
     max_dex: int | None = None,
     hp_flat_bonus: int = 0,
     hp_per_level_bonus: int = 0,
+    attack_bonuses: Mapping[str, int] | None = None,
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
@@ -137,12 +138,16 @@ def compute_derived_stats(
                        Toughness's +3).
         hp_per_level_bonus: Per-Hit-Die hit-point bonus from feats/templates
                        (e.g. Improved Toughness's +1 per Hit Die).
+        attack_bonuses: Optional miscellaneous attack-roll bonuses keyed
+                       ``"melee"`` and ``"ranged"`` (e.g. an active marshal aura).
+                       Missing keys are treated as ``0``.
 
     Returns:
         An immutable :class:`DerivedStats` snapshot.
     """
     progressions = progressions or {}
     save_bonuses = save_bonuses or {}
+    attack_bonuses = attack_bonuses or {}
     adjustments = ability_adjustments or {}
     base_scores = character.ability_scores
     scores = {
@@ -199,8 +204,12 @@ def compute_derived_stats(
         effective_character_level=character.total_level + level_adjustment,
         size=size,
         base_attack_bonus=bab,
-        melee_attack=combat.melee_attack(bab, str_mod, size=size),
-        ranged_attack=combat.ranged_attack(bab, dex_mod, size=size),
+        melee_attack=combat.melee_attack(
+            bab, str_mod, size=size, misc=attack_bonuses.get("melee", 0)
+        ),
+        ranged_attack=combat.ranged_attack(
+            bab, dex_mod, size=size, misc=attack_bonuses.get("ranged", 0)
+        ),
         grapple=combat.grapple_modifier(bab, str_mod, size=size),
         initiative=combat.initiative(dex_mod),
         hit_points=hit_points,
