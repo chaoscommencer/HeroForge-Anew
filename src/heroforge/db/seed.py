@@ -41,6 +41,19 @@ _SKILL_FOOTNOTE_LEGEND_CELLS = (
     ("Familiar", "BI145"),
 )
 
+#: The workbook's "Skills" sheet computes each skill's *unconditional* synergy
+#: bonus in column GQ ("Synergy").  Each formula adds ``(2 + …)`` once for every
+#: *source* skill that reaches 5 ranks, e.g. Diplomacy's cell reads
+#: ``=(2+…)*((SkBluffRanks>=5)+…+(SkSenseMotiveRanks>=5)+…)``.  The
+#: ``(from_skill -> to_skill)`` pairs are therefore encoded as the
+#: ``Sk<Name>Ranks>=5`` references, which :func:`_extract_skill_synergies`
+#: parses to seed ``skill_synergies`` rather than transcribing PHB p65 by hand.
+_SKILL_SYNERGY_SHEET = "Skills"
+_SKILL_SYNERGY_COLUMN_INDEX = 198  # column GQ ("Synergy"), 0-based
+_SKILL_DATA_START_ROW = 5  # 0-based; data rows begin below the header
+_SKILL_SYNERGY_BONUS = 2
+_SKILL_SYNERGY_SOURCE_RE = re.compile(r"Sk([A-Za-z]+)Ranks>=5\)")
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -121,6 +134,16 @@ def _sheet_rows(
         blank = 0
         collected.append(row)
     return collected
+
+
+def _normalize_skill_key(name: str) -> str:
+    """Return a casefolded, punctuation-free key for matching skill names.
+
+    Used to reconcile the workbook's ``Sk<Name>Ranks`` formula identifiers (e.g.
+    ``KnowledgeArcana``) with their canonical skill names (e.g.
+    ``Knowledge (arcana)``).
+    """
+    return re.sub(r"[^a-z0-9]", "", name.casefold())
 
 
 def _strip_footnotes(name: str) -> str:
@@ -849,6 +872,127 @@ def _extract_spells_known(wb: object) -> list[tuple[object, ...]]:
 
 
 # ---------------------------------------------------------------------------
+# Psionic progression (workbook "Psionic Info" sheet, Excel tab 7b)
+# ---------------------------------------------------------------------------
+
+_PSIONIC_SHEET = "Psionic Info"
+
+#: Each manifesting class's key ability is encoded on the "Psionic Info" sheet
+#: as a formula in column G (``=PIInt``/``=PIWis``/``=PICha``) referencing the
+#: relevant ability named range.  Reading the formula text is the only way to
+#: recover the mapping, since a value-only load resolves these to a score.
+_PSIONIC_KEY_ABILITY_TOKENS: dict[str, str] = {
+    "PIInt": "INT",
+    "PIWis": "WIS",
+    "PICha": "CHA",
+}
+
+
+def _optional_int(value: object) -> int | None:
+    """Return *value* as an int, or ``None`` if it is blank/non-integral."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if math.isfinite(value) and value.is_integer() else None
+    text = str(value).strip()
+    if text == "":
+        return None
+    try:
+        numeric = float(text)
+    except (TypeError, ValueError):
+        return None
+    return int(numeric) if math.isfinite(numeric) and numeric.is_integer() else None
+
+
+def _psionic_key_abilities(grid: list[tuple[object, ...]]) -> dict[str, str]:
+    """Map each manifesting class to its key ability via column G formulas.
+
+    Reads the class roster in cells ``A4:A12`` of the "Psionic Info" sheet and
+    classifies each by the ability named range referenced in column G.
+    """
+    abilities: dict[str, str] = {}
+    for row in grid:
+        if len(row) < 7:
+            continue
+        name, formula = row[0], row[6]
+        if not isinstance(name, str) or not isinstance(formula, str):
+            continue
+        cls = name.strip()
+        if not cls:
+            continue
+        for token, ability in _PSIONIC_KEY_ABILITY_TOKENS.items():
+            if token in formula:
+                abilities[cls] = ability
+                break
+    return abilities
+
+
+def _is_psionic_block_header(row: tuple[object, ...], col: int) -> bool:
+    """Return whether the sub-header at *col* marks a PP/Day progression block."""
+    if col + 1 >= len(row):
+        return False
+    level = row[col]
+    pp = row[col + 1]
+    return (
+        isinstance(level, str)
+        and level.strip().lower().startswith("level")
+        and isinstance(pp, str)
+        and pp.strip() == "PP/Day"
+    )
+
+
+def _extract_psionic_progression(wb: object) -> list[tuple[object, ...]]:
+    """Extract per-class psionic power-point progressions from the workbook.
+
+    The "Psionic Info" sheet lays out one ``Level``/``PP/Day``/``Known`` block
+    per manifesting class (Excel tab 7b).  Returns ``(class_name, key_ability,
+    manifester_level, power_points, powers_known)`` tuples transcribed directly
+    from those blocks.  Must be read from a formula-mode workbook so the
+    key-ability formulas in column G are available.
+    """
+    ws = wb[_PSIONIC_SHEET]  # type: ignore[index]
+    grid = [tuple(r) for r in ws.iter_rows(values_only=True)]  # type: ignore[attr-defined]
+    abilities = _psionic_key_abilities(grid)
+
+    rows: list[tuple[object, ...]] = []
+    for r_idx, row in enumerate(grid):
+        for c_idx, cell in enumerate(row):
+            cls = cell.strip() if isinstance(cell, str) else ""
+            if cls not in abilities:
+                continue
+            if r_idx + 1 >= len(grid) or not _is_psionic_block_header(
+                grid[r_idx + 1], c_idx
+            ):
+                continue
+            key_ability = abilities[cls]
+            for d_idx in range(r_idx + 2, len(grid)):
+                data = grid[d_idx]
+                level = _optional_int(data[c_idx]) if c_idx < len(data) else None
+                if level is None:
+                    break  # blank separator terminates the block
+                power_points = (
+                    _optional_int(data[c_idx + 1]) if c_idx + 1 < len(data) else None
+                )
+                powers_known = (
+                    _optional_int(data[c_idx + 2]) if c_idx + 2 < len(data) else None
+                )
+                rows.append(
+                    (
+                        cls,
+                        key_ability,
+                        level,
+                        power_points or 0,
+                        powers_known or 0,
+                    )
+                )
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Workbook table registry
 #
 # ``columns`` lists the destination columns (in tuple order).  ``unique_by``
@@ -1336,6 +1480,63 @@ def seed_weapon_damage(
         logger.warning(
             "weapon_damage: %d row(s) skipped – matrix may be incomplete", skipped
         )
+
+
+def seed_psionic_progression(
+    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+) -> None:
+    """Seed the *psionic_progression* table from the "Psionic Info" sheet.
+
+    Replaces the table in full with the per-class power-point-per-day and
+    powers-known progressions transcribed from the workbook (Excel tab 7b),
+    including each class's key ability.  The workbook is loaded in formula mode
+    so the key-ability formulas in column G are readable.  If the workbook is
+    missing the function logs a warning and leaves the table untouched.
+    """
+    workbook_path = Path(workbook_path)
+    if not workbook_path.exists():
+        logger.warning(
+            "Workbook not found at %s – skipping psionic_progression",
+            workbook_path,
+        )
+        return
+
+    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
+    try:
+        rows = _extract_psionic_progression(wb)
+    except KeyError:
+        logger.warning(
+            "Sheet %r not found in workbook – skipping psionic_progression",
+            _PSIONIC_SHEET,
+        )
+        return
+    finally:
+        wb.close()
+
+    if not rows:
+        logger.warning(
+            "No psionic_progression rows extracted from workbook – "
+            "leaving table untouched"
+        )
+        return
+
+    conn.execute("DELETE FROM psionic_progression")
+    inserted = 0
+    skipped = 0
+    for values in rows:
+        try:
+            conn.execute(
+                "INSERT INTO psionic_progression "
+                "(class_name, key_ability, manifester_level, power_points, "
+                "powers_known) VALUES (?, ?, ?, ?, ?)",
+                values,
+            )
+            inserted += 1
+        except sqlite3.Error as exc:
+            logger.debug("Skipping psionic_progression row %r: %s", values, exc)
+            skipped += 1
+    conn.commit()
+    logger.info("psionic_progression: inserted %d rows, skipped %d", inserted, skipped)
 
 
 def _load_medium_weapon_damage(conn: sqlite3.Connection) -> dict[int, str]:
@@ -1877,6 +2078,113 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _extract_skill_synergies(wb: object) -> list[tuple[object, ...]]:
+    """Extract the unconditional ``(from_skill, to_skill)`` synergy pairs.
+
+    Parses the "Synergy" column (GQ) on the workbook's "Skills" sheet: each
+    cell's formula references ``Sk<Name>Ranks>=5`` for every source skill that
+    grants the row's skill a +2 synergy bonus (PHB p65).  The source skills are
+    mapped back to their canonical names (as seeded into the ``skills`` table),
+    and the row's own skill name is the bonus target.
+
+    Returns ``(from_skill, to_skill, bonus, condition)`` tuples with a ``None``
+    condition, so only the always-on synergies are seeded; circumstance-specific
+    synergies are handled elsewhere in the workbook and are intentionally
+    excluded from this flat table.
+    """
+    ws = wb[_SKILL_SYNERGY_SHEET]  # type: ignore[index]
+    sheet_rows = _sheet_rows(ws, _SKILL_DATA_START_ROW)
+
+    # Map each skill's ``Sk<Name>Ranks`` key back to its canonical name so the
+    # formula references can be resolved to seeded skill names.
+    name_by_key: dict[str, str] = {}
+    for row in sheet_rows:
+        raw_name = _col(row, "A")
+        if not raw_name or raw_name.upper() == "SKILL NAME":
+            continue
+        name = _strip_footnotes(raw_name)
+        if name:
+            name_by_key.setdefault(_normalize_skill_key(name), name)
+
+    extracted: list[tuple[object, ...]] = []
+    for row in sheet_rows:
+        raw_name = _col(row, "A")
+        if not raw_name or raw_name.upper() == "SKILL NAME":
+            continue
+        to_skill = _strip_footnotes(raw_name)
+        formula = (
+            row[_SKILL_SYNERGY_COLUMN_INDEX]
+            if len(row) > _SKILL_SYNERGY_COLUMN_INDEX
+            else None
+        )
+        if not (to_skill and isinstance(formula, str)):
+            continue
+        compact_formula = formula.replace(" ", "")
+        for match in _SKILL_SYNERGY_SOURCE_RE.finditer(compact_formula):
+            from_skill = name_by_key.get(_normalize_skill_key(match.group(1)))
+            if not from_skill:
+                logger.warning(
+                    "Unknown synergy source %r for skill %r", match.group(1), to_skill
+                )
+                continue
+            extracted.append((from_skill, to_skill, _SKILL_SYNERGY_BONUS, None))
+    return extracted
+
+
+def seed_skill_synergies(
+    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+) -> None:
+    """Seed the *skill_synergies* table from the workbook "Synergy" column.
+
+    The pairs are parsed from cell formulas (see :func:`_extract_skill_synergies`),
+    so the workbook is opened with ``data_only=False`` to expose them.  If the
+    workbook is missing the function logs a warning and leaves the table
+    untouched.
+    """
+    workbook_path = Path(workbook_path)
+    if not workbook_path.exists():
+        logger.warning(
+            "Workbook not found at %s – skipping skill_synergies",
+            workbook_path,
+        )
+        return
+
+    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
+    try:
+        rows = _extract_skill_synergies(wb)
+    except KeyError:
+        logger.warning(
+            "Sheet %r not found in workbook – skipping skill_synergies",
+            _SKILL_SYNERGY_SHEET,
+        )
+        return
+    finally:
+        wb.close()
+
+    if not rows:
+        logger.warning(
+            "No skill_synergies rows extracted from workbook – leaving table untouched"
+        )
+        return
+
+    conn.execute("DELETE FROM skill_synergies")
+    inserted = 0
+    skipped = 0
+    for values in rows:
+        try:
+            conn.execute(
+                "INSERT INTO skill_synergies (from_skill, to_skill, bonus, condition) "
+                "VALUES (?, ?, ?, ?)",
+                values,
+            )
+            inserted += 1
+        except sqlite3.Error as exc:
+            logger.debug("Skipping skill_synergies row %r: %s", values, exc)
+            skipped += 1
+    conn.commit()
+    logger.info("skill_synergies: inserted %d rows, skipped %d", inserted, skipped)
+
+
 def seed_familiar_bonuses(conn: sqlite3.Connection) -> None:
     """Insert the standard-familiar master-bonus rows into ``familiar_bonuses``.
 
@@ -2100,6 +2408,8 @@ def seed_all(
         seed_classes(conn, data_dir)
         seed_class_spellcasting_info(conn, workbook_path, workbook=wb)
         seed_workbook(conn, workbook_path, workbook=wb)
+        seed_skill_synergies(conn, workbook_path)
+        seed_psionic_progression(conn, workbook_path)
     finally:
         if wb is not None:
             wb.close()

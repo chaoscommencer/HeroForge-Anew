@@ -57,6 +57,18 @@ def seeded_repo(tmp_path: Path) -> GameDataRepository:
             [("Sorcerer", 1, 0, 4), ("Sorcerer", 1, 1, 2)],
         )
         conn.executemany(
+            "INSERT INTO psionic_progression "
+            "(class_name, key_ability, manifester_level, power_points) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("Psion", "INT", 0, 0),
+                ("Psion", "INT", 1, 2),
+                ("Psion", "INT", 2, 6),
+                ("Wilder", "CHA", 0, 0),
+                ("Wilder", "CHA", 1, 2),
+            ],
+        )
+        conn.executemany(
             "INSERT INTO incarnum_abilities (name, description) VALUES (?, ?)",
             [
                 ("Airstep Sandals", "You may step through air."),
@@ -210,6 +222,30 @@ class TestSpells:
     def test_spells_known(self, seeded_repo: GameDataRepository) -> None:
         known = seeded_repo.spells_known("Sorcerer")
         assert [(s.spell_level, s.count) for s in known] == [(0, 4), (1, 2)]
+
+
+class TestPsionicProgressions:
+    def test_builds_manifester_info_per_class(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        progressions = seeded_repo.psionic_progressions()
+        assert set(progressions) == {"Psion", "Wilder"}
+        assert progressions["Psion"].key_ability == "INT"
+        assert progressions["Wilder"].key_ability == "CHA"
+
+    def test_pp_per_day_indexed_by_manifester_level(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        psion = seeded_repo.psionic_progressions()["Psion"]
+        # Levels 0-2 seeded as 0/2/6, indexed positionally.
+        assert psion.pp_per_day == (0, 2, 6)
+
+    def test_empty_when_no_data(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "empty.db"
+        conn = initialize_database(db_path)
+        conn.close()
+        repo = GameDataRepository(db_path)
+        assert repo.psionic_progressions() == {}
 
 
 class TestIncarnumAbilities:

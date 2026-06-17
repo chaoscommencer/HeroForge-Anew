@@ -33,6 +33,7 @@ from heroforge.logic.familiar import (
     FamiliarMasterAbility,
     describe_bonus,
 )
+from heroforge.logic.psionics import ManifesterInfo
 from heroforge.models.race import Race
 from heroforge.models.template import Template
 
@@ -838,6 +839,35 @@ class GameDataRepository:
         rows = self._query("SELECT name FROM deities ORDER BY name")
         return [r["name"] for r in rows]
 
+    def psionic_progressions(self) -> dict[str, ManifesterInfo]:
+        """Return manifesting-class metadata keyed by class name.
+
+        Builds a :class:`~heroforge.logic.psionics.ManifesterInfo` per class
+        from the ``psionic_progression`` table (seeded from the workbook's
+        "Psionic Info" sheet), with ``pp_per_day`` indexed by manifester level.
+        Feeds :func:`heroforge.logic.psionics.compute_psionics`.
+        """
+        rows = self._query(
+            "SELECT class_name, key_ability, manifester_level, power_points "
+            "FROM psionic_progression ORDER BY class_name, manifester_level"
+        )
+        key_ability: dict[str, str] = {}
+        pp_by_level: dict[str, dict[int, int]] = {}
+        for r in rows:
+            cls = r["class_name"]
+            key_ability[cls] = r["key_ability"]
+            pp_by_level.setdefault(cls, {})[r["manifester_level"]] = r["power_points"]
+
+        result: dict[str, ManifesterInfo] = {}
+        for cls, levels in pp_by_level.items():
+            max_level = max(levels)
+            pp_per_day = tuple(levels.get(i, 0) for i in range(max_level + 1))
+            result[cls] = ManifesterInfo(
+                key_ability=key_ability[cls], pp_per_day=pp_per_day
+            )
+        return result
+
+    # ------------------------------------------------------------------
     # Equipment catalogues (armor, weapons, magic items, enhancements)
     # ------------------------------------------------------------------
 
@@ -1063,6 +1093,26 @@ class GameDataRepository:
                 prerequisite=r["prerequisite"] or "",
             )
             for r in rows
+        ]
+
+    def list_skill_synergies(self) -> list[tuple[str, str, int]]:
+        """Return the *unconditional* skill-synergy pairs from the database.
+
+        Each entry is ``(from_skill, to_skill, bonus)``: a character with 5+
+        ranks in ``from_skill`` gains ``bonus`` on ``to_skill`` (PHB p65
+        specifies +2 for all standard synergies).  Only rows without a
+        ``condition`` are returned, so circumstance-specific synergies never
+        feed a flat total.  Returns an empty list when the database is
+        unavailable or the ``skill_synergies`` table is unseeded.
+        """
+        rows = self._query(
+            "SELECT from_skill, to_skill, bonus FROM skill_synergies "
+            "WHERE condition IS NULL OR condition = '' ORDER BY id"
+        )
+        return [
+            (r["from_skill"], r["to_skill"], int(r["bonus"] or 2))
+            for r in rows
+            if r["from_skill"] and r["to_skill"]
         ]
 
     def list_creatures(self, sources: Iterable[str] | None = None) -> list[Creature]:

@@ -339,6 +339,12 @@ class TestSeedAllWorkbookLoading:
                 "workbook", workbook
             ),
         )
+        monkeypatch.setattr(
+            seed, "seed_skill_synergies", lambda *_args, **_kwargs: None
+        )
+        monkeypatch.setattr(
+            seed, "seed_psionic_progression", lambda *_args, **_kwargs: None
+        )
 
         seed.seed_all(db_path=db_path, data_dir=data_dir, workbook_path=workbook_path)
 
@@ -473,6 +479,154 @@ class TestWeaponDamageMatrix:
         assert count == 0
         assert "weapon_damage table has no Medium rows" in caplog.text
         assert "skipping weapon seeding" in caplog.text
+
+
+class TestSkillSynergies:
+    """The ``skill_synergies`` table is parsed from the workbook Synergy column."""
+
+    @pytest.fixture(scope="class")
+    def synergy_db(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        from heroforge.db.schema import initialize_database
+
+        db_path = tmp_path_factory.mktemp("skill_synergies") / "syn.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_skill_synergies(conn)
+        finally:
+            conn.close()
+        return db_path
+
+    @requires_workbook
+    def test_table_is_populated(self, synergy_db: Path) -> None:
+        conn = get_connection(synergy_db)
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM skill_synergies").fetchone()[0]
+        finally:
+            conn.close()
+        assert count > 0
+
+    @requires_workbook
+    def test_known_pairs_are_seeded(self, synergy_db: Path) -> None:
+        # Pairs transcribed from the workbook "Skills" sheet Synergy formulas.
+        conn = get_connection(synergy_db)
+        try:
+            pairs = {
+                (r["from_skill"], r["to_skill"])
+                for r in conn.execute(
+                    "SELECT from_skill, to_skill FROM skill_synergies"
+                )
+            }
+        finally:
+            conn.close()
+        assert ("Tumble", "Balance") in pairs
+        assert ("Tumble", "Jump") in pairs
+        assert ("Knowledge (arcana)", "Spellcraft") in pairs
+        assert ("Handle Animal", "Ride") in pairs
+
+    @requires_workbook
+    def test_pairs_are_unconditional(self, synergy_db: Path) -> None:
+        conn = get_connection(synergy_db)
+        try:
+            conditioned = conn.execute(
+                "SELECT COUNT(*) FROM skill_synergies "
+                "WHERE condition IS NOT NULL AND condition != ''"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        assert conditioned == 0
+
+    def test_missing_workbook_leaves_table_untouched(self, tmp_path: Path) -> None:
+        from heroforge.db.schema import initialize_database
+
+        db_path = tmp_path / "no_workbook.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_skill_synergies(conn, tmp_path / "does_not_exist.xlsm")
+            count = conn.execute("SELECT COUNT(*) FROM skill_synergies").fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 0
+
+
+class TestPsionicProgression:
+    """The ``psionic_progression`` table replaces the in-code PP catalogue."""
+
+    @pytest.fixture(scope="class")
+    def psionic_db(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        from heroforge.db.schema import initialize_database
+
+        db_path = tmp_path_factory.mktemp("psionic") / "psi.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_psionic_progression(conn)
+        finally:
+            conn.close()
+        return db_path
+
+    @requires_workbook
+    def test_all_manifesting_classes_seeded(self, psionic_db: Path) -> None:
+        conn = get_connection(psionic_db)
+        try:
+            classes = {
+                r["class_name"]
+                for r in conn.execute(
+                    "SELECT DISTINCT class_name FROM psionic_progression"
+                )
+            }
+        finally:
+            conn.close()
+        assert classes == {
+            "Ardent",
+            "Divine Mind",
+            "Fist of Zuoken",
+            "Lurk",
+            "Psion",
+            "Psychic Warrior",
+            "War Mind",
+            "Wilder",
+            "Zerth Cenobite",
+        }
+
+    @requires_workbook
+    def test_key_ability_and_power_points_match_workbook(
+        self, psionic_db: Path
+    ) -> None:
+        conn = get_connection(psionic_db)
+        try:
+            rows = {
+                (r["class_name"], r["manifester_level"]): (
+                    r["key_ability"],
+                    r["power_points"],
+                )
+                for r in conn.execute(
+                    "SELECT class_name, key_ability, manifester_level, power_points "
+                    "FROM psionic_progression"
+                )
+            }
+        finally:
+            conn.close()
+        # Psion (INT) at manifester level 10 grants 88 base PP per the sheet.
+        assert rows[("Psion", 10)] == ("INT", 88)
+        # Wilder is a Charisma manifester sharing the primary progression.
+        assert rows[("Wilder", 10)] == ("CHA", 88)
+        # Psychic Warrior (WIS) tops the secondary progression at 127 PP.
+        assert rows[("Psychic Warrior", 20)] == ("WIS", 127)
+        # Fist of Zuoken caps at manifester level 10 (71 PP).
+        assert rows[("Fist of Zuoken", 10)] == ("WIS", 71)
+
+    def test_missing_workbook_leaves_table_untouched(self, tmp_path: Path) -> None:
+        from heroforge.db.schema import initialize_database
+
+        db_path = tmp_path / "no_workbook.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_psionic_progression(conn, tmp_path / "does_not_exist.xlsm")
+            count = conn.execute("SELECT COUNT(*) FROM psionic_progression").fetchone()[
+                0
+            ]
+        finally:
+            conn.close()
+        assert count == 0
 
 
 class TestHelpers:
