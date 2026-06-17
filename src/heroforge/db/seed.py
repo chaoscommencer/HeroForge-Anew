@@ -1179,7 +1179,9 @@ def _seed_workbook_table(
 
 
 def seed_workbook(
-    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+    conn: sqlite3.Connection,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
+    workbook: object | None = None,
 ) -> None:
     """Seed every workbook-backed table from the reference ``.xlsm`` file.
 
@@ -1188,21 +1190,26 @@ def seed_workbook(
     :data:`_WORKBOOK_TABLES`.  If the workbook is missing the function logs a
     warning and returns without modifying any tables.
     """
-    workbook_path = Path(workbook_path)
-    if not workbook_path.exists():
-        logger.warning(
-            "Workbook not found at %s – skipping workbook-backed tables",
-            workbook_path,
-        )
-        return
+    wb = workbook
+    owns_workbook = wb is None
+    if wb is None:
+        workbook_path = Path(workbook_path)
+        if not workbook_path.exists():
+            logger.warning(
+                "Workbook not found at %s – skipping workbook-backed tables",
+                workbook_path,
+            )
+            return
+        logger.info("Loading workbook %s", workbook_path.name)
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
 
-    logger.info("Loading workbook %s", workbook_path.name)
-    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
     try:
         for spec in _WORKBOOK_TABLES:
             _seed_workbook_table(conn, wb, spec)
     finally:
-        wb.close()
+        if owns_workbook:
+            assert wb is not None
+            wb.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1270,7 +1277,9 @@ def _extract_weapon_damage(wb: object) -> list[tuple[object, ...]]:
 
 
 def seed_weapon_damage(
-    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+    conn: sqlite3.Connection,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
+    workbook: object | None = None,
 ) -> None:
     """Seed the *weapon_damage* table from the workbook damage-by-size matrix.
 
@@ -1279,15 +1288,17 @@ def seed_weapon_damage(
     constant.  If the workbook is missing the function logs a warning and leaves
     the table untouched.
     """
-    workbook_path = Path(workbook_path)
-    if not workbook_path.exists():
-        logger.warning(
-            "Workbook not found at %s – skipping weapon_damage matrix",
-            workbook_path,
-        )
-        return
-
-    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
+    wb = workbook
+    owns_workbook = wb is None
+    if wb is None:
+        workbook_path = Path(workbook_path)
+        if not workbook_path.exists():
+            logger.warning(
+                "Workbook not found at %s – skipping weapon_damage matrix",
+                workbook_path,
+            )
+            return
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
     try:
         rows = _extract_weapon_damage(wb)
     except KeyError:
@@ -1297,7 +1308,9 @@ def seed_weapon_damage(
         )
         return
     finally:
-        wb.close()
+        if owns_workbook:
+            assert wb is not None
+            wb.close()
 
     if not rows:
         logger.warning(
@@ -1996,6 +2009,7 @@ def _extract_spellcasting_class_data(
 def seed_class_spellcasting_info(
     conn: sqlite3.Connection,
     workbook_path: str | Path = _DEFAULT_WORKBOOK,
+    workbook: object | None = None,
 ) -> None:
     """Update the ``classes`` table with spellcasting ability and caster type.
 
@@ -2014,19 +2028,23 @@ def seed_class_spellcasting_info(
 
     Reference: workbook sheets "Spell Info" and "Spells per Day".
     """
-    workbook_path = Path(workbook_path)
-    if not workbook_path.exists():
-        logger.warning(
-            "Workbook not found at %s – skipping spellcasting class info",
-            workbook_path,
-        )
-        return
-
-    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
+    wb = workbook
+    owns_workbook = wb is None
+    if wb is None:
+        workbook_path = Path(workbook_path)
+        if not workbook_path.exists():
+            logger.warning(
+                "Workbook not found at %s – skipping spellcasting class info",
+                workbook_path,
+            )
+            return
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
     try:
         spellcasting_data = _extract_spellcasting_class_data(wb)
     finally:
-        wb.close()
+        if owns_workbook:
+            assert wb is not None
+            wb.close()
 
     updated = 0
     for class_name, (spellcasting_ability, caster_type) in spellcasting_data.items():
@@ -2067,20 +2085,27 @@ def seed_all(
     """
     db_path = Path(db_path)
     data_dir = Path(data_dir)
+    workbook_path = Path(workbook_path)
 
     logger.info("Seeding database at %s from data dir %s", db_path, data_dir)
     conn = initialize_database(db_path)
+    wb: object | None = None
+    if workbook_path.exists():
+        logger.info("Loading workbook %s", workbook_path.name)
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
 
     try:
-        seed_weapon_damage(conn, workbook_path)
+        seed_weapon_damage(conn, workbook_path, workbook=wb)
         seed_weapons(conn, data_dir)
         seed_creatures(conn, data_dir)
         seed_tables(conn, data_dir)
         seed_familiar_bonuses(conn)
         seed_classes(conn, data_dir)
-        seed_class_spellcasting_info(conn, workbook_path)
-        seed_workbook(conn, workbook_path)
+        seed_class_spellcasting_info(conn, workbook_path, workbook=wb)
+        seed_workbook(conn, workbook_path, workbook=wb)
     finally:
+        if wb is not None:
+            wb.close()
         conn.close()
 
     logger.info("Seeding complete.")

@@ -212,6 +212,59 @@ class TestSpellsTab:
         assert tab._slot_base_labels[1].text() == "2"
         assert tab._slot_total_labels[1].text() == "2"
 
+    def test_slots_column_header_matches_total_values(self, model: object) -> None:
+        from PyQt6.QtWidgets import QLabel
+
+        from heroforge.ui.tabs.spells import SpellsTab
+
+        tab = SpellsTab(model=model)
+        labels = {label.text() for label in tab.findChildren(QLabel)}
+        assert "<b>Total (Base + Bonus)</b>" in labels
+
+    def test_slot_fallback_uses_progression_not_above_class_level(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.spells import SpellsTab
+
+        db_path = model.game_data().db_path
+        assert db_path is not None
+        conn = initialize_database(db_path)
+        try:
+            conn.execute(
+                "INSERT INTO classes (name, is_prestige, hit_die, bab_progression, "
+                "fort_progression, ref_progression, will_progression, "
+                "skill_points_per_level, spellcasting_ability, caster_type, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "Paladin",
+                    0,
+                    10,
+                    "fast",
+                    "good",
+                    "poor",
+                    "poor",
+                    2,
+                    "CHA",
+                    "half",
+                    "PHB",
+                ),
+            )
+            conn.execute(
+                "INSERT INTO spells_per_day (class_name, caster_level, spell_level, slots) "
+                "VALUES (?, ?, ?, ?)",
+                ("Paladin", 4, 1, 1),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        model.character.classes = [("Paladin", 1)]
+        tab = SpellsTab(model=model)
+        tab._class_combo.setCurrentText("Paladin")
+
+        assert tab._slot_base_labels[1].text() == "—"
+        assert tab._slot_total_labels[1].text() == "—"
+
     def test_reflects_database_content_not_hardcoded_list(self, model: object) -> None:
         from heroforge.ui.tabs.spells import SpellsTab
 
@@ -957,7 +1010,7 @@ class TestClassesTab:
         tab = ClassesTab(model=model)
         names = {tab._avail_list.item(i).text() for i in range(tab._avail_list.count())}
         # Only base classes appear; the prestige class is excluded.
-        assert names == {"Fighter", "Wizard"}
+        assert names == {"Cleric", "Fighter", "Wizard"}
         assert "Arcane Archer" not in names
 
     def test_add_class_persists_levels(self, model: object) -> None:

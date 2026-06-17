@@ -119,7 +119,7 @@ class SpellsTab(QWidget):
         hdr = QHBoxLayout()
         hdr.addWidget(QLabel("<b>Level</b>"), 1)
         hdr.addWidget(QLabel("<b>Base</b>"), 1)
-        hdr.addWidget(QLabel("<b>+ Ability Bonus</b>"), 1)
+        hdr.addWidget(QLabel("<b>Total (Base + Bonus)</b>"), 1)
         spd_box_layout.addLayout(hdr)
 
         for lvl in range(10):
@@ -345,15 +345,16 @@ class SpellsTab(QWidget):
             for s in progression
             if s.caster_level == char_cls_level
         }
-        if not base_slots_at_level:
-            # Fall back to the highest available caster level.
-            if progression:
-                best = max(s.caster_level for s in progression)
-                base_slots_at_level = {
-                    s.spell_level: s.count
-                    for s in progression
-                    if s.caster_level == best
-                }
+        if not base_slots_at_level and progression and char_cls_level > 0:
+            eligible_levels = [
+                s.caster_level for s in progression if s.caster_level <= char_cls_level
+            ]
+            if not eligible_levels:
+                return
+            best = max(eligible_levels)
+            base_slots_at_level = {
+                s.spell_level: s.count for s in progression if s.caster_level == best
+            }
 
         # Build base-slot list indexed 0-9.
         base_list = [base_slots_at_level.get(lvl, 0) for lvl in range(10)]

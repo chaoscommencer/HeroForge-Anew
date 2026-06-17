@@ -285,6 +285,68 @@ class TestMissingWorkbook:
         assert count == 0
 
 
+class TestSeedAllWorkbookLoading:
+    def test_seed_all_loads_workbook_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db_path = tmp_path / "seed.db"
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        workbook_path = tmp_path / "reference.xlsm"
+        workbook_path.write_bytes(b"placeholder")
+
+        class _DummyWorkbook:
+            closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        wb = _DummyWorkbook()
+        load_calls: list[str] = []
+
+        def fake_load_workbook(path: str, **_kwargs: object) -> _DummyWorkbook:
+            load_calls.append(path)
+            return wb
+
+        workbook_args: dict[str, object | None] = {}
+
+        monkeypatch.setattr(seed.openpyxl, "load_workbook", fake_load_workbook)
+        monkeypatch.setattr(seed, "seed_weapons", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(seed, "seed_creatures", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(seed, "seed_tables", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            seed, "seed_familiar_bonuses", lambda *_args, **_kwargs: None
+        )
+        monkeypatch.setattr(seed, "seed_classes", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            seed,
+            "seed_weapon_damage",
+            lambda _conn, _path, workbook=None: workbook_args.setdefault(
+                "weapon", workbook
+            ),
+        )
+        monkeypatch.setattr(
+            seed,
+            "seed_class_spellcasting_info",
+            lambda _conn, _path, workbook=None: workbook_args.setdefault(
+                "spellcasting", workbook
+            ),
+        )
+        monkeypatch.setattr(
+            seed,
+            "seed_workbook",
+            lambda _conn, _path, workbook=None: workbook_args.setdefault(
+                "workbook", workbook
+            ),
+        )
+
+        seed.seed_all(db_path=db_path, data_dir=data_dir, workbook_path=workbook_path)
+
+        assert len(load_calls) == 1
+        assert workbook_args == {"weapon": wb, "spellcasting": wb, "workbook": wb}
+        assert wb.closed
+
+
 class TestWeaponDamageMatrix:
     """The size-aware ``weapon_damage`` matrix replaces the in-code constant."""
 
