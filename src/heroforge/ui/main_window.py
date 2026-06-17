@@ -395,25 +395,22 @@ class CharacterModel(QObject):
                 catalog.setdefault(name, _armor_item_from_entry(entry))
 
         caps: list[int] = []
-        armor_total = 0
-        shield_total = 0
         for entry in self._character.equipment:
             slot = entry.get("slot")
             if slot not in ("Body Armor", "Shield"):
                 continue
+            # Treat a missing 'equipped' key as True for backward compatibility
+            # with saves that pre-date the column; skip items that are explicitly
+            # unequipped (equipped=0/False).
+            if not entry.get("equipped", True):
+                continue
             item = catalog.get(entry.get("item_name", ""))
             if item is None:
                 continue
-            if slot == "Body Armor":
-                armor_total += item.ac_bonus
-            else:
-                shield_total += item.ac_bonus
+            bonus_type = "armor" if slot == "Body Armor" else "shield"
+            bonuses.append((bonus_type, item.ac_bonus))
             if item.max_dex_bonus is not None:
                 caps.append(item.max_dex_bonus)
-        if armor_total:
-            bonuses.append(("armor", armor_total))
-        if shield_total:
-            bonuses.append(("shield", shield_total))
 
         max_dex = min(caps) if caps else None
         return bonuses, max_dex

@@ -386,6 +386,42 @@ class TestArmorTab:
         assert stats.touch_ac == 11
         assert stats.flat_footed_ac == 20
 
+    def test_unequipped_armor_excluded_from_ac(self, model: object) -> None:
+        """Unequipped items must not contribute to the derived AC."""
+        model.character.ability_scores["DEX"] = 10
+        model.character.equipment = [
+            {
+                "slot": "Body Armor",
+                "item_name": "Full Plate",
+                "equipped": False,  # explicitly unequipped
+            },
+        ]
+
+        stats = model.derived_stats()
+
+        # No armor bonus; bare AC = 10 + 0 DEX mod = 10
+        assert stats.armor_class == 10
+
+    def test_duplicate_same_type_armor_uses_max_not_sum(self, model: object) -> None:
+        """Two Body Armor entries (same type) should use the max bonus, not sum.
+
+        PHB p139: armor bonuses are the same bonus type and do not stack.
+        ``aggregate_ac_bonuses`` takes the highest value for same-type bonuses.
+        """
+        model.character.ability_scores["DEX"] = 10
+        model.character.equipment = [
+            # A higher-bonus suit in the Body Armor slot
+            {"slot": "Body Armor", "item_name": "Full Plate", "equipped": True},
+            # A duplicate / second-body-armor entry (data anomaly)
+            {"slot": "Body Armor", "item_name": "Leather", "equipped": True},
+        ]
+
+        stats = model.derived_stats()
+
+        # aggregate_ac_bonuses: max("armor" bonuses) = max(8, 2) = 8; not 8+2=10
+        # 10 + 8 (plate, the higher armor bonus) = 18
+        assert stats.armor_class == 18
+
     def test_equipment_persisted_with_slots(self, model: object) -> None:
         from heroforge.ui.tabs.armor import ArmorTab
 
