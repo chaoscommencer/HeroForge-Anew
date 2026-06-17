@@ -75,6 +75,15 @@ def seeded_db(tmp_path: Path) -> Path:
             "VALUES (?, ?, ?, ?)",
             [("Wizard", 1, 0, 3), ("Wizard", 1, 1, 2), ("Cleric", 1, 0, 4)],
         )
+        conn.executemany(
+            "INSERT INTO skill_synergies (from_skill, to_skill, bonus, condition) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("Tumble", "Balance", 2, None),
+                ("Tumble", "Jump", 2, None),
+                ("Knowledge (arcana)", "Spellcraft", 2, None),
+            ],
+        )
         conn.commit()
     finally:
         conn.close()
@@ -480,6 +489,120 @@ class TestDerivedStatsRealtime:
 
         # (3 + 2) Listen doubled by Natural Link = 10.
         assert tab._table.item(listen_row, 6).text() == "10"
+
+    def test_synergy_bonus_applied_at_five_ranks(self, model: object) -> None:
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        tab = SkillsTab(model=model)
+        tumble_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Tumble")
+        balance_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Balance")
+        jump_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Jump")
+
+        # Below the 5-rank threshold there is no synergy yet.
+        tab._rank_spinboxes[tumble_row].setValue(4.0)
+        assert tab._table.item(balance_row, 6).text() == "0"
+
+        # At 5 ranks Tumble grants +2 Balance and +2 Jump (PHB p65).
+        tab._rank_spinboxes[tumble_row].setValue(5.0)
+        assert tab._table.item(balance_row, 6).text() == "2"
+        assert tab._table.item(jump_row, 6).text() == "2"
+
+        # Synergy pairs stored with the workbook's lower-case Knowledge naming
+        # still match the tab's title-cased rows (case-insensitive mapping).
+        arcana_row = next(
+            i for i, s in enumerate(_SKILLS) if s[0] == "Knowledge (Arcana)"
+        )
+        spellcraft_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Spellcraft")
+        tab._rank_spinboxes[arcana_row].setValue(5.0)
+        assert tab._table.item(spellcraft_row, 6).text() == "2"
+
+    def test_armor_check_penalty_applied_to_relevant_skills(
+        self, empty_model: object
+    ) -> None:
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        tab = SkillsTab(model=empty_model)
+        climb_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Climb")
+        appraise_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Appraise")
+
+        empty_model.character.custom_armor = [
+            {"name": "Full Plate", "type": "Armor", "check_penalty": -6}
+        ]
+        empty_model.character.equipment = [
+            {"item_name": "Full Plate", "slot": "Body Armor", "quantity": 1}
+        ]
+        empty_model.derived_stats_changed.emit()
+
+        # Climb takes the armor check penalty; Appraise does not.
+        assert tab._table.item(climb_row, 6).text() == "-6"
+        assert tab._table.item(appraise_row, 6).text() == "0"
+
+    def test_max_ranks_enforced_for_class_and_cross_class(
+        self, empty_model: object
+    ) -> None:
+        from PyQt6.QtCore import Qt
+
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        tab = SkillsTab(model=empty_model)
+        climb_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Climb")
+
+        empty_model.character.classes = [("Fighter", 5)]
+        empty_model.class_levels_changed.emit()
+
+        # No seeded class skills → cross-class cap = (5 + 3) / 2 = 4.0.
+        assert tab._rank_spinboxes[climb_row].maximum() == 4.0
+        tab._rank_spinboxes[climb_row].setValue(8.0)
+        assert tab._rank_spinboxes[climb_row].value() == 4.0
+
+        # Marking the skill as a class skill raises the cap to level + 3 = 8.
+        tab._table.item(climb_row, 2).setCheckState(Qt.CheckState.Checked)
+        assert tab._rank_spinboxes[climb_row].maximum() == 8.0
+        tab._rank_spinboxes[climb_row].setValue(8.0)
+        assert tab._rank_spinboxes[climb_row].value() == 8.0
+
+    def test_skill_point_budget_tracked_and_displayed(self, model: object) -> None:
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        tab = SkillsTab(model=model)
+
+        # Fighter 1 (2 base, +0 INT): first level quadrupled → 8 points available.
+        model.character.classes = [("Fighter", 1)]
+        model.class_levels_changed.emit()
+        assert tab._points_label.text() == "8 / 8"
+
+        # Spend a cross-class rank: 1 rank costs 2 points → 6 remaining.
+        balance_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Balance")
+        tab._rank_spinboxes[balance_row].setValue(1.0)
+        assert tab._points_label.text() == "6 / 8"
+
+    def test_class_skills_derived_from_character_classes(self, model: object) -> None:
+        import sqlite3
+
+        from PyQt6.QtCore import Qt
+
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        # Seed a class skill for Fighter into the shared game database.
+        conn = sqlite3.connect(model.game_data().db_path)
+        try:
+            conn.execute(
+                "INSERT INTO class_skills (class_name, skill_name) VALUES (?, ?)",
+                ("Fighter", "Climb"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        tab = SkillsTab(model=model)
+        climb_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Climb")
+        jump_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Jump")
+
+        model.character.classes = [("Fighter", 3)]
+        model.class_levels_changed.emit()
+
+        assert tab._table.item(climb_row, 2).checkState() == Qt.CheckState.Checked
+        assert tab._table.item(jump_row, 2).checkState() == Qt.CheckState.Unchecked
 
 
 class TestCharacterSheetTabRealData:

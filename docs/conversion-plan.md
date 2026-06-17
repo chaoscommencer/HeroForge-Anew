@@ -204,7 +204,7 @@ The following tables map directly from workbook sheets or existing data files. C
 | `feats` | Feats sheet + Tables sheet | Including epic and fighter bonus feats |
 | `feat_prerequisites` | Feats sheet | Parsed prerequisite tree |
 | `skills` | Skills sheet | Skill name, key ability, trained-only flag |
-| `skill_synergies` | Tables sheet | Pairs of (skill, skill, bonus) |
+| `skill_synergies` | Skills sheet (Synergy column) | Pairs of (skill, skill, bonus) |
 | `skill_tricks` | Skill Tricks sheet | Cost, description, prerequisites |
 | `spells` | Spell Info sheet | All spells across all classes |
 | `spells_per_day` | Spells per Day sheet | By class and level |

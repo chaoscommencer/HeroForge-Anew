@@ -5,6 +5,11 @@ Reference: PHB Chapter 4, p62–105.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
+
+# Number of ranks a skill must reach before it grants a synergy bonus (PHB p65).
+SYNERGY_RANK_THRESHOLD = 5
+
 
 def max_ranks(character_level: int, is_class_skill: bool) -> float:
     """Return the maximum skill ranks for a character of *character_level*.
@@ -66,29 +71,29 @@ def cross_class_rank_cost() -> int:
 
 def skill_synergy_bonus(
     qualifying_skills: list[str],
-    synergies: list[tuple[str, str]],
+    synergies: list[tuple[str, str, int]],
 ) -> dict[str, int]:
     """Calculate synergy bonuses granted by *qualifying_skills*.
 
-    A skill grants a +2 synergy bonus to another skill when the character
-    has 5 or more ranks in the source skill.  Only skills in
+    A skill grants a synergy bonus (typically +2) to another skill when the
+    character has 5 or more ranks in the source skill.  Only skills in
     *qualifying_skills* (i.e. those with ≥ 5 ranks) are considered.
 
     Reference: PHB p65.
 
     Args:
         qualifying_skills: Skill names for which the character has ≥ 5 ranks.
-        synergies:         List of ``(from_skill, to_skill)`` pairs from the
-                           ``skill_synergies`` database table.
+        synergies:         List of ``(from_skill, to_skill, bonus)`` triples
+                           from the ``skill_synergies`` database table.
 
     Returns:
         Mapping of skill name → total synergy bonus applicable to that skill.
     """
     bonuses: dict[str, int] = {}
     qualifying_set = set(qualifying_skills)
-    for from_skill, to_skill in synergies:
+    for from_skill, to_skill, bonus in synergies:
         if from_skill in qualifying_set:
-            bonuses[to_skill] = bonuses.get(to_skill, 0) + 2
+            bonuses[to_skill] = bonuses.get(to_skill, 0) + bonus
     return bonuses
 
 
@@ -122,3 +127,92 @@ def skill_points_per_level(
     if is_first_level:
         per_level *= 4
     return per_level
+
+
+def qualifying_synergy_skills(ranks_by_skill: Mapping[str, float]) -> list[str]:
+    """Return the skills with enough ranks to grant a synergy bonus.
+
+    Reference: PHB p65.  A skill grants its +2 synergy bonus only once the
+    character has :data:`SYNERGY_RANK_THRESHOLD` (5) or more ranks in it.
+
+    Args:
+        ranks_by_skill: Mapping of skill name → ranks invested.
+
+    Returns:
+        The names of the skills with ≥ 5 ranks, in the iteration order of
+        *ranks_by_skill*.
+    """
+    return [
+        skill
+        for skill, ranks in ranks_by_skill.items()
+        if ranks >= SYNERGY_RANK_THRESHOLD
+    ]
+
+
+def skill_points_spent(
+    ranks_by_skill: Mapping[str, float],
+    class_skills: Iterable[str],
+) -> float:
+    """Return the total skill points spent for the given rank allocation.
+
+    Reference: PHB p62.  A class skill costs 1 skill point per rank, while a
+    cross-class skill costs 2 points per rank (i.e. one point buys half a rank).
+    Cross-class half-ranks are therefore costed at :func:`cross_class_rank_cost`
+    per whole rank.
+
+    Args:
+        ranks_by_skill: Mapping of skill name → ranks invested.
+        class_skills:   The names of the character's class skills.
+
+    Returns:
+        The total number of skill points spent (may be fractional when
+        cross-class half-ranks are used).
+    """
+    class_skill_set = set(class_skills)
+    total = 0.0
+    for skill, ranks in ranks_by_skill.items():
+        if skill in class_skill_set:
+            total += ranks
+        else:
+            total += ranks * cross_class_rank_cost()
+    return total
+
+
+def total_skill_points(
+    class_levels: Iterable[tuple[str, int]],
+    base_points_by_class: Mapping[str, int],
+    int_mod: int,
+    is_human: bool = False,
+    *,
+    default_base: int = 2,
+) -> int:
+    """Return the total skill-point budget earned across all class levels.
+
+    Reference: PHB p62.  Each class level grants
+    :func:`skill_points_per_level` points based on that class's base value and
+    the character's Intelligence modifier; the very first character level
+    (the first level of the first class taken) is quadrupled.
+
+    Args:
+        class_levels:         ``(class_name, levels)`` tuples in the order the
+                              classes were taken (see ``Character.classes``).
+        base_points_by_class: Mapping of class name → base skill points per
+                              level (e.g. 2 for Fighter, 8 for Rogue).
+        int_mod:              The character's Intelligence modifier.
+        is_human:             Whether the character is human (+1 point/level).
+        default_base:         Base points to assume for a class missing from
+                              *base_points_by_class* (the PHB minimum is 2).
+
+    Returns:
+        The total skill-point budget available to spend on ranks.
+    """
+    total = 0
+    is_first_level = True
+    for class_name, levels in class_levels:
+        base = base_points_by_class.get(class_name, default_base)
+        for _ in range(max(0, levels)):
+            total += skill_points_per_level(
+                base, int_mod, is_first_level=is_first_level, is_human=is_human
+            )
+            is_first_level = False
+    return total
