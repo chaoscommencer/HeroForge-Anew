@@ -206,7 +206,7 @@ Copilot should use these terms consistently in variable names, comments, and doc
 - Reference the original workbook and data files in comments when porting logic.
 - Add or update tests whenever logic is added or modified.
 - Use SQLite transactions for all multi-statement writes.
-- For now (while development is pre-release), treat older SQLite schemas and legacy `.hfc` save-file compatibility as out of scope unless explicitly requested.
+- For now (while development is pre-release), treat older SQLite schemas and legacy `.hfc` save-file compatibility and migration development as out of scope unless explicitly requested.
 - Ask for clarification (via inline `TODO` or PR comment) when a VBA formula is ambiguous.
 - When Python files have been added or modified, invoke the `pytest`, `black`, and `ruff` skills (in that order) before finishing the task, follow their instructions, and fix all issues so every check exits 0 (matching the CI workflow checks).
 - If a request conflicts with, or would break from, the rules, architecture, or conventions established in this file, propose appropriate revisions to this instructions file as part of the response rather than silently deviating from it.
