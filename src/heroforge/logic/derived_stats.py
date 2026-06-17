@@ -250,6 +250,7 @@ def compute_derived_stats(
     base_speed: int = 30,
     armor_type: str | None = None,
     speed_ignores_encumbrance: bool = False,
+    attack_bonuses: Mapping[str, int] | None = None,
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
@@ -310,12 +311,16 @@ def compute_derived_stats(
                        (:func:`heroforge.logic.equipment.encumbered_speed`).
         speed_ignores_encumbrance: Keep the full speed in armor and under load
                        (e.g. a dwarf, PHB p14).
+        attack_bonuses: Optional miscellaneous attack-roll bonuses keyed
+                       ``"melee"`` and ``"ranged"`` (e.g. an active marshal aura).
+                       Missing keys are treated as ``0``.
 
     Returns:
         An immutable :class:`DerivedStats` snapshot.
     """
     progressions = progressions or {}
     save_bonuses = save_bonuses or {}
+    attack_bonuses = attack_bonuses or {}
     adjustments = ability_adjustments or {}
     buff_net, buff_ac = _buff_bonus_sources(character)
     base_scores = character.ability_scores
@@ -394,10 +399,16 @@ def compute_derived_stats(
         size=size,
         base_attack_bonus=bab,
         melee_attack=combat.melee_attack(
-            bab, str_mod, size=size, misc=buff_net.get("melee", 0)
+            bab,
+            str_mod,
+            size=size,
+            misc=buff_net.get("melee", 0) + attack_bonuses.get("melee", 0),
         ),
         ranged_attack=combat.ranged_attack(
-            bab, dex_mod, size=size, misc=buff_net.get("ranged", 0)
+            bab,
+            dex_mod,
+            size=size,
+            misc=buff_net.get("ranged", 0) + attack_bonuses.get("ranged", 0),
         ),
         grapple=(
             combat.grapple_modifier(bab, str_mod, size=size)

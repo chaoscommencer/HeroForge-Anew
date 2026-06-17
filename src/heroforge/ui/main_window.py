@@ -29,7 +29,9 @@ from heroforge.db.character_repo import (
 )
 from heroforge.db.data_access import ArmorItem, GameDataRepository
 from heroforge.env_paths import dir_from_env
+from heroforge.logic import marshal as marshal_logic
 from heroforge.logic import race_templates
+from heroforge.logic.ability_scores import ability_modifier
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
 from heroforge.logic.equipment import DEFAULT_LAND_SPEED, speed_ignores_encumbrance
 from heroforge.logic.familiar import (
@@ -66,6 +68,7 @@ from heroforge.ui.tabs.lg_game_log import LGGameLogTab
 from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
 from heroforge.ui.tabs.magic_equipment import MagicEquipmentTab
 from heroforge.ui.tabs.maneuvers_and_stances import ManeuversAndStancesTab
+from heroforge.ui.tabs.marshal_auras import MarshalAurasTab
 from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
 from heroforge.ui.tabs.psionics import PsionicsTab
 from heroforge.ui.tabs.race_and_templates import RaceAndTemplatesTab
@@ -191,6 +194,13 @@ class CharacterModel(QObject):
     buff_toggled = pyqtSignal(str, str, bool)
     """Emitted when a buff is enabled/disabled. Args: (buff_id, buff_name, active)."""
 
+    marshal_auras_changed = pyqtSignal()
+    """Emitted when the character's active marshal auras change.
+
+    Bridged to :attr:`derived_stats_changed` so dependent tabs recalculate the
+    saving-throw, Armor Class, and attack bonuses the active auras contribute.
+    """
+
     character_loaded = pyqtSignal(int)
     """Emitted after a character file is loaded from disk.
 
@@ -246,6 +256,7 @@ class CharacterModel(QObject):
         self.skill_ranks_changed.connect(self._on_skill_ranks_changed)
         self.feat_added.connect(self._on_feat_added)
         self.buff_toggled.connect(self._on_buff_toggled)
+        self.marshal_auras_changed.connect(self.derived_stats_changed)
         self.class_levels_changed.connect(self.derived_stats_changed)
         self.character_reset.connect(self.derived_stats_changed)
         self.character_loaded.connect(lambda _id: self.derived_stats_changed.emit())
@@ -389,10 +400,19 @@ class CharacterModel(QObject):
         # active Tome of Battle stances on character.maneuvers and the always-on
         # effects of bound vestiges on character.vestiges are stacked together
         # with active buffs inside compute_derived_stats (PHB p176).
+        #
+        # Apply the bonuses of any active marshal auras (Miniatures Handbook
+        # p11–12).  Minor auras scale with the marshal's Charisma modifier and
+        # major auras with the marshal's marshal level, so both are computed
+        # from the same race/template-adjusted scores used above.
+        aura_bonuses = self._marshal_aura_bonuses(adjustments)
+        save_bonuses = self._merge_save_bonuses(familiar_saves, aura_bonuses)
+        ac_bonuses = ac_bonuses + list(aura_bonuses.ac_bonuses)
+
         return compute_derived_stats(
             self._character,
             progressions,
-            save_bonuses=familiar_saves,
+            save_bonuses=save_bonuses,
             ability_adjustments=adjustments,
             level_adjustment=level_adjustment,
             size=size,
@@ -404,6 +424,7 @@ class CharacterModel(QObject):
             base_speed=base_speed,
             armor_type=armor_type,
             speed_ignores_encumbrance=speed_ignores_encumbrance(self._character.race),
+            attack_bonuses=aura_bonuses.attack_bonuses,
         )
 
     def _weight_catalog(self) -> dict[str, float]:
@@ -431,6 +452,45 @@ class CharacterModel(QObject):
             if name and weight:
                 weights[name] = weight
         return weights
+
+    def _marshal_aura_bonuses(
+        self, ability_adjustments: Mapping[str, int]
+    ) -> marshal_logic.AuraBonuses:
+        """Aggregate the derived-stat bonuses from the character's active auras.
+
+        The marshal's Charisma modifier (sizing minor auras) is taken from the
+        race/template-adjusted Charisma score, and the marshal level (sizing
+        major auras) is the total levels in the *Marshal* class.
+        """
+        active = [
+            entry.get("aura_name", "")
+            for entry in self._character.marshal_auras
+            if entry.get("active") and entry.get("aura_name")
+        ]
+        if not active:
+            return marshal_logic.AuraBonuses()
+        cha_score = max(
+            1,
+            int(self._character.ability_scores.get("CHA", 10))
+            + int(ability_adjustments.get("CHA", 0)),
+        )
+        cha_mod = ability_modifier(cha_score)
+        marshal_level = sum(
+            lvl
+            for name, lvl in self._character.classes
+            if name.strip().lower() == "marshal"
+        )
+        return marshal_logic.apply_aura_bonuses(active, cha_mod, marshal_level)
+
+    @staticmethod
+    def _merge_save_bonuses(
+        familiar_saves: Mapping[str, int], aura_bonuses: marshal_logic.AuraBonuses
+    ) -> dict[str, int]:
+        """Combine familiar and marshal-aura saving-throw bonuses by save key."""
+        merged: dict[str, int] = dict(familiar_saves)
+        for key, value in aura_bonuses.save_bonuses.items():
+            merged[key] = merged.get(key, 0) + value
+        return merged
 
     def _armor_class_sources(
         self, natural_armor: int, worn_armor: Sequence[tuple[str, ArmorItem]]
@@ -622,6 +682,7 @@ class MainWindow(QMainWindow):
         ("Buffs", BuffsTab),
         ("Soulmelds", SoulmeldsTab),
         ("Binder Vestiges", BinderVestigesTab),
+        ("Marshal Auras", MarshalAurasTab),
         ("Spells", SpellsTab),
         ("Psionics", PsionicsTab),
         ("Animal Companion", AnimalCompanionTab),
