@@ -159,6 +159,14 @@ def seeded_repo(tmp_path: Path) -> GameDataRepository:
                 ("Fighter", 2, "Bonus Feat", "A fighter gains a bonus feat."),
             ],
         )
+        conn.executemany(
+            "INSERT INTO prestige_class_prerequisites "
+            "(class_name, prerequisite) VALUES (?, ?)",
+            [
+                ("Arcane Archer", "+6 BAB"),
+                ("Arcane Archer", "Point Blank Shot"),
+            ],
+        )
         conn.commit()
     finally:
         conn.close()
@@ -587,6 +595,21 @@ class TestClasses:
     ) -> None:
         names = [c.name for c in seeded_repo.list_classes(include_prestige=True)]
         assert names == ["Arcane Archer", "Fighter", "Wizard"]
+
+    def test_list_prestige_classes(self, seeded_repo: GameDataRepository) -> None:
+        prestige = seeded_repo.list_prestige_classes()
+        assert [c.name for c in prestige] == ["Arcane Archer"]
+        assert prestige[0].is_prestige is True
+
+    def test_prestige_class_prerequisites(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        prereqs = seeded_repo.prestige_class_prerequisites()
+        assert prereqs == {"Arcane Archer": ["+6 BAB", "Point Blank Shot"]}
+
+    def test_prestige_class_prerequisites_missing_db(self) -> None:
+        repo = GameDataRepository(None)
+        assert repo.prestige_class_prerequisites() == {}
 
     def test_list_classes_fields(self, seeded_repo: GameDataRepository) -> None:
         fighter = next(c for c in seeded_repo.list_classes() if c.name == "Fighter")
