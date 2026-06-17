@@ -5,6 +5,61 @@ Reference: PHB Chapter 10 (magic), p178–183.
 
 from __future__ import annotations
 
+# ---------------------------------------------------------------------------
+# Standard D&D 3.5 spellcasting lookup tables
+# ---------------------------------------------------------------------------
+
+#: Maps standard class names to the key ability score used for spellcasting.
+#: Used to determine bonus spell slots and spell save DCs.
+#: Reference: PHB Chapter 3 (class descriptions) and PHB p. 8.
+SPELLCASTING_ABILITIES: dict[str, str] = {
+    # Core PHB full casters
+    "Cleric": "WIS",
+    "Druid": "WIS",
+    "Sorcerer": "CHA",
+    "Wizard": "INT",
+    # Core PHB partial / three-quarter casters
+    "Bard": "CHA",
+    "Paladin": "WIS",
+    "Ranger": "WIS",
+    # Supplemental full casters (Complete Arcane / Complete Divine / etc.)
+    "Favored Soul": "CHA",
+    "Archivist": "INT",
+    "Dread Necromancer": "CHA",
+    "Healer": "WIS",
+    "Spirit Shaman": "WIS",
+    "Wu Jen": "INT",
+    "Warmage": "INT",
+    "Hexblade": "INT",
+    "Shugenja": "WIS",
+}
+
+#: Maps standard class names to caster-type strings accepted by
+#: :func:`caster_level`.  Classes absent from this dict are treated as
+#: non-casters (contributing 0 to the caster level total).
+#: Reference: PHB Chapter 3 class descriptions.
+CASTER_TYPES: dict[str, str] = {
+    # Full casters
+    "Cleric": "full",
+    "Druid": "full",
+    "Sorcerer": "full",
+    "Wizard": "full",
+    "Favored Soul": "full",
+    "Archivist": "full",
+    "Dread Necromancer": "full",
+    "Healer": "full",
+    "Spirit Shaman": "full",
+    "Wu Jen": "full",
+    # Three-quarter casters
+    "Bard": "three_quarter",
+    "Warmage": "three_quarter",
+    "Hexblade": "three_quarter",
+    "Shugenja": "three_quarter",
+    # Half casters
+    "Paladin": "half",
+    "Ranger": "half",
+}
+
 
 def caster_level(
     class_levels: dict[str, int],
