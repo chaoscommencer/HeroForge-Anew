@@ -96,14 +96,19 @@ def _apply_schema_if_needed(
         existing_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(classes)").fetchall()
         }
-        missing_columns = [
-            column
-            for column in ("spellcasting_ability", "caster_type")
-            if column not in existing_columns
-        ]
-        for column in missing_columns:
-            conn.execute(f"ALTER TABLE classes ADD COLUMN {column} TEXT")
-        if missing_columns:
+        column_migrations = {
+            "spellcasting_ability": (
+                "ALTER TABLE classes ADD COLUMN spellcasting_ability TEXT"
+            ),
+            "caster_type": "ALTER TABLE classes ADD COLUMN caster_type TEXT",
+        }
+        applied_migrations = False
+        for column, statement in column_migrations.items():
+            if column in existing_columns:
+                continue
+            conn.execute(statement)
+            applied_migrations = True
+        if applied_migrations:
             conn.commit()
 
 
