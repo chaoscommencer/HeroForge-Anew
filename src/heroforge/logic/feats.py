@@ -143,7 +143,7 @@ def check_prerequisites(
         _chain:                  Internal set of feat names already being
             evaluated higher in the recursion, used to break prerequisite
             cycles.  Callers should not set this.
-        _prereq_map_lower:       Internal case-folded copy of *feat_prereqs*,
+        _prereq_map_lower:       Internal lowercased copy of *feat_prereqs*,
             built once at the top-level call and reused across recursion.
             Callers should not set this.
 
