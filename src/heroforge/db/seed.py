@@ -2004,7 +2004,7 @@ def _read_companion_progression(
                     _safe_int(row[header_col + 1]),
                     _safe_int(row[header_col + 2]),
                     _safe_int(row[header_col + 3]),
-                    str(abilities).strip() if isinstance(abilities, str) else "",
+                    abilities.strip() if isinstance(abilities, str) else "",
                 )
             )
     finally:
