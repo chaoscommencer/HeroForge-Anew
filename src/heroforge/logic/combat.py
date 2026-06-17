@@ -199,7 +199,9 @@ class ArmorClassResult:
 
 # AC bonus types ignored when computing Touch AC (PHB p137): armor, shield and
 # natural-armor bonuses do not apply against touch attacks.
-_TOUCH_EXCLUDED_AC_TYPES: frozenset[str] = frozenset({"armor", "shield", "natural", "natural armor"})
+_TOUCH_EXCLUDED_AC_TYPES: frozenset[str] = frozenset(
+    {"armor", "shield", "natural", "natural armor"}
+)
 
 # AC bonus types that stack with themselves (PHB p150–151).  Every other named
 # bonus type is non-stacking, so only the single largest bonus of that type
