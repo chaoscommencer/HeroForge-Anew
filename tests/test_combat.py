@@ -13,11 +13,18 @@ from heroforge.logic.combat import (
     carrying_capacity,
     damage_bonus,
     flat_footed_ac,
+    format_attack_line,
     grapple_modifier,
     initiative,
+    iterative_attack_count,
+    iterative_attacks,
     melee_attack,
+    off_hand_attacks,
     ranged_attack,
     touch_ac,
+    two_weapon_penalties,
+    weapon_base_dice,
+    weapon_damage,
 )
 
 
@@ -227,3 +234,95 @@ class TestAggregateArmorClass:
         # A negative Dex modifier still applies when flat-footed.
         result = aggregate_armor_class(-1)
         assert result.flat_footed == 9
+
+
+class TestIterativeAttacks:
+    def test_count_low_bab(self) -> None:
+        assert iterative_attack_count(0) == 1
+        assert iterative_attack_count(1) == 1
+        assert iterative_attack_count(5) == 1
+
+    def test_count_thresholds(self) -> None:
+        assert iterative_attack_count(6) == 2
+        assert iterative_attack_count(11) == 3
+        assert iterative_attack_count(16) == 4
+        assert iterative_attack_count(20) == 4
+
+    def test_progression_single_attack(self) -> None:
+        assert iterative_attacks(7, 5) == [7]
+
+    def test_progression_two_attacks(self) -> None:
+        # BAB +6, +2 STR -> first attack +8, second at -5 = +3.
+        assert iterative_attacks(8, 6) == [8, 3]
+
+    def test_progression_four_attacks(self) -> None:
+        assert iterative_attacks(16, 16) == [16, 11, 6, 1]
+
+    def test_progression_handles_zero_bab(self) -> None:
+        assert iterative_attacks(0, 0) == [0]
+
+
+class TestTwoWeaponPenalties:
+    def test_normal(self) -> None:
+        penalties = two_weapon_penalties()
+        assert (penalties.primary, penalties.off_hand) == (-6, -10)
+
+    def test_light_off_hand(self) -> None:
+        penalties = two_weapon_penalties(off_hand_light=True)
+        assert (penalties.primary, penalties.off_hand) == (-4, -8)
+
+    def test_feat_normal_off_hand(self) -> None:
+        penalties = two_weapon_penalties(has_two_weapon_fighting=True)
+        assert (penalties.primary, penalties.off_hand) == (-4, -4)
+
+    def test_feat_light_off_hand(self) -> None:
+        penalties = two_weapon_penalties(
+            off_hand_light=True, has_two_weapon_fighting=True
+        )
+        assert (penalties.primary, penalties.off_hand) == (-2, -2)
+
+
+class TestOffHandAttacks:
+    def test_single_off_hand_attack(self) -> None:
+        assert off_hand_attacks(6) == [6]
+
+    def test_improved_two_weapon_fighting(self) -> None:
+        assert off_hand_attacks(6, improved=True) == [6, 1]
+
+    def test_greater_two_weapon_fighting(self) -> None:
+        assert off_hand_attacks(11, greater=True) == [11, 6, 1]
+
+
+class TestWeaponDamage:
+    def test_base_dice_extraction(self) -> None:
+        assert weapon_base_dice("1d8") == "1d8"
+        assert weapon_base_dice("1d8+3") == "1d8"
+        assert weapon_base_dice("2 D 6") == "2d6"
+
+    def test_positive_modifier(self) -> None:
+        assert weapon_damage("1d8", 3) == "1d8+3"
+
+    def test_negative_modifier(self) -> None:
+        assert weapon_damage("1d8", -1) == "1d8-1"
+
+    def test_zero_modifier(self) -> None:
+        assert weapon_damage("1d8", 0) == "1d8"
+
+    def test_recombines_existing_modifier(self) -> None:
+        # An already-modified string is normalised back to dice + new bonus.
+        assert weapon_damage("1d8+2", 4) == "1d8+4"
+
+    def test_two_handed_str_damage(self) -> None:
+        # 1.5x STR damage applied via damage_bonus then formatted.
+        assert weapon_damage("2d6", damage_bonus(4, two_handed=True)) == "2d6+6"
+
+
+class TestFormatAttackLine:
+    def test_positive_chain(self) -> None:
+        assert format_attack_line([11, 6, 1]) == "+11/+6/+1"
+
+    def test_includes_negative(self) -> None:
+        assert format_attack_line([2, -3]) == "+2/-3"
+
+    def test_single(self) -> None:
+        assert format_attack_line([0]) == "+0"
