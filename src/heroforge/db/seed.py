@@ -18,13 +18,19 @@ import logging
 import math
 import re
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 
 import openpyxl
 
 from heroforge.db.schema import initialize_database
 from heroforge.logging_config import configure_logging
+from heroforge.logic.animal_companion import (
+    COMPANION_PROGRESSION_LABELS,
+    STANDARD_COMPANION_PROGRESSION,
+    CompanionProgression,
+)
 from heroforge.logic.familiar import STANDARD_FAMILIAR_BONUSES
 
 logger = logging.getLogger(__name__)
@@ -2210,6 +2216,220 @@ def seed_familiar_bonuses(conn: sqlite3.Connection) -> None:
     logger.info("Familiar bonuses: inserted/replaced %d rows", inserted)
 
 
+# The progression table sits on the *Animal Companion* sheet under a small block
+# of headings; it is located by scanning for the ``Level`` / ``Bonus HD`` header
+# pair so the seeder is resilient to the exact column the workbook uses.
+_COMPANION_SHEET = "Animal Companion"
+_COMPANION_LEVEL_HEADER = "Level"
+_COMPANION_BONUS_HD_HEADER = "Bonus HD"
+
+
+def _group_companion_levels(
+    levels: Sequence[tuple[int, int, int, int, str]],
+) -> tuple[CompanionProgression, ...]:
+    """Collapse per-level progression rows into PHB tiers.
+
+    Consecutive effective druid levels that share the same bonus HD, natural
+    armor and Str/Dex adjustment form one tier.  The tier's bonus-tricks count is
+    its 1-based ordinal (PHB p36) and its special quality is taken from the first
+    row of the group (the *Abilities* cell), with comma/semicolon separated
+    qualities normalised to a single comma-separated string.
+    """
+    tiers: list[CompanionProgression] = []
+    for level, bonus_hd, nat_armor, ability_adj, special in levels:
+        normalized = ", ".join(
+            part.strip() for part in re.split(r"[;,]", special) if part.strip()
+        )
+        if (
+            tiers
+            and tiers[-1].bonus_hd == bonus_hd
+            and tiers[-1].natural_armor == nat_armor
+            and tiers[-1].ability_adjustment == ability_adj
+        ):
+            prev = tiers[-1]
+            tiers[-1] = replace(
+                prev,
+                max_level=level,
+                special=prev.special or normalized,
+            )
+        else:
+            tiers.append(
+                CompanionProgression(
+                    min_level=level,
+                    max_level=level,
+                    bonus_hd=bonus_hd,
+                    natural_armor=nat_armor,
+                    ability_adjustment=ability_adj,
+                    bonus_tricks=len(tiers) + 1,
+                    special=normalized,
+                )
+            )
+    return tuple(tiers)
+
+
+def _read_companion_progression(
+    workbook_path: str | Path,
+) -> tuple[CompanionProgression, ...]:
+    """Return the companion progression parsed from the workbook.
+
+    Reads the per-level progression table from the *Animal Companion* sheet of
+    ``HeroForge Anew 3.5 v7.4.0.1.xlsm`` (tab 9) and collapses it into tiers via
+    :func:`_group_companion_levels`.  Falls back to the in-code
+    :data:`STANDARD_COMPANION_PROGRESSION` transcription when the workbook is
+    missing, the sheet is absent, or the table cannot be located.
+    """
+    workbook_path = Path(workbook_path)
+    if not workbook_path.exists():
+        logger.warning(
+            "Workbook not found at %s – using in-code companion progression",
+            workbook_path,
+        )
+        return STANDARD_COMPANION_PROGRESSION
+
+    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
+    try:
+        if _COMPANION_SHEET not in wb.sheetnames:
+            logger.warning(
+                "Sheet %r missing – using in-code companion progression",
+                _COMPANION_SHEET,
+            )
+            return STANDARD_COMPANION_PROGRESSION
+
+        ws = wb[_COMPANION_SHEET]
+        header_col: int | None = None
+        levels: list[tuple[int, int, int, int, str]] = []
+        for row in ws.iter_rows(values_only=True):
+            if header_col is None:
+                header_col = _find_companion_header(row)
+                continue
+            level = row[header_col] if header_col < len(row) else None
+            if level is None:
+                continue
+            if header_col + 3 >= len(row):
+                continue
+            if isinstance(level, float):
+                if not level.is_integer():
+                    break
+                level_value = int(level)
+            elif isinstance(level, int):
+                level_value = level
+            else:
+                break
+            abilities = row[header_col + 4] if header_col + 4 < len(row) else None
+            levels.append(
+                (
+                    level_value,
+                    _safe_int(row[header_col + 1]),
+                    _safe_int(row[header_col + 2]),
+                    _safe_int(row[header_col + 3]),
+                    abilities.strip() if isinstance(abilities, str) else "",
+                )
+            )
+    finally:
+        wb.close()
+
+    tiers = _group_companion_levels(levels)
+    if not tiers:
+        logger.warning(
+            "Companion progression table not found on sheet %r – using in-code "
+            "transcription",
+            _COMPANION_SHEET,
+        )
+        return STANDARD_COMPANION_PROGRESSION
+    return tiers
+
+
+def _find_companion_header(row: tuple[object, ...]) -> int | None:
+    """Return the column index of the ``Level`` heading in *row*, or ``None``.
+
+    The progression block starts where ``Level`` is immediately followed by
+    ``Bonus HD``; that pair anchors the table irrespective of the workbook's
+    absolute column position.
+    """
+    for idx, value in enumerate(row):
+        following = row[idx + 1] if idx + 1 < len(row) else None
+        if (
+            isinstance(value, str)
+            and value.strip() == _COMPANION_LEVEL_HEADER
+            and isinstance(following, str)
+            and following.strip() == _COMPANION_BONUS_HD_HEADER
+        ):
+            return idx
+    return None
+
+
+def seed_companion_progression(
+    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+) -> None:
+    """Insert the standard animal-companion progression into the game database.
+
+    The level-based progression (PHB p36) lives in the reference workbook's
+    *Animal Companion* sheet (``HeroForge Anew 3.5 v7.4.0.1.xlsm`` tab 9) as a
+    per-level table, and is read from there via :mod:`openpyxl` rather than from
+    hardcoded values.  When the workbook is missing or its table cannot be parsed
+    the function falls back to
+    :data:`heroforge.logic.animal_companion.STANDARD_COMPANION_PROGRESSION`, which
+    is a faithful offline transcription of the same table.
+
+    The *Animal Companion* tab's row headings come from
+    :data:`heroforge.logic.animal_companion.COMPANION_PROGRESSION_LABELS`.  Both
+    the ``companion_progression`` and ``companion_progression_labels`` tables are
+    upserted so repeated calls are idempotent.
+    """
+    progression = _read_companion_progression(workbook_path)
+
+    tiers = 0
+    for order, tier in enumerate(progression):
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO companion_progression
+                    (min_level, max_level, bonus_hd, natural_armor,
+                     ability_adjustment, bonus_tricks, special, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    tier.min_level,
+                    tier.max_level,
+                    tier.bonus_hd,
+                    tier.natural_armor,
+                    tier.ability_adjustment,
+                    tier.bonus_tricks,
+                    tier.special,
+                    order,
+                ),
+            )
+            tiers += 1
+        except sqlite3.Error as exc:
+            logger.debug(
+                "Skipping companion progression tier %r: %s", tier.min_level, exc
+            )
+
+    labels = 0
+    for order, entry in enumerate(COMPANION_PROGRESSION_LABELS):
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO companion_progression_labels
+                    (field_key, label, sort_order)
+                VALUES (?, ?, ?)
+                """,
+                (entry.field_key, entry.label, order),
+            )
+            labels += 1
+        except sqlite3.Error as exc:
+            logger.debug(
+                "Skipping companion progression label %r: %s", entry.field_key, exc
+            )
+
+    conn.commit()
+    logger.info(
+        "Companion progression: inserted/replaced %d tiers, %d labels",
+        tiers,
+        labels,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -2240,6 +2460,7 @@ def seed_all(
         seed_creatures(conn, data_dir)
         seed_tables(conn, data_dir)
         seed_familiar_bonuses(conn)
+        seed_companion_progression(conn, workbook_path)
         seed_classes(conn, data_dir)
         seed_workbook(conn, workbook_path)
         seed_skill_synergies(conn, workbook_path)

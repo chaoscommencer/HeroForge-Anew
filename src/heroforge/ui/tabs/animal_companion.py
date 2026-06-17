@@ -1,10 +1,16 @@
 """Animal Companion tab for HeroForge-Anew.
 
-Reference: PHB p35 (Druid class feature), p52 (Ranger).  The companion's species
-can be chosen from the seeded ``creatures`` catalogue (auto-filling its ability
-scores), and all fields are persisted to :attr:`Character.companions` as a
-single ``companion_type == "animal"`` entry (detailed stats are serialised into
-the ``notes`` column as JSON so they round-trip through save/load).
+Reference: PHB p35–36 (Druid class feature), p47 (Ranger).  The companion's
+species can be chosen from the seeded ``creatures`` catalogue (auto-filling its
+ability scores), and all fields are persisted to :attr:`Character.companions` as
+a single ``companion_type == "animal"`` entry (detailed stats are serialised
+into the ``notes`` column as JSON so they round-trip through save/load).
+
+When a species is chosen from the catalogue its *base* stats are recorded so the
+level-based progression (bonus Hit Dice, natural armor, Str/Dex adjustments,
+bonus tricks and special qualities – PHB p36) can be applied automatically and
+kept in sync as the master's effective druid level changes.  See
+:mod:`heroforge.logic.animal_companion` for the progression logic.
 """
 
 from __future__ import annotations
@@ -16,6 +22,7 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
     QScrollArea,
@@ -24,6 +31,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from heroforge.logic.animal_companion import (
+    COMPANION_PROGRESSION_LABELS,
+    STANDARD_COMPANION_PROGRESSION,
+    CompanionProgression,
+    apply_progression,
+    companion_progression,
+    cumulative_special_qualities,
+    effective_druid_level,
+)
 from heroforge.ui.tabs._tab_helper import pick_from_catalog
 
 if TYPE_CHECKING:
@@ -31,6 +47,14 @@ if TYPE_CHECKING:
 
 _COMPANION_TYPE = "animal"
 _ABILITIES = ("STR", "DEX", "CON", "INT", "WIS", "CHA")
+
+# Offline fallback for the level-progression row headings, generated from the
+# single structured source so it matches the seeded
+# ``companion_progression_labels`` rows (see
+# ``GameDataRepository.get_companion_progression_labels``).
+_FALLBACK_LABELS: dict[str, str] = {
+    entry.field_key: entry.label for entry in COMPANION_PROGRESSION_LABELS
+}
 
 
 class AnimalCompanionTab(QWidget):
@@ -43,11 +67,48 @@ class AnimalCompanionTab(QWidget):
         self._model = model
         self._loading = False
         self._ability_spins: dict[str, QSpinBox] = {}
+        # The selected species' *base* stats (before progression), recorded when
+        # a species is picked from the catalogue so the level-based progression
+        # can be re-applied whenever the effective druid level changes.
+        self._base: dict[str, object] | None = None
+        # Progression tiers and row headings are read from the seeded game
+        # database (PHB p36); the in-code constants are only an offline fallback
+        # when the database has not been seeded yet.
+        self._progression: tuple[CompanionProgression, ...] = self._load_progression()
+        self._labels: dict[str, str] = self._load_labels()
         self._build_ui()
         if model:
             model.character_reset.connect(self._sync_from_model)
             model.character_loaded.connect(lambda _id: self._sync_from_model())
+            # Re-apply the progression when class levels (and hence the
+            # effective druid level) change.
+            model.class_levels_changed.connect(self._refresh_progression)
             self._sync_from_model()
+
+    def _load_progression(self) -> tuple[CompanionProgression, ...]:
+        """Return the progression tiers from the DB, falling back to the constant.
+
+        The seeded ``companion_progression`` table is the source of truth; the
+        in-code :data:`STANDARD_COMPANION_PROGRESSION` is used only when the
+        database is unavailable or has not been seeded.
+        """
+        if self._model is not None:
+            records = self._model.game_data().get_companion_progression_records()
+            if records:
+                return tuple(records)
+        return STANDARD_COMPANION_PROGRESSION
+
+    def _load_labels(self) -> dict[str, str]:
+        """Return the row headings from the DB, falling back to the constant."""
+        if self._model is not None:
+            labels = self._model.game_data().get_companion_progression_labels()
+            if labels:
+                return labels
+        return dict(_FALLBACK_LABELS)
+
+    def _label(self, field_key: str) -> str:
+        """Return the heading text for *field_key* (DB value or fallback)."""
+        return self._labels.get(field_key, _FALLBACK_LABELS.get(field_key, field_key))
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -85,11 +146,38 @@ class AnimalCompanionTab(QWidget):
         self._hp_spin = QSpinBox()
         self._hp_spin.setRange(0, 9999)
         self._hp_spin.valueChanged.connect(self._on_changed)
+        self._na_spin = QSpinBox()
+        self._na_spin.setRange(0, 99)
+        self._na_spin.valueChanged.connect(self._on_changed)
         self._hd_edit = QLineEdit()
         self._hd_edit.editingFinished.connect(self._on_changed)
         stats_form.addRow("HP:", self._hp_spin)
+        stats_form.addRow("Natural Armor:", self._na_spin)
         stats_form.addRow("Hit Dice:", self._hd_edit)
         inner_layout.addWidget(stats_box)
+
+        # Read-only summary of the level-based progression (PHB p36), driven by
+        # the master's effective druid level.
+        prog_box = QGroupBox("Level Progression")
+        prog_form = QFormLayout(prog_box)
+        self._eff_level_label = QLabel("0")
+        self._bonus_hd_label = QLabel("+0")
+        self._na_adj_label = QLabel("+0")
+        self._ability_adj_label = QLabel("+0")
+        self._bonus_tricks_label = QLabel("0")
+        self._special_label = QLabel("—")
+        self._special_label.setWordWrap(True)
+        prog_form.addRow(
+            f"{self._label('effective_druid_level')}:", self._eff_level_label
+        )
+        prog_form.addRow(f"{self._label('bonus_hd')}:", self._bonus_hd_label)
+        prog_form.addRow(f"{self._label('natural_armor')}:", self._na_adj_label)
+        prog_form.addRow(
+            f"{self._label('ability_adjustment')}:", self._ability_adj_label
+        )
+        prog_form.addRow(f"{self._label('bonus_tricks')}:", self._bonus_tricks_label)
+        prog_form.addRow(f"{self._label('special')}:", self._special_label)
+        inner_layout.addWidget(prog_box)
 
         inner_layout.addStretch()
         scroll.setWidget(inner)
@@ -105,12 +193,23 @@ class AnimalCompanionTab(QWidget):
         notes = {
             "scores": {a: self._ability_spins[a].value() for a in _ABILITIES},
             "hp": self._hp_spin.value(),
+            "natural_armor": self._na_spin.value(),
             # "hd" stores the Hit Dice string (e.g. "3d8+6") shown in the
             # Hit Dice row; it determines HP-per-level and affects CR.
             "hd": self._hd_edit.text().strip(),
         }
+        # Preserve the recorded base species so the progression can be re-applied
+        # after a save/load round trip.
+        if self._base is not None:
+            notes["base"] = self._base
         # Only persist when there's meaningful data to store.
-        if not name and not species and not notes["hd"] and notes["hp"] == 0:
+        if (
+            not name
+            and not species
+            and not notes["hd"]
+            and notes["hp"] == 0
+            and notes["natural_armor"] == 0
+        ):
             return None
         return {
             "companion_type": _COMPANION_TYPE,
@@ -145,13 +244,89 @@ class AnimalCompanionTab(QWidget):
         self._species_edit.setText(name)
         creature = by_name.get(name)
         if creature is not None:
-            self._loading = True
-            for ability, score in creature.ability_scores.items():
-                if ability in self._ability_spins:
-                    self._ability_spins[ability].setValue(score)
-            self._hd_edit.setText(creature.hit_dice)
-            self._loading = False
+            # Record the base species stats so the level-based progression can
+            # be applied (and re-applied as the effective druid level changes).
+            self._base = {
+                "scores": dict(creature.ability_scores),
+                "natural_armor": int(creature.natural_armor),
+                "hd": creature.hit_dice,
+            }
+            self._apply_progression()
+        else:
+            self._base = None
+            self._update_progression_labels(self._effective_level())
         self._sync_to_model()
+
+    # ------------------------------------------------------------------
+    # Level-based progression (PHB p36)
+    # ------------------------------------------------------------------
+
+    def _effective_level(self) -> int:
+        """Return the master's effective druid level for the companion."""
+        if self._model is None:
+            return 0
+        character = self._model.character
+        return effective_druid_level(
+            character.classes, character.feats, character.total_level
+        )
+
+    def _refresh_progression(self) -> None:
+        """Re-apply the progression after the effective druid level changes."""
+        if self._loading:
+            return
+        self._apply_progression()
+        self._sync_to_model()
+
+    def _apply_progression(self) -> None:
+        """Apply the level-based progression onto the recorded base species.
+
+        When no base species has been recorded (manual entry) only the
+        read-only progression summary is refreshed; the user's manually entered
+        stats are left untouched.
+        """
+        level = self._effective_level()
+        self._update_progression_labels(level)
+        base = self._base
+        if base is None:
+            return
+        raw_scores = base.get("scores")
+        base_scores: dict[str, int] = {}
+        if isinstance(raw_scores, dict):
+            for ability, value in raw_scores.items():
+                if isinstance(value, (int, float)):
+                    base_scores[str(ability)] = int(value)
+        raw_na = base.get("natural_armor", 0)
+        base_na = int(raw_na) if isinstance(raw_na, (int, float)) else 0
+        raw_hd = base.get("hd", "")
+        base_hd = raw_hd if isinstance(raw_hd, str) else ""
+        result = apply_progression(
+            base_scores, base_na, base_hd, level, self._progression
+        )
+        self._loading = True
+        for ability, score in result.ability_scores.items():
+            if ability in self._ability_spins:
+                self._ability_spins[ability].setValue(score)
+        self._na_spin.setValue(result.natural_armor)
+        self._hd_edit.setText(result.hit_dice)
+        self._loading = False
+
+    def _update_progression_labels(self, level: int) -> None:
+        """Refresh the read-only progression summary for *level*."""
+        self._eff_level_label.setText(str(level))
+        tier = companion_progression(level, self._progression)
+        if tier is None:
+            self._bonus_hd_label.setText("+0")
+            self._na_adj_label.setText("+0")
+            self._ability_adj_label.setText("+0")
+            self._bonus_tricks_label.setText("0")
+            self._special_label.setText("—")
+            return
+        self._bonus_hd_label.setText(f"+{tier.bonus_hd}")
+        self._na_adj_label.setText(f"+{tier.natural_armor}")
+        self._ability_adj_label.setText(f"+{tier.ability_adjustment}")
+        self._bonus_tricks_label.setText(str(tier.bonus_tricks))
+        qualities = cumulative_special_qualities(level, self._progression)
+        self._special_label.setText(", ".join(qualities) if qualities else "—")
 
     def _sync_from_model(self) -> None:
         self._loading = True
@@ -160,7 +335,9 @@ class AnimalCompanionTab(QWidget):
         for spin in self._ability_spins.values():
             spin.setValue(10)
         self._hp_spin.setValue(0)
+        self._na_spin.setValue(0)
         self._hd_edit.clear()
+        self._base = None
         if self._model is not None:
             for entry in self._model.character.companions:
                 if entry.get("companion_type") != _COMPANION_TYPE:
@@ -176,6 +353,13 @@ class AnimalCompanionTab(QWidget):
                     if ability in self._ability_spins:
                         self._ability_spins[ability].setValue(int(score))
                 self._hp_spin.setValue(int(data.get("hp", 0) or 0))
+                self._na_spin.setValue(int(data.get("natural_armor", 0) or 0))
                 self._hd_edit.setText(str(data.get("hd", "")))
+                base = data.get("base")
+                if isinstance(base, dict):
+                    self._base = base
                 break
         self._loading = False
+        # Re-apply the progression against the recorded base (no-op for manual
+        # entries) and refresh the read-only summary for the current level.
+        self._apply_progression()

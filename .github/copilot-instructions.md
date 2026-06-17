@@ -129,6 +129,7 @@ you at. See `.github/skills/graphify/SKILL.md` for full usage. The generated
 - Provide a migration/seed script (`src/heroforge/db/seed.py`) that reads the source files and populates a fresh SQLite database. The database file should default to `heroforge.db` at the project root (configurable via environment variable or CLI argument).
 - Include appropriate indexes on columns that will be used for lookups (e.g. `class_name`, `race_name`, `feat_name`).
 - Never hard-code data in Python source files; all game data must live in the database.
+- This rule also covers **reference data and UI strings that originate from the workbook/CSV sources** – progression tables, bonus tables, row/column headings, tab and field labels, and similar content. Seed them into the game database directly from the source file when one exists (for example `seed_companion_progression` reads the *Animal Companion* sheet of the reference workbook), or from a single structured source of truth in `src/heroforge/logic/` when no source file exists (mirroring `STANDARD_FAMILIAR_BONUSES`). Expose them through `GameDataRepository`, and fetch them from the database at runtime. Any in-code constant – including a transcription such as `STANDARD_COMPANION_PROGRESSION` – is only an offline fallback for an unseeded database or a missing source file, never the seeding source when the workbook/CSV is available, and never the runtime source.
 
 ### 2. VBA-to-Python Logic Conversion
 
@@ -146,7 +147,7 @@ you at. See `.github/skills/graphify/SKILL.md` for full usage. The generated
 - The main window (`src/heroforge/ui/main_window.py`) should host a `QTabWidget` containing all tab pages.
 - Use Qt signals/slots to keep the UI reactive – avoid polling or direct model mutation from within widgets.
 - Apply a consistent style: use Qt stylesheets defined in `src/heroforge/ui/styles/` rather than inline style strings.
-- All string literals displayed in the UI must be defined as constants or loaded from a resource file, not scattered through widget code.
+- All string literals displayed in the UI must be defined as constants or loaded from a resource file, not scattered through widget code. Labels and headings that come from the workbook/CSV sources must be seeded into the game database and read through `GameDataRepository` (see §1), with an in-code constant only as an offline fallback.
 
 ### 4. General Coding Conventions
 
