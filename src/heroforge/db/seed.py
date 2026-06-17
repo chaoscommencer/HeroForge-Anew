@@ -1902,57 +1902,134 @@ def seed_familiar_bonuses(conn: sqlite3.Connection) -> None:
     logger.info("Familiar bonuses: inserted/replaced %d rows", inserted)
 
 
-# D&D 3.5 spellcasting class data (PHB Chapter 3 and supplement class descriptions).
-# Keyed by class name; value is (spellcasting_ability, caster_type).
-# This data is authoritative reference material from the rulebooks and is
-# stored here so it can be seeded into the ``classes`` table rather than
-# remaining as hardcoded Python constants in the logic layer.
-_SPELLCASTING_CLASS_DATA: dict[str, tuple[str, str]] = {
-    # Full casters – PHB
-    "Cleric": ("WIS", "full"),
-    "Druid": ("WIS", "full"),
-    "Sorcerer": ("CHA", "full"),
-    "Wizard": ("INT", "full"),
-    # Three-quarter / partial casters – PHB
-    "Bard": ("CHA", "three_quarter"),
-    # Half casters – PHB
-    "Paladin": ("WIS", "half"),
-    "Ranger": ("WIS", "half"),
-    # Full casters – supplements (Complete Arcane / Complete Divine / etc.)
-    "Favored Soul": ("CHA", "full"),
-    "Archivist": ("INT", "full"),
-    "Dread Necromancer": ("CHA", "full"),
-    "Healer": ("WIS", "full"),
-    "Spirit Shaman": ("WIS", "full"),
-    "Wu Jen": ("INT", "full"),
-    # Three-quarter casters – supplements
-    "Warmage": ("INT", "three_quarter"),
-    "Hexblade": ("INT", "three_quarter"),
-    "Shugenja": ("WIS", "three_quarter"),
-}
+# ---------------------------------------------------------------------------
+# Spellcasting class data extraction from the reference workbook
+# ---------------------------------------------------------------------------
+
+# Column indices in the "Spells per Day" sheet that identify the caster
+# progression archetype for a class.  These are fixed across all sections of
+# the sheet and determined by the original workbook layout:
+#   col 1  – Bard-like archetype (limited spell levels, ≤ 6th) → three_quarter
+#   col 9  – Cleric-like archetype (full 9 spell levels, 0–9)  → full
+#   col 20 – Paladin-like archetype (CL column + 4 spell levels) → half
+# Col 31 holds the "Standard Prestige Good/Poor" archetypes, which are not
+# mapped to a caster type here.
+_SPD_PARTIAL_CASTER_COL: int = 1
+_SPD_FULL_CASTER_COL: int = 9
+_SPD_HALF_CASTER_COL: int = 20
+
+# Strings that appear in the "Spells per Day" header rows but are NOT
+# individual class names (archetype labels and sub-header tokens).
+_SPD_NON_CLASS_HEADERS: frozenset[str] = frozenset(
+    {
+        "CL",
+        "Standard Prestige Good",
+        "Standard Prestige Poor",
+    }
+)
 
 
-def seed_class_spellcasting_info(conn: sqlite3.Connection) -> None:
+def _extract_spellcasting_class_data(
+    wb: object,
+) -> dict[str, tuple[str, str]]:
+    """Extract spellcasting ability and caster type for each class in *wb*.
+
+    Reads two sheets from the reference workbook:
+
+    * **"Spell Info"** – column 0 holds the full class name; column 7 holds
+      the spellcasting ability key (``'Wis'``, ``'Int'``, ``'Cha'``, …).
+      Values are upper-cased before storage (e.g. ``'WIS'``).
+
+    * **"Spells per Day"** – class names appear as section headers in fixed
+      column positions; the column position identifies the caster archetype:
+      col 1 → ``'three_quarter'``, col 9 → ``'full'``, col 20 → ``'half'``.
+
+    Only classes that appear in *both* sheets are returned.
+
+    Returns:
+        ``{class_name: (spellcasting_ability, caster_type)}``
+    """
+    sheet_titles = {ws.title for ws in wb.worksheets}  # type: ignore[union-attr]
+
+    # --- Step 1: spellcasting ability from "Spell Info" ---
+    ability_map: dict[str, str] = {}
+    if "Spell Info" in sheet_titles:
+        ws_si = wb["Spell Info"]  # type: ignore[index]
+        for row_idx, row in enumerate(ws_si.iter_rows(values_only=True)):
+            if row_idx < 3:
+                # row 0 = column-number row, row 1 = header, row 2 = sub-header
+                continue
+            class_name = row[0]
+            stat = row[7]  # "Stat" column – e.g. 'Wis', 'Int', 'Cha'
+            if (
+                class_name
+                and stat
+                and isinstance(class_name, str)
+                and isinstance(stat, str)
+            ):
+                ability_map[class_name] = stat.upper()
+
+    # --- Step 2: caster type from "Spells per Day" column positions ---
+    caster_type_map: dict[str, str] = {}
+    if "Spells per Day" in sheet_titles:
+        ws_spd = wb["Spells per Day"]  # type: ignore[index]
+        col_ctype_pairs = (
+            (_SPD_PARTIAL_CASTER_COL, "three_quarter"),
+            (_SPD_FULL_CASTER_COL, "full"),
+            (_SPD_HALF_CASTER_COL, "half"),
+        )
+        for row in ws_spd.iter_rows(values_only=True):
+            for col_idx, ctype in col_ctype_pairs:
+                if col_idx < len(row):
+                    val = row[col_idx]
+                    if isinstance(val, str) and val not in _SPD_NON_CLASS_HEADERS:
+                        caster_type_map[val] = ctype
+
+    # --- Step 3: combine – emit only entries present in both sheets ---
+    return {
+        cls: (ability_map[cls], caster_type_map[cls])
+        for cls in ability_map
+        if cls in caster_type_map
+    }
+
+
+def seed_class_spellcasting_info(
+    conn: sqlite3.Connection,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
+) -> None:
     """Update the ``classes`` table with spellcasting ability and caster type.
 
-    For each known spellcasting class in :data:`_SPELLCASTING_CLASS_DATA` this
-    function sets ``spellcasting_ability`` (``INT``/``WIS``/``CHA``) and
-    ``caster_type`` (``full``/``three_quarter``/``half``) on the matching row.
-    Rows that do not yet exist in ``classes`` are silently skipped so this
-    seeder can safely run before or after :func:`seed_classes`.
+    Reads the reference workbook to extract, for each spellcasting class:
 
-    The data comes from PHB Chapter 3 class descriptions and supplement class
-    entries; it is stored in the database rather than hard-coded in the logic
-    layer so that the application has a single authoritative source of truth.
+    * ``spellcasting_ability`` (e.g. ``'WIS'``, ``'INT'``, ``'CHA'``) – from
+      the ``'Stat'`` column in the workbook's **"Spell Info"** sheet.
+    * ``caster_type`` (``'full'`` / ``'three_quarter'`` / ``'half'``) –
+      inferred from the column position in which the class appears as a
+      section header in the **"Spells per Day"** sheet:
+      col 1 → ``'three_quarter'``, col 9 → ``'full'``, col 20 → ``'half'``.
 
-    Reference: PHB Chapter 3; Complete Arcane, Complete Divine, and other
-    supplement class entries.
+    Rows not yet present in the ``classes`` table are silently skipped so this
+    seeder runs safely before or after :func:`seed_classes`.  If the workbook
+    file is absent the function logs a warning and returns without error.
+
+    Reference: workbook sheets "Spell Info" and "Spells per Day".
     """
+    workbook_path = Path(workbook_path)
+    if not workbook_path.exists():
+        logger.warning(
+            "Workbook not found at %s – skipping spellcasting class info",
+            workbook_path,
+        )
+        return
+
+    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
+    try:
+        spellcasting_data = _extract_spellcasting_class_data(wb)
+    finally:
+        wb.close()
+
     updated = 0
-    for class_name, (
-        spellcasting_ability,
-        caster_type,
-    ) in _SPELLCASTING_CLASS_DATA.items():
+    for class_name, (spellcasting_ability, caster_type) in spellcasting_data.items():
         try:
             result = conn.execute(
                 """
@@ -2001,7 +2078,7 @@ def seed_all(
         seed_tables(conn, data_dir)
         seed_familiar_bonuses(conn)
         seed_classes(conn, data_dir)
-        seed_class_spellcasting_info(conn)
+        seed_class_spellcasting_info(conn, workbook_path)
         seed_workbook(conn, workbook_path)
     finally:
         conn.close()
