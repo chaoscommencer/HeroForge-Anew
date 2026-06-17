@@ -45,10 +45,10 @@ def power_points_per_day(
     for cls, lvl in class_levels.items():
         table = pp_tables.get(cls, [])
         if lvl > 0 and table:
-            idx = min(lvl, len(table) - 1)
-            class_pp = table[idx]
+            capped_level = min(lvl, len(table) - 1)
+            class_pp = table[capped_level]
             # Bonus PP from a high key ability: floor(mod × manifester level ÷ 2).
-            bonus_pp = max(0, key_ability_mod) * lvl // 2
+            bonus_pp = max(0, key_ability_mod) * capped_level // 2
             total += class_pp + bonus_pp
     return total
 

@@ -9,6 +9,7 @@ build options.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
@@ -26,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from heroforge.logic.psionics import PsionicsSummary, compute_psionics
+from heroforge.logic.psionics import ManifesterInfo, PsionicsSummary, compute_psionics
 from heroforge.ui.tabs._tab_helper import pick_from_catalog
 
 if TYPE_CHECKING:
@@ -45,6 +46,7 @@ class PsionicsTab(QWidget):
     ) -> None:
         super().__init__(parent)
         self._model = model
+        self._manifesting_classes: Mapping[str, ManifesterInfo] | None = None
         self._loading = False
         self._auto_apply = False
         self._build_ui()
@@ -116,10 +118,16 @@ class PsionicsTab(QWidget):
         if self._model is None:
             return PsionicsSummary(manifester_level=0, power_points=0)
         character = self._model.character
-        manifesting = self._model.game_data().psionic_progressions()
+        manifesting = self._manifesting_progressions()
         return compute_psionics(
             character.classes, character.ability_scores, manifesting
         )
+
+    def _manifesting_progressions(self) -> Mapping[str, ManifesterInfo]:
+        """Return the static manifesting-class catalogue, fetched once."""
+        if self._manifesting_classes is None and self._model is not None:
+            self._manifesting_classes = self._model.game_data().psionic_progressions()
+        return self._manifesting_classes or {}
 
     def _recalculate(self) -> None:
         """Refresh the manifester level and (when auto) the power-point total.

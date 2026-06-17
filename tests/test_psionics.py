@@ -69,6 +69,12 @@ class TestPowerPointsPerDay:
         }
         assert power_points_per_day({"Fist of Zuoken": 15}, 0, tables) == 71
 
+    def test_level_beyond_table_caps_bonus_by_capped_manifester_level(self) -> None:
+        tables = {
+            "Fist of Zuoken": list(MANIFESTING_CLASSES["Fist of Zuoken"].pp_per_day)
+        }
+        assert power_points_per_day({"Fist of Zuoken": 15}, 4, tables) == 91
+
 
 class TestPsionicClassLevels:
     def test_filters_to_manifesting_classes(self) -> None:

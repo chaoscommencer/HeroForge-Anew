@@ -507,6 +507,31 @@ class TestIncarnumPsionicsManeuvers:
         assert tab._auto_pp.isChecked() is False
         assert tab._total_pp.value() == 50
 
+    def test_manifesting_progressions_are_cached(
+        self, model: object, monkeypatch: object
+    ) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        repo = model.game_data()
+        calls = 0
+        original = repo.psionic_progressions
+
+        def counting_progressions() -> object:
+            nonlocal calls
+            calls += 1
+            return original()
+
+        monkeypatch.setattr(repo, "psionic_progressions", counting_progressions)
+
+        tab = PsionicsTab(model=model)
+        model.character.classes = [("Psion", 5)]
+        model.character.ability_scores["INT"] = 20
+        model.derived_stats_changed.emit()
+        model.derived_stats_changed.emit()
+
+        assert calls == 1
+        assert tab._total_pp.value() == 37
+
     def test_maneuver_and_stance_classified(self, model: object) -> None:
         from heroforge.ui.tabs.maneuvers_and_stances import ManeuversAndStancesTab
 
