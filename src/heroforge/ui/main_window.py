@@ -31,6 +31,7 @@ from heroforge.db.data_access import ArmorItem, GameDataRepository
 from heroforge.env_paths import dir_from_env
 from heroforge.logic import race_templates
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
+from heroforge.logic.equipment import equipment_bonuses
 from heroforge.logic.familiar import (
     STANDARD_FAMILIAR_BONUSES,
     familiar_natural_link,
@@ -356,6 +357,23 @@ class CharacterModel(QObject):
         natural_armor = race.natural_armor if race is not None else 0
         ac_bonuses, max_dex = self._armor_class_sources(natural_armor)
         hp_flat, hp_per_level = self._hit_point_bonuses()
+
+        # Fold in any stat bonuses granted by equipped magic items.  Ability and
+        # save bonuses are merged additively with the race/template and familiar
+        # contributions (different bonus types stack), while AC bonuses join the
+        # other AC sources so cross-source stacking is handled in one place.
+        equip = equipment_bonuses(self._character.equipment)
+        if equip.ability:
+            adjustments = dict(adjustments)
+            for ability, bonus in equip.ability.items():
+                adjustments[ability] = adjustments.get(ability, 0) + bonus
+        if equip.saves:
+            familiar_saves = dict(familiar_saves)
+            for save, bonus in equip.saves.items():
+                familiar_saves[save] = familiar_saves.get(save, 0) + bonus
+        if equip.armor_class:
+            ac_bonuses = list(ac_bonuses) + list(equip.armor_class)
+
         return compute_derived_stats(
             self._character,
             progressions,

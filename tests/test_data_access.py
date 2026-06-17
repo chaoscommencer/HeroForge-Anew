@@ -159,6 +159,15 @@ def seeded_repo(tmp_path: Path) -> GameDataRepository:
                 ("Fighter", 2, "Bonus Feat", "A fighter gains a bonus feat."),
             ],
         )
+        conn.executemany(
+            "INSERT INTO magic_equipment (name, slot, weight, price_gp, source) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                ("Gauntlets of ogre power", "Hand", 2.0, 4000, None),
+                ("Boots of speed", "Feet", 1.0, 12000, "DMG"),
+                ("Ring of protection", "Ring", 0.0, 8000, None),
+            ],
+        )
         conn.commit()
     finally:
         conn.close()
@@ -933,3 +942,25 @@ class TestSpellcastingClassData:
     def test_caster_types_empty_when_no_db(self, tmp_path: Path) -> None:
         repo = GameDataRepository(tmp_path / "missing.db")
         assert repo.get_caster_types() == {}
+
+
+class TestMagicEquipment:
+    def test_list_includes_weight_and_price(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        items = {m.name: m for m in seeded_repo.list_magic_equipment()}
+        assert items["Gauntlets of ogre power"].weight == 2.0
+        assert items["Gauntlets of ogre power"].price_gp == 4000
+        assert items["Gauntlets of ogre power"].slot == "Hand"
+
+    def test_get_magic_item(self, seeded_repo: GameDataRepository) -> None:
+        item = seeded_repo.get_magic_item("Boots of speed")
+        assert item is not None
+        assert item.slot == "Feet"
+        assert item.weight == 1.0
+        assert item.price_gp == 12000
+
+    def test_get_magic_item_missing_returns_none(
+        self, seeded_repo: GameDataRepository
+    ) -> None:
+        assert seeded_repo.get_magic_item("Nonexistent Trinket") is None

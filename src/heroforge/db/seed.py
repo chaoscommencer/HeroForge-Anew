@@ -23,6 +23,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import openpyxl
+from openpyxl.utils import column_index_from_string
 
 from heroforge.db.schema import initialize_database
 from heroforge.logging_config import configure_logging
@@ -421,6 +422,93 @@ def _extract_armor(wb: object) -> list[tuple[object, ...]]:
             )
         )
     return rows
+
+
+#: The "Magic Equipment" sheet lays out one item catalogue per body slot side
+#: by side (see ``docs/conversion-plan.md`` §6.2, sheet *Magic Equipment*).  Each
+#: catalogue is a small column block of ``(item name, weight, slot bonus, market
+#: value)``; the slot-bonus column holds VBA-computed output cells rather than a
+#: seedable per-item value, so only the name, weight and market value are
+#: extracted here.  ``(slot, name_col, weight_col, value_col)`` — the Ring
+#: catalogue has no weight column (rings are weightless), so its weight column is
+#: ``None``.
+_MAGIC_EQUIPMENT_SHEET = "Magic Equipment"
+_MAGIC_EQUIPMENT_FIRST_ROW = 3
+_MAGIC_EQUIPMENT_LAST_ROW = 150
+_MAGIC_EQUIPMENT_SLOTS: tuple[tuple[str, str, str | None, str], ...] = (
+    ("Ring", "U", None, "X"),
+    ("Hand", "Z", "AA", "AC"),
+    ("Head", "AE", "AF", "AH"),
+    ("Face", "AJ", "AK", "AM"),
+    ("Neck", "AO", "AP", "AR"),
+    ("Shoulders", "AT", "AU", "AW"),
+    ("Arm", "AY", "AZ", "BB"),
+    ("Body", "BD", "BE", "BG"),
+    ("Torso", "BI", "BJ", "BL"),
+    ("Waist", "BN", "BO", "BQ"),
+    ("Feet", "BS", "BT", "BV"),
+)
+
+
+def _is_magic_item_name(value: object) -> bool:
+    """Return ``True`` when *value* is a real item name rather than a separator.
+
+    Each slot catalogue is padded with a leading ``(none)`` placeholder and
+    interspersed sourcebook section headers such as ``--Magic Item Compendium--``
+    or ``-- Complete Champion --``.  Those rows (and blanks) are skipped.
+    """
+    if value is None:
+        return False
+    text = str(value).strip()
+    if not text:
+        return False
+    # Section headers start with a hyphen/dash; the "(none)" placeholder and any
+    # parenthetical labels start with "(".
+    return not text.startswith(("-", "\u2013", "\u2014", "("))
+
+
+def _extract_magic_equipment(wb: object) -> list[tuple[object, ...]]:
+    """Extract magic items from the per-slot catalogues on the Magic Equipment
+    sheet.
+
+    Returns ``(name, slot, weight, price_gp, source)`` tuples.  ``source`` is
+    left ``None`` because the catalogues group items by sourcebook via inline
+    header rows (full book titles) rather than the abbreviations used elsewhere;
+    keeping it ``NULL`` ensures the items are never hidden by source filtering.
+    Names are de-duplicated across slots to honour the ``magic_equipment.name``
+    UNIQUE constraint (a handful of items, e.g. energy-resistance variants, are
+    listed under more than one slot).
+    """
+    ws = wb[_MAGIC_EQUIPMENT_SHEET]  # type: ignore[index]
+    rows = list(
+        ws.iter_rows(  # type: ignore[attr-defined]
+            min_row=_MAGIC_EQUIPMENT_FIRST_ROW,
+            max_row=_MAGIC_EQUIPMENT_LAST_ROW,
+            values_only=True,
+        )
+    )
+    extracted: list[tuple[object, ...]] = []
+    seen: set[str] = set()
+    for slot, name_col, weight_col, value_col in _MAGIC_EQUIPMENT_SLOTS:
+        name_idx = column_index_from_string(name_col) - 1
+        weight_idx = column_index_from_string(weight_col) - 1 if weight_col else None
+        value_idx = column_index_from_string(value_col) - 1
+        for row in rows:
+            name_value = row[name_idx] if name_idx < len(row) else None
+            if not _is_magic_item_name(name_value):
+                continue
+            name = str(name_value).strip()
+            if name in seen:
+                continue
+            seen.add(name)
+            weight = (
+                _safe_float(row[weight_idx])
+                if weight_idx is not None and weight_idx < len(row)
+                else 0.0
+            )
+            price = _safe_int(row[value_idx], default=0) if value_idx < len(row) else 0
+            extracted.append((name, slot, weight, price, None))
+    return extracted
 
 
 def _extract_maneuvers(wb: object) -> list[tuple[object, ...]]:
@@ -1144,6 +1232,19 @@ _WORKBOOK_TABLES: tuple[_WorkbookTable, ...] = (
             "source",
         ),
         _extract_armor,
+        unique_by=("name",),
+    ),
+    _WorkbookTable(
+        "magic_equipment",
+        "Magic Equipment",
+        (
+            "name",
+            "slot",
+            "weight",
+            "price_gp",
+            "source",
+        ),
+        _extract_magic_equipment,
         unique_by=("name",),
     ),
     _WorkbookTable(
