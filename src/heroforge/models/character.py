@@ -57,7 +57,12 @@ class Character:
     feats: list[str] = field(default_factory=list)
     skills: dict[str, float] = field(default_factory=dict)
     buffs: list[dict[str, str]] = field(default_factory=list)
-    """Active buffs, each ``{"id": str, "name": str}`` where *id* is a UUID."""
+    """Active buffs.  Each entry has ``{"id": str, "name": str}`` where *id* is a
+    UUID, and may additionally carry the typed bonus it contributes:
+    ``"bonus_type"`` (e.g. ``"morale"``), ``"target_stat"`` (e.g. ``"attack"``,
+    ``"AC"``, ``"fortitude"``, ``"STR"``) and an integer ``"amount"``.  When
+    those fields are present the buff feeds the stacking math in
+    :mod:`heroforge.logic.buffs` and flows into the derived combat/save stats."""
     equipment: list[dict] = field(default_factory=list)  # type: ignore[type-arg]
     languages: list[str] = field(default_factory=list)
     spells_known: list[dict] = field(default_factory=list)  # type: ignore[type-arg]

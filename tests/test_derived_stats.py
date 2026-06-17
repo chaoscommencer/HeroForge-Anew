@@ -193,3 +193,107 @@ class TestAggregatedArmorClass:
         )
         # Only the larger deflection bonus applies: 10 + 3 = 13.
         assert stats.armor_class == 13
+
+
+def _buff(
+    name: str, bonus_type: str, target_stat: str, amount: int
+) -> dict[str, object]:
+    return {
+        "id": name,
+        "name": name,
+        "bonus_type": bonus_type,
+        "target_stat": target_stat,
+        "amount": amount,
+    }
+
+
+class TestBuffApplication:
+    """§8c: active buffs contribute typed, correctly stacking bonuses."""
+
+    def test_attack_buff_applies_to_melee_and_ranged(self) -> None:
+        char = Character()
+        char.buffs = [_buff("Bless", "morale", "attack", 1)]
+        stats = compute_derived_stats(char)
+        assert stats.melee_attack == 1
+        assert stats.ranged_attack == 1
+
+    def test_ability_buff_cascades_into_modifiers(self) -> None:
+        char = _character(STR=14)
+        char.buffs = [_buff("Bull's Strength", "enhancement", "STR", 4)]
+        stats = compute_derived_stats(char)
+        # STR 14 -> 18 (+4 mod) flows into melee, grapple and carry capacity.
+        assert stats.effective_ability_scores["STR"] == 18
+        assert stats.melee_attack == 4
+        assert stats.grapple == 4
+
+    def test_save_buff_applies_to_named_save(self) -> None:
+        char = Character()
+        char.buffs = [_buff("Resistance", "resistance", "fortitude", 1)]
+        stats = compute_derived_stats(char)
+        assert stats.fortitude == 1
+        assert stats.reflex == 0
+        assert stats.will == 0
+
+    def test_all_saves_buff_applies_to_every_save(self) -> None:
+        char = Character()
+        char.buffs = [_buff("Prayer", "luck", "saves", 1)]
+        stats = compute_derived_stats(char)
+        assert stats.fortitude == 1
+        assert stats.reflex == 1
+        assert stats.will == 1
+
+    def test_ac_buff_stacks_with_armor_by_type(self) -> None:
+        char = Character()
+        char.buffs = [_buff("Shield of Faith", "deflection", "AC", 2)]
+        stats = compute_derived_stats(char, ac_bonuses=[("armor", 4)])
+        # 10 + armor 4 + deflection 2 = 16; deflection also helps touch AC.
+        assert stats.armor_class == 16
+        assert stats.touch_ac == 12
+
+    def test_same_type_buffs_do_not_stack(self) -> None:
+        char = Character()
+        char.buffs = [
+            _buff("Bless", "morale", "attack", 1),
+            _buff("Inspire Courage", "morale", "attack", 2),
+        ]
+        stats = compute_derived_stats(char)
+        # Only the larger morale bonus applies.
+        assert stats.melee_attack == 2
+
+    def test_different_type_buffs_stack(self) -> None:
+        char = Character()
+        char.buffs = [
+            _buff("Bless", "morale", "attack", 1),
+            _buff("Greater Magic Weapon", "enhancement", "attack", 2),
+        ]
+        stats = compute_derived_stats(char)
+        assert stats.melee_attack == 3
+
+    def test_dodge_ac_buffs_stack(self) -> None:
+        char = Character()
+        char.buffs = [
+            _buff("Haste", "dodge", "AC", 1),
+            _buff("Expertise", "dodge", "AC", 2),
+        ]
+        stats = compute_derived_stats(char)
+        assert stats.armor_class == 13
+
+    def test_initiative_grapple_and_hp_buffs(self) -> None:
+        char = Character()
+        char.hit_points = 20
+        char.buffs = [
+            _buff("Improved Initiative", "untyped", "initiative", 4),
+            _buff("Enlarge Bonus", "untyped", "grapple", 2),
+            _buff("False Life", "untyped", "hp", 10),
+        ]
+        stats = compute_derived_stats(char)
+        assert stats.initiative == 4
+        assert stats.grapple == 2
+        assert stats.hit_points == 30
+
+    def test_tracking_only_buff_has_no_effect(self) -> None:
+        char = Character()
+        char.buffs = [{"id": "x", "name": "Heroism"}]
+        stats = compute_derived_stats(char)
+        assert stats.melee_attack == 0
+        assert stats.fortitude == 0

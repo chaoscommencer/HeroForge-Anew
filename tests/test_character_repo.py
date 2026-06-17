@@ -224,7 +224,6 @@ class TestSaveLoadRoundTrip:
         char = _sample_character()
         cid = save_character(conn, char)
         loaded = load_character(conn, cid)
-
         assert loaded.name == char.name
         assert loaded.player == char.player
         assert loaded.campaign == char.campaign
@@ -273,6 +272,25 @@ class TestSaveLoadRoundTrip:
         assert loaded.custom_items == char.custom_items
         assert loaded.lg_records == char.lg_records
         assert loaded.game_log == char.game_log
+
+    def test_round_trip_preserves_buff_bonus_fields(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        char = _sample_character()
+        char.buffs = [
+            {
+                "id": str(uuid.uuid4()),
+                "name": "Bless",
+                "bonus_type": "morale",
+                "target_stat": "attack",
+                "amount": 1,
+            },
+            # A plain tracking buff round-trips to exactly {"id", "name"}.
+            {"id": str(uuid.uuid4()), "name": "Heroism"},
+        ]
+        cid = save_character(conn, char)
+        loaded = load_character(conn, cid)
+        assert loaded.buffs == char.buffs
 
     def test_writes_related_rows(self, conn: sqlite3.Connection) -> None:
         char = _sample_character()

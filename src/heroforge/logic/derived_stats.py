@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from heroforge.logic import combat, saving_throws
+from heroforge.logic import buffs, combat, saving_throws
 from heroforge.logic.ability_scores import ability_modifier
 from heroforge.logic.health import hit_dice_sequence, max_hit_points
 
@@ -34,6 +34,95 @@ if TYPE_CHECKING:
     from heroforge.models.character import Character
 
 _ABILITIES = ("STR", "DEX", "CON", "INT", "WIS", "CHA")
+
+# Maps a buff's ``target_stat`` (case-insensitive) onto an ability key so that
+# ability-boosting buffs (e.g. Bull's Strength) feed the effective scores.
+_BUFF_ABILITY_ALIASES: Mapping[str, str] = {
+    "str": "STR",
+    "strength": "STR",
+    "dex": "DEX",
+    "dexterity": "DEX",
+    "con": "CON",
+    "constitution": "CON",
+    "int": "INT",
+    "intelligence": "INT",
+    "wis": "WIS",
+    "wisdom": "WIS",
+    "cha": "CHA",
+    "charisma": "CHA",
+}
+
+# Maps a buff's ``target_stat`` onto the canonical derived-stat keys it affects.
+# A single target may fan out to several keys (e.g. a generic "attack" buff
+# touches both melee and ranged; "saves" touches all three saving throws).
+_BUFF_STAT_ALIASES: Mapping[str, tuple[str, ...]] = {
+    "attack": ("melee", "ranged"),
+    "attacks": ("melee", "ranged"),
+    "attack bonus": ("melee", "ranged"),
+    "to hit": ("melee", "ranged"),
+    "melee": ("melee",),
+    "melee attack": ("melee",),
+    "ranged": ("ranged",),
+    "ranged attack": ("ranged",),
+    "ac": ("ac",),
+    "armor class": ("ac",),
+    "armour class": ("ac",),
+    "armor_class": ("ac",),
+    "fort": ("fort",),
+    "fortitude": ("fort",),
+    "ref": ("ref",),
+    "reflex": ("ref",),
+    "will": ("will",),
+    "save": ("fort", "ref", "will"),
+    "saves": ("fort", "ref", "will"),
+    "saving throw": ("fort", "ref", "will"),
+    "saving throws": ("fort", "ref", "will"),
+    "all saves": ("fort", "ref", "will"),
+    "initiative": ("initiative",),
+    "init": ("initiative",),
+    "grapple": ("grapple",),
+    "hp": ("hp",),
+    "hit points": ("hp",),
+    "hit_points": ("hp",),
+}
+
+
+def _canonical_buff_targets(target: str) -> tuple[str, ...]:
+    """Resolve a buff's free-form ``target_stat`` to canonical stat keys."""
+    key = target.strip().lower()
+    if key in _BUFF_ABILITY_ALIASES:
+        return (_BUFF_ABILITY_ALIASES[key],)
+    return _BUFF_STAT_ALIASES.get(key, ())
+
+
+def _buff_bonus_sources(
+    character: Character,
+) -> tuple[dict[str, int], list[tuple[str, int]]]:
+    """Aggregate the active buffs of *character* into applicable bonuses.
+
+    Returns ``(net, ac_bonuses)`` where *net* maps canonical derived-stat keys
+    (ability scores plus ``melee``/``ranged``/``fort``/``ref``/``will``/
+    ``initiative``/``grapple``/``hp``) to their net bonus after stacking, and
+    *ac_bonuses* is a list of ``(bonus_type, amount)`` pairs routed through the
+    armor-class aggregator so AC buffs stack with armor/shield sources by type.
+
+    Reference: PHB p176 (bonus types and stacking).
+    """
+    records: list[tuple[str, str, str, int]] = []
+    ac_bonuses: list[tuple[str, int]] = []
+    for index, entry in enumerate(getattr(character, "buffs", None) or []):
+        amount = int(entry.get("amount") or 0)
+        target = str(entry.get("target_stat") or "")
+        if amount == 0 or not target.strip():
+            continue
+        bonus_type = str(entry.get("bonus_type") or "untyped").strip() or "untyped"
+        source = str(entry.get("id") or index)
+        for canonical in _canonical_buff_targets(target):
+            if canonical == "ac":
+                ac_bonuses.append((bonus_type, amount))
+            else:
+                records.append((source, bonus_type, canonical, amount))
+    return buffs.aggregate_bonuses(records), ac_bonuses
 
 
 @dataclass(frozen=True)
@@ -105,6 +194,12 @@ def compute_derived_stats(
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
+    The character's active :attr:`~heroforge.models.character.Character.buffs`
+    are aggregated with the bonus-type stacking rules (PHB p176) and folded in:
+    ability-score buffs adjust the effective scores, AC buffs join the
+    armor-class aggregation by type, and the remaining typed bonuses are added to
+    the relevant attack, save, initiative, grapple and hit-point readouts.
+
     Args:
         character:     The active character whose ability scores and class
                        levels drive the calculation.
@@ -144,9 +239,15 @@ def compute_derived_stats(
     progressions = progressions or {}
     save_bonuses = save_bonuses or {}
     adjustments = ability_adjustments or {}
+    buff_net, buff_ac = _buff_bonus_sources(character)
     base_scores = character.ability_scores
     scores = {
-        a: max(1, int(base_scores.get(a, 10)) + int(adjustments.get(a, 0)))
+        a: max(
+            1,
+            int(base_scores.get(a, 10))
+            + int(adjustments.get(a, 0))
+            + buff_net.get(a, 0),
+        )
         for a in _ABILITIES
     }
     mods_dict = {a: ability_modifier(scores[a]) for a in _ABILITIES}
@@ -185,10 +286,12 @@ def compute_derived_stats(
         character.hit_points
         if character.hit_points is not None
         else computed_hit_points
-    )
+    ) + buff_net.get("hp", 0)
 
+    combined_ac_bonuses = list(ac_bonuses or ())
+    combined_ac_bonuses.extend(buff_ac)
     ac = combat.aggregate_armor_class(
-        dex_mod, ac_bonuses or (), size=size, max_dex=max_dex
+        dex_mod, combined_ac_bonuses, size=size, max_dex=max_dex
     )
 
     return DerivedStats(
@@ -199,18 +302,29 @@ def compute_derived_stats(
         effective_character_level=character.total_level + level_adjustment,
         size=size,
         base_attack_bonus=bab,
-        melee_attack=combat.melee_attack(bab, str_mod, size=size),
-        ranged_attack=combat.ranged_attack(bab, dex_mod, size=size),
-        grapple=combat.grapple_modifier(bab, str_mod, size=size),
-        initiative=combat.initiative(dex_mod),
+        melee_attack=combat.melee_attack(
+            bab, str_mod, size=size, misc=buff_net.get("melee", 0)
+        ),
+        ranged_attack=combat.ranged_attack(
+            bab, dex_mod, size=size, misc=buff_net.get("ranged", 0)
+        ),
+        grapple=(
+            combat.grapple_modifier(bab, str_mod, size=size)
+            + buff_net.get("grapple", 0)
+        ),
+        initiative=combat.initiative(dex_mod, misc=buff_net.get("initiative", 0)),
         hit_points=hit_points,
         armor_class=ac.total,
         touch_ac=ac.touch,
         flat_footed_ac=ac.flat_footed,
         fortitude=saving_throws.fortitude(
-            base_fort, con_mod, save_bonuses.get("fort", 0)
+            base_fort, con_mod, save_bonuses.get("fort", 0) + buff_net.get("fort", 0)
         ),
-        reflex=saving_throws.reflex(base_ref, dex_mod, save_bonuses.get("ref", 0)),
-        will=saving_throws.will(base_will, wis_mod, save_bonuses.get("will", 0)),
+        reflex=saving_throws.reflex(
+            base_ref, dex_mod, save_bonuses.get("ref", 0) + buff_net.get("ref", 0)
+        ),
+        will=saving_throws.will(
+            base_will, wis_mod, save_bonuses.get("will", 0) + buff_net.get("will", 0)
+        ),
         carrying_capacity=combat.carrying_capacity(scores["STR"]),
     )
