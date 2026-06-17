@@ -687,6 +687,7 @@ class TestSpellMethods:
     def test_domain_spells_length(self, spell_repo: GameDataRepository) -> None:
         domains = {d.name: d for d in spell_repo.list_domains()}
         fire = domains["Fire"]
+        assert isinstance(fire.domain_spells, tuple)
         assert len(fire.domain_spells) == 9
         assert fire.domain_spells[0] == "Burning Hands"
         assert fire.domain_spells[8] == "Elemental Swarm"
@@ -700,6 +701,7 @@ class TestSpellMethods:
         domain = spell_repo.get_domain("Fire")
         assert domain is not None
         assert domain.name == "Fire"
+        assert isinstance(domain.domain_spells, tuple)
         assert domain.domain_spells[0] == "Burning Hands"
 
     def test_get_domain_case_insensitive(self, spell_repo: GameDataRepository) -> None:

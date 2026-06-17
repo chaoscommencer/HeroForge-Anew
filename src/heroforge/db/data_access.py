@@ -76,14 +76,14 @@ class SpellSlots:
 class DomainInfo:
     """A cleric domain from the ``domains`` table.
 
-    ``domain_spells`` is a list of nine spell names (indices 0–8 correspond to
+    ``domain_spells`` is a tuple of nine spell names (indices 0–8 correspond to
     spell levels 1–9); empty strings indicate no domain spell at that level.
     Reference: PHB Chapter 11 (domain descriptions).
     """
 
     name: str
     granted_power: str
-    domain_spells: list[str]  # length 9, indices 0-8 → levels 1-9
+    domain_spells: tuple[str, ...]  # length 9, indices 0-8 → levels 1-9
 
 
 @dataclass(frozen=True)
@@ -803,7 +803,7 @@ class GameDataRepository:
             DomainInfo(
                 name=r["name"],
                 granted_power=r["granted_power"] or "",
-                domain_spells=[r[f"spell_{i}"] or "" for i in range(1, 10)],
+                domain_spells=tuple(r[f"spell_{i}"] or "" for i in range(1, 10)),
             )
             for r in rows
             if r["name"]
@@ -826,7 +826,7 @@ class GameDataRepository:
         return DomainInfo(
             name=r["name"],
             granted_power=r["granted_power"] or "",
-            domain_spells=[r[f"spell_{i}"] or "" for i in range(1, 10)],
+            domain_spells=tuple(r[f"spell_{i}"] or "" for i in range(1, 10)),
         )
 
     def list_deities(self) -> list[str]:

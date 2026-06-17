@@ -68,7 +68,8 @@ def _apply_schema_if_needed(
     """Apply *schema_sql* to *conn* unless every expected object already exists.
 
     Every ``CREATE`` statement uses ``IF NOT EXISTS`` so existing tables and
-    their data are never affected.
+    their data are never affected. Known additive schema changes for existing
+    tables are applied with ``ALTER TABLE ... ADD COLUMN`` when needed.
     """
     existing_tables: frozenset[str] = frozenset(
         row[0]
@@ -84,13 +85,26 @@ def _apply_schema_if_needed(
             "AND name NOT LIKE 'sqlite_%'"
         ).fetchall()
     )
-    if expected_tables.issubset(existing_tables) and expected_indexes.issubset(
-        existing_indexes
+    if not (
+        expected_tables.issubset(existing_tables)
+        and expected_indexes.issubset(existing_indexes)
     ):
-        return
+        conn.executescript(schema_sql)
+        conn.commit()
 
-    conn.executescript(schema_sql)
-    conn.commit()
+    if "classes" in expected_tables:
+        existing_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(classes)").fetchall()
+        }
+        missing_columns = [
+            column
+            for column in ("spellcasting_ability", "caster_type")
+            if column not in existing_columns
+        ]
+        for column in missing_columns:
+            conn.execute(f"ALTER TABLE classes ADD COLUMN {column} TEXT")
+        if missing_columns:
+            conn.commit()
 
 
 def initialize_database(db_path: str | Path = "heroforge.db") -> sqlite3.Connection:

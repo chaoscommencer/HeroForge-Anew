@@ -61,6 +61,7 @@ class SpellsTab(QWidget):
             model.character_reset.connect(self._sync_from_model)
             model.character_loaded.connect(lambda _id: self._sync_from_model())
             model.class_levels_changed.connect(self._refresh_slots)
+            model.derived_stats_changed.connect(self._refresh_slots)
             model.derived_stats_changed.connect(self._refresh_asf)
             self._sync_from_model()
         else:
@@ -185,17 +186,18 @@ class SpellsTab(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        filter_row = QHBoxLayout()
-        filter_row.addWidget(QLabel("Class:"))
+        add_row = QHBoxLayout()
+        add_row.addWidget(QLabel("New Spell:"))
+        add_row.addWidget(QLabel("Class:"))
         self._prep_class_combo = QComboBox()
-        filter_row.addWidget(self._prep_class_combo)
+        add_row.addWidget(self._prep_class_combo)
 
-        filter_row.addWidget(QLabel("  Spell Level:"))
+        add_row.addWidget(QLabel("  Level:"))
         self._prep_level_spin = QSpinBox()
         self._prep_level_spin.setRange(0, 9)
-        filter_row.addWidget(self._prep_level_spin)
-        filter_row.addStretch()
-        layout.addLayout(filter_row)
+        add_row.addWidget(self._prep_level_spin)
+        add_row.addStretch()
+        layout.addLayout(add_row)
 
         layout.addWidget(QLabel("Prepared / Known Spells:"))
         self._prepared_list = QListWidget()
@@ -265,13 +267,16 @@ class SpellsTab(QWidget):
     def _ability_mod_for_class(self, class_name: str) -> int:
         """Return the spellcasting ability modifier for *class_name*.
 
-        Falls back to INT for unknown arcane classes and WIS for everything
-        else (a safe D&D 3.5 default).  Reference: PHB Chapter 3.
+        Returns ``0`` when the selected class has no known spellcasting-ability
+        mapping, avoiding incorrect bonus-slot calculations from guesswork.
+        Reference: PHB Chapter 3.
         """
         if self._model is None:
             return 0
         spellcasting_abilities = self._model.game_data().get_spellcasting_abilities()
-        ability = spellcasting_abilities.get(class_name, "INT")
+        ability = spellcasting_abilities.get(class_name)
+        if ability is None:
+            return 0
         score = self._model.character.ability_scores.get(ability, 10)
         return (score - 10) // 2
 
@@ -437,8 +442,14 @@ class SpellsTab(QWidget):
 
     def _on_remove_spell(self) -> None:
         """Remove the selected spell(s) from the prepared list."""
-        for item in self._prepared_list.selectedItems():
-            row = self._prepared_list.row(item)
+        rows = sorted(
+            (
+                self._prepared_list.row(item)
+                for item in self._prepared_list.selectedItems()
+            ),
+            reverse=True,
+        )
+        for row in rows:
             self._prepared_list.takeItem(row)
             if self._model is not None and row < len(
                 self._model.character.spells_prepared
