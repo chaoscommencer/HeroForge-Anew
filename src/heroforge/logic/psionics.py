@@ -3,12 +3,15 @@
 Reference: Expanded Psionics Handbook (XPH) Chapters 2–3, plus the
 manifesting classes catalogued on the workbook's "Psionic Info" sheet
 (Excel tab 7b).  The per-class power-point-per-day progressions and key
-abilities below are transcribed directly from that sheet so the Python
-build matches the spreadsheet exactly.
+abilities are seeded from that sheet into the ``psionic_progression`` table
+(see :mod:`heroforge.db.seed`) and supplied to the functions here as a
+:class:`ManifesterInfo` mapping, so the Python build matches the spreadsheet
+exactly without hard-coding the data.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from heroforge.logic.ability_scores import ability_modifier
@@ -84,35 +87,13 @@ def augment_cost(base_cost: int, augment_count: int, cost_per_augment: int) -> i
 # ---------------------------------------------------------------------------
 # Manifesting-class catalogue
 #
-# Key ability and the power-points-per-day progression for every manifesting
-# class on the workbook's "Psionic Info" sheet.  Each progression is indexed
-# by manifester level (index 0 == no levels); the values are the base power
-# points granted before the high-ability bonus is added.  Prestige classes
-# whose manifesting tops out before character level 20 simply have shorter
-# tables.
+# The key ability and power-points-per-day progression for each manifesting
+# class live in the ``psionic_progression`` table, seeded from the workbook's
+# "Psionic Info" sheet by :mod:`heroforge.db.seed` and read back through
+# :meth:`heroforge.db.data_access.GameDataRepository.psionic_progressions`.
+# Callers pass the resulting mapping into the functions below; the data is no
+# longer hard-coded here.
 # ---------------------------------------------------------------------------
-
-# fmt: off
-_PP_PRIMARY: tuple[int, ...] = (
-    0, 2, 6, 11, 17, 25, 35, 46, 58, 72, 88,
-    106, 126, 147, 170, 195, 221, 250, 280, 311, 343,
-)
-
-_PP_DIVINE_MIND: tuple[int, ...] = (
-    0, 0, 1, 2, 3, 4, 6, 8, 10, 12, 14,
-    18, 22, 26, 30, 35, 40, 45, 50, 55, 62,
-)
-
-_PP_LURK: tuple[int, ...] = (
-    0, 1, 2, 3, 5, 7, 11, 15, 19, 23, 27,
-    35, 43, 51, 59, 67, 79, 91, 103, 115, 127,
-)
-
-_PP_PSYCHIC_WARRIOR: tuple[int, ...] = (
-    0, 0, 1, 3, 5, 7, 11, 15, 19, 23, 27,
-    35, 43, 51, 59, 67, 79, 91, 103, 115, 127,
-)
-# fmt: on
 
 
 @dataclass(frozen=True)
@@ -129,19 +110,6 @@ class ManifesterInfo:
     pp_per_day: tuple[int, ...]
 
 
-MANIFESTING_CLASSES: dict[str, ManifesterInfo] = {
-    "Ardent": ManifesterInfo("WIS", _PP_PRIMARY),
-    "Divine Mind": ManifesterInfo("WIS", _PP_DIVINE_MIND),
-    "Fist of Zuoken": ManifesterInfo("WIS", (0, 1, 3, 6, 10, 15, 23, 31, 43, 55, 71)),
-    "Lurk": ManifesterInfo("INT", _PP_LURK),
-    "Psion": ManifesterInfo("INT", _PP_PRIMARY),
-    "Psychic Warrior": ManifesterInfo("WIS", _PP_PSYCHIC_WARRIOR),
-    "War Mind": ManifesterInfo("WIS", (0, 2, 5, 9, 14, 20, 28, 37, 47, 58, 70)),
-    "Wilder": ManifesterInfo("CHA", _PP_PRIMARY),
-    "Zerth Cenobite": ManifesterInfo("WIS", (0, 1, 2, 3, 5, 7, 11, 15, 19, 23, 27)),
-}
-
-
 @dataclass(frozen=True)
 class PsionicsSummary:
     """Auto-calculated psionics totals for the Psionics tab.
@@ -155,26 +123,34 @@ class PsionicsSummary:
     power_points: int
 
 
-def psionic_class_levels(classes: list[tuple[str, int]]) -> dict[str, int]:
+def psionic_class_levels(
+    classes: list[tuple[str, int]],
+    manifesting_classes: Mapping[str, ManifesterInfo],
+) -> dict[str, int]:
     """Filter character class levels down to known manifesting classes.
 
     Levels of repeated entries for the same class are summed.
 
     Args:
-        classes: Character class list of ``(class_name, level)`` tuples.
+        classes:             Character class list of ``(class_name, level)``
+            tuples.
+        manifesting_classes: Catalogue of manifesting classes (typically from
+            :meth:`GameDataRepository.psionic_progressions`).
 
     Returns:
         Mapping of manifesting class name → total levels.
     """
     levels: dict[str, int] = {}
     for name, level in classes:
-        if name in MANIFESTING_CLASSES and level > 0:
+        if name in manifesting_classes and level > 0:
             levels[name] = levels.get(name, 0) + level
     return levels
 
 
 def compute_psionics(
-    classes: list[tuple[str, int]], ability_scores: dict[str, int]
+    classes: list[tuple[str, int]],
+    ability_scores: dict[str, int],
+    manifesting_classes: Mapping[str, ManifesterInfo],
 ) -> PsionicsSummary:
     """Auto-calculate manifester level and power points for a character.
 
@@ -183,13 +159,17 @@ def compute_psionics(
     match the workbook's "Psionic Info" sheet.
 
     Args:
-        classes:        Character class list of ``(class_name, level)`` tuples.
-        ability_scores: Mapping of ability name → score (e.g. ``{"INT": 16}``).
+        classes:             Character class list of ``(class_name, level)``
+            tuples.
+        ability_scores:      Mapping of ability name → score (e.g.
+            ``{"INT": 16}``).
+        manifesting_classes: Catalogue of manifesting classes (typically from
+            :meth:`GameDataRepository.psionic_progressions`).
 
     Returns:
         A :class:`PsionicsSummary` with the manifester level and power points.
     """
-    levels = psionic_class_levels(classes)
+    levels = psionic_class_levels(classes, manifesting_classes)
     if not levels:
         return PsionicsSummary(manifester_level=0, power_points=0)
 
@@ -198,14 +178,14 @@ def compute_psionics(
     # Group manifesting classes by key ability so each group is scored with the
     # correct ability modifier, then reuse power_points_per_day per group.
     total_pp = 0
-    abilities = {MANIFESTING_CLASSES[name].key_ability for name in levels}
+    abilities = {manifesting_classes[name].key_ability for name in levels}
     for ability in abilities:
         group = {
             name: lvl
             for name, lvl in levels.items()
-            if MANIFESTING_CLASSES[name].key_ability == ability
+            if manifesting_classes[name].key_ability == ability
         }
-        pp_tables = {name: list(MANIFESTING_CLASSES[name].pp_per_day) for name in group}
+        pp_tables = {name: list(manifesting_classes[name].pp_per_day) for name in group}
         mod = ability_modifier(ability_scores.get(ability, 10))
         total_pp += power_points_per_day(group, mod, pp_tables)
 

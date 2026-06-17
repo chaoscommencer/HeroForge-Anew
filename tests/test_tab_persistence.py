@@ -115,6 +115,18 @@ def catalog_db(tmp_path: Path) -> Path:
                 ("Energy Ray", "Psychokinesis", 1, "EPH"),
             ],
         )
+        # Psion power-point progression (key ability INT), as seeded from the
+        # workbook's "Psionic Info" sheet, so the Psionics tab can auto-calc.
+        _psion_pp = [
+            0, 2, 6, 11, 17, 25, 35, 46, 58, 72, 88,
+            106, 126, 147, 170, 195, 221, 250, 280, 311, 343,
+        ]  # fmt: skip
+        conn.executemany(
+            "INSERT INTO psionic_progression "
+            "(class_name, key_ability, manifester_level, power_points) "
+            "VALUES (?, ?, ?, ?)",
+            [("Psion", "INT", level, pp) for level, pp in enumerate(_psion_pp)],
+        )
         conn.executemany(
             "INSERT INTO maneuvers (name, discipline, level, type, source) "
             "VALUES (?, ?, ?, ?, ?)",

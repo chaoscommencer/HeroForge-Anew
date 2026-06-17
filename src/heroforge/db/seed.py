@@ -849,6 +849,127 @@ def _extract_spells_known(wb: object) -> list[tuple[object, ...]]:
 
 
 # ---------------------------------------------------------------------------
+# Psionic progression (workbook "Psionic Info" sheet, Excel tab 7b)
+# ---------------------------------------------------------------------------
+
+_PSIONIC_SHEET = "Psionic Info"
+
+#: Each manifesting class's key ability is encoded on the "Psionic Info" sheet
+#: as a formula in column G (``=PIInt``/``=PIWis``/``=PICha``) referencing the
+#: relevant ability named range.  Reading the formula text is the only way to
+#: recover the mapping, since a value-only load resolves these to a score.
+_PSIONIC_KEY_ABILITY_TOKENS: dict[str, str] = {
+    "PIInt": "INT",
+    "PIWis": "WIS",
+    "PICha": "CHA",
+}
+
+
+def _optional_int(value: object) -> int | None:
+    """Return *value* as an int, or ``None`` if it is blank/non-integral."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if math.isfinite(value) and value.is_integer() else None
+    text = str(value).strip()
+    if text == "":
+        return None
+    try:
+        numeric = float(text)
+    except (TypeError, ValueError):
+        return None
+    return int(numeric) if math.isfinite(numeric) and numeric.is_integer() else None
+
+
+def _psionic_key_abilities(grid: list[tuple[object, ...]]) -> dict[str, str]:
+    """Map each manifesting class to its key ability via column G formulas.
+
+    Reads the class roster in cells ``A4:A12`` of the "Psionic Info" sheet and
+    classifies each by the ability named range referenced in column G.
+    """
+    abilities: dict[str, str] = {}
+    for row in grid:
+        if len(row) < 7:
+            continue
+        name, formula = row[0], row[6]
+        if not isinstance(name, str) or not isinstance(formula, str):
+            continue
+        cls = name.strip()
+        if not cls:
+            continue
+        for token, ability in _PSIONIC_KEY_ABILITY_TOKENS.items():
+            if token in formula:
+                abilities[cls] = ability
+                break
+    return abilities
+
+
+def _is_psionic_block_header(row: tuple[object, ...], col: int) -> bool:
+    """Return whether the sub-header at *col* marks a PP/Day progression block."""
+    if col + 1 >= len(row):
+        return False
+    level = row[col]
+    pp = row[col + 1]
+    return (
+        isinstance(level, str)
+        and level.strip().lower().startswith("level")
+        and isinstance(pp, str)
+        and pp.strip() == "PP/Day"
+    )
+
+
+def _extract_psionic_progression(wb: object) -> list[tuple[object, ...]]:
+    """Extract per-class psionic power-point progressions from the workbook.
+
+    The "Psionic Info" sheet lays out one ``Level``/``PP/Day``/``Known`` block
+    per manifesting class (Excel tab 7b).  Returns ``(class_name, key_ability,
+    manifester_level, power_points, powers_known)`` tuples transcribed directly
+    from those blocks.  Must be read from a formula-mode workbook so the
+    key-ability formulas in column G are available.
+    """
+    ws = wb[_PSIONIC_SHEET]  # type: ignore[index]
+    grid = [tuple(r) for r in ws.iter_rows(values_only=True)]  # type: ignore[attr-defined]
+    abilities = _psionic_key_abilities(grid)
+
+    rows: list[tuple[object, ...]] = []
+    for r_idx, row in enumerate(grid):
+        for c_idx, cell in enumerate(row):
+            cls = cell.strip() if isinstance(cell, str) else ""
+            if cls not in abilities:
+                continue
+            if r_idx + 1 >= len(grid) or not _is_psionic_block_header(
+                grid[r_idx + 1], c_idx
+            ):
+                continue
+            key_ability = abilities[cls]
+            for d_idx in range(r_idx + 2, len(grid)):
+                data = grid[d_idx]
+                level = _optional_int(data[c_idx]) if c_idx < len(data) else None
+                if level is None:
+                    break  # blank separator terminates the block
+                power_points = (
+                    _optional_int(data[c_idx + 1]) if c_idx + 1 < len(data) else None
+                )
+                powers_known = (
+                    _optional_int(data[c_idx + 2]) if c_idx + 2 < len(data) else None
+                )
+                rows.append(
+                    (
+                        cls,
+                        key_ability,
+                        level,
+                        power_points or 0,
+                        powers_known or 0,
+                    )
+                )
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Workbook table registry
 #
 # ``columns`` lists the destination columns (in tuple order).  ``unique_by``
@@ -1325,6 +1446,63 @@ def seed_weapon_damage(
         logger.warning(
             "weapon_damage: %d row(s) skipped – matrix may be incomplete", skipped
         )
+
+
+def seed_psionic_progression(
+    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+) -> None:
+    """Seed the *psionic_progression* table from the "Psionic Info" sheet.
+
+    Replaces the table in full with the per-class power-point-per-day and
+    powers-known progressions transcribed from the workbook (Excel tab 7b),
+    including each class's key ability.  The workbook is loaded in formula mode
+    so the key-ability formulas in column G are readable.  If the workbook is
+    missing the function logs a warning and leaves the table untouched.
+    """
+    workbook_path = Path(workbook_path)
+    if not workbook_path.exists():
+        logger.warning(
+            "Workbook not found at %s – skipping psionic_progression",
+            workbook_path,
+        )
+        return
+
+    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
+    try:
+        rows = _extract_psionic_progression(wb)
+    except KeyError:
+        logger.warning(
+            "Sheet %r not found in workbook – skipping psionic_progression",
+            _PSIONIC_SHEET,
+        )
+        return
+    finally:
+        wb.close()
+
+    if not rows:
+        logger.warning(
+            "No psionic_progression rows extracted from workbook – "
+            "leaving table untouched"
+        )
+        return
+
+    conn.execute("DELETE FROM psionic_progression")
+    inserted = 0
+    skipped = 0
+    for values in rows:
+        try:
+            conn.execute(
+                "INSERT INTO psionic_progression "
+                "(class_name, key_ability, manifester_level, power_points, "
+                "powers_known) VALUES (?, ?, ?, ?, ?)",
+                values,
+            )
+            inserted += 1
+        except sqlite3.Error as exc:
+            logger.debug("Skipping psionic_progression row %r: %s", values, exc)
+            skipped += 1
+    conn.commit()
+    logger.info("psionic_progression: inserted %d rows, skipped %d", inserted, skipped)
 
 
 def _load_medium_weapon_damage(conn: sqlite3.Connection) -> dict[int, str]:
@@ -1934,6 +2112,7 @@ def seed_all(
         seed_familiar_bonuses(conn)
         seed_classes(conn, data_dir)
         seed_workbook(conn, workbook_path)
+        seed_psionic_progression(conn, workbook_path)
     finally:
         conn.close()
 

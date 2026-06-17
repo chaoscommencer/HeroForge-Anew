@@ -205,6 +205,16 @@ CREATE TABLE IF NOT EXISTS psionic_powers (
     source              TEXT
 );
 
+CREATE TABLE IF NOT EXISTS psionic_progression (
+    id                  INTEGER PRIMARY KEY,
+    class_name          TEXT NOT NULL,
+    key_ability         TEXT NOT NULL,
+    manifester_level    INTEGER NOT NULL,
+    power_points        INTEGER NOT NULL,
+    powers_known        INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(class_name, manifester_level)
+);
+
 CREATE TABLE IF NOT EXISTS soulmelds (
     id                  INTEGER PRIMARY KEY,
     name                TEXT UNIQUE NOT NULL,
@@ -474,6 +484,8 @@ CREATE INDEX IF NOT EXISTS idx_weapons_name   ON weapons(name);
 CREATE INDEX IF NOT EXISTS idx_creatures_name ON creatures(name);
 CREATE INDEX IF NOT EXISTS idx_soulmelds_name ON soulmelds(name);
 CREATE INDEX IF NOT EXISTS idx_buffs_name     ON buffs(name);
+CREATE INDEX IF NOT EXISTS idx_psionic_progression_class
+    ON psionic_progression(class_name);
 """
 
 # Derived at import time so the table/index sets always stay in sync with the

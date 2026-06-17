@@ -8,13 +8,31 @@ points (``floor(mod x manifester level / 2)``).
 from __future__ import annotations
 
 from heroforge.logic.psionics import (
-    MANIFESTING_CLASSES,
+    ManifesterInfo,
     augment_cost,
     compute_psionics,
     manifester_level,
     power_points_per_day,
     psionic_class_levels,
 )
+
+# Manifesting-class catalogue used as test data, transcribed from the workbook's
+# "Psionic Info" sheet.  At runtime this mapping is sourced from the seeded
+# ``psionic_progression`` table via ``GameDataRepository.psionic_progressions``.
+_PP_PRIMARY: tuple[int, ...] = (
+    0, 2, 6, 11, 17, 25, 35, 46, 58, 72, 88,
+    106, 126, 147, 170, 195, 221, 250, 280, 311, 343,
+)  # fmt: skip
+_PP_PSYCHIC_WARRIOR: tuple[int, ...] = (
+    0, 0, 1, 3, 5, 7, 11, 15, 19, 23, 27,
+    35, 43, 51, 59, 67, 79, 91, 103, 115, 127,
+)  # fmt: skip
+MANIFESTING_CLASSES: dict[str, ManifesterInfo] = {
+    "Fist of Zuoken": ManifesterInfo("WIS", (0, 1, 3, 6, 10, 15, 23, 31, 43, 55, 71)),
+    "Psion": ManifesterInfo("INT", _PP_PRIMARY),
+    "Psychic Warrior": ManifesterInfo("WIS", _PP_PSYCHIC_WARRIOR),
+    "Wilder": ManifesterInfo("CHA", _PP_PRIMARY),
+}
 
 
 class TestManifesterLevel:
@@ -53,32 +71,36 @@ class TestPowerPointsPerDay:
 
 class TestPsionicClassLevels:
     def test_filters_to_manifesting_classes(self) -> None:
-        levels = psionic_class_levels([("Fighter", 4), ("Psion", 6)])
+        levels = psionic_class_levels(
+            [("Fighter", 4), ("Psion", 6)], MANIFESTING_CLASSES
+        )
         assert levels == {"Psion": 6}
 
     def test_sums_repeated_entries(self) -> None:
-        levels = psionic_class_levels([("Psion", 3), ("Psion", 2)])
+        levels = psionic_class_levels([("Psion", 3), ("Psion", 2)], MANIFESTING_CLASSES)
         assert levels == {"Psion": 5}
 
     def test_ignores_zero_level_entries(self) -> None:
-        assert psionic_class_levels([("Psion", 0)]) == {}
+        assert psionic_class_levels([("Psion", 0)], MANIFESTING_CLASSES) == {}
 
 
 class TestComputePsionics:
     def test_psion_uses_intelligence(self) -> None:
-        summary = compute_psionics([("Psion", 10)], {"INT": 20})
+        summary = compute_psionics([("Psion", 10)], {"INT": 20}, MANIFESTING_CLASSES)
         assert summary.manifester_level == 10
         assert summary.power_points == 113
 
     def test_wilder_uses_charisma(self) -> None:
         # Wilder 5 (Cha 16, +3): 25 base + floor(3 * 5 / 2) = 25 + 7.
-        summary = compute_psionics([("Wilder", 5)], {"CHA": 16})
+        summary = compute_psionics([("Wilder", 5)], {"CHA": 16}, MANIFESTING_CLASSES)
         assert summary.manifester_level == 5
         assert summary.power_points == 32
 
     def test_psychic_warrior_uses_wisdom(self) -> None:
         # Psychic Warrior 5 (Wis 14, +2): 7 base + floor(2 * 5 / 2) = 7 + 5.
-        summary = compute_psionics([("Psychic Warrior", 5)], {"WIS": 14})
+        summary = compute_psionics(
+            [("Psychic Warrior", 5)], {"WIS": 14}, MANIFESTING_CLASSES
+        )
         assert summary.manifester_level == 5
         assert summary.power_points == 12
 
@@ -87,18 +109,19 @@ class TestComputePsionics:
         summary = compute_psionics(
             [("Psion", 5), ("Psychic Warrior", 5)],
             {"INT": 16, "WIS": 14},
+            MANIFESTING_CLASSES,
         )
         assert summary.manifester_level == 5
         assert summary.power_points == 44
 
     def test_non_manifester_yields_zero(self) -> None:
-        summary = compute_psionics([("Fighter", 20)], {"INT": 20})
+        summary = compute_psionics([("Fighter", 20)], {"INT": 20}, MANIFESTING_CLASSES)
         assert summary.manifester_level == 0
         assert summary.power_points == 0
 
     def test_missing_ability_defaults_to_ten(self) -> None:
         # No INT supplied -> modifier 0 -> only base PP for Psion 3 (11).
-        summary = compute_psionics([("Psion", 3)], {})
+        summary = compute_psionics([("Psion", 3)], {}, MANIFESTING_CLASSES)
         assert summary.power_points == 11
 
 

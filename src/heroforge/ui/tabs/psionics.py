@@ -116,7 +116,10 @@ class PsionicsTab(QWidget):
         if self._model is None:
             return PsionicsSummary(manifester_level=0, power_points=0)
         character = self._model.character
-        return compute_psionics(character.classes, character.ability_scores)
+        manifesting = self._model.game_data().psionic_progressions()
+        return compute_psionics(
+            character.classes, character.ability_scores, manifesting
+        )
 
     def _recalculate(self) -> None:
         """Refresh the manifester level and (when auto) the power-point total.
