@@ -33,6 +33,7 @@ from heroforge.logic.familiar import (
     FamiliarMasterAbility,
     describe_bonus,
 )
+from heroforge.logic.psionics import ManifesterInfo
 from heroforge.models.race import Race
 from heroforge.models.template import Template
 
@@ -723,6 +724,34 @@ class GameDataRepository:
         return [
             SpellSlots(r["caster_level"], r["spell_level"], r["count"]) for r in rows
         ]
+
+    def psionic_progressions(self) -> dict[str, ManifesterInfo]:
+        """Return manifesting-class metadata keyed by class name.
+
+        Builds a :class:`~heroforge.logic.psionics.ManifesterInfo` per class
+        from the ``psionic_progression`` table (seeded from the workbook's
+        "Psionic Info" sheet), with ``pp_per_day`` indexed by manifester level.
+        Feeds :func:`heroforge.logic.psionics.compute_psionics`.
+        """
+        rows = self._query(
+            "SELECT class_name, key_ability, manifester_level, power_points "
+            "FROM psionic_progression ORDER BY class_name, manifester_level"
+        )
+        key_ability: dict[str, str] = {}
+        pp_by_level: dict[str, dict[int, int]] = {}
+        for r in rows:
+            cls = r["class_name"]
+            key_ability[cls] = r["key_ability"]
+            pp_by_level.setdefault(cls, {})[r["manifester_level"]] = r["power_points"]
+
+        result: dict[str, ManifesterInfo] = {}
+        for cls, levels in pp_by_level.items():
+            max_level = max(levels)
+            pp_per_day = tuple(levels.get(i, 0) for i in range(max_level + 1))
+            result[cls] = ManifesterInfo(
+                key_ability=key_ability[cls], pp_per_day=pp_per_day
+            )
+        return result
 
     # ------------------------------------------------------------------
     # Equipment catalogues (armor, weapons, magic items, enhancements)

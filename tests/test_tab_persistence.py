@@ -115,6 +115,18 @@ def catalog_db(tmp_path: Path) -> Path:
                 ("Energy Ray", "Psychokinesis", 1, "EPH"),
             ],
         )
+        # Psion power-point progression (key ability INT), as seeded from the
+        # workbook's "Psionic Info" sheet, so the Psionics tab can auto-calc.
+        _psion_pp = [
+            0, 2, 6, 11, 17, 25, 35, 46, 58, 72, 88,
+            106, 126, 147, 170, 195, 221, 250, 280, 311, 343,
+        ]  # fmt: skip
+        conn.executemany(
+            "INSERT INTO psionic_progression "
+            "(class_name, key_ability, manifester_level, power_points) "
+            "VALUES (?, ?, ?, ?)",
+            [("Psion", "INT", level, pp) for level, pp in enumerate(_psion_pp)],
+        )
         conn.executemany(
             "INSERT INTO maneuvers (name, discipline, level, type, source) "
             "VALUES (?, ?, ?, ?, ?)",
@@ -444,6 +456,104 @@ class TestIncarnumPsionicsManeuvers:
             p["power_name"] == "Mind Thrust" for p in model.character.psionic_powers
         )
         assert model.character.options["psionic_total_pp"] == "11"
+
+    def test_power_points_and_manifester_level_auto_calculate(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        tab = PsionicsTab(model=model)
+        # Psion 10 with INT 20 (+5): 88 base + floor(5 * 10 / 2) = 113 PP.
+        model.character.classes = [("Psion", 10)]
+        model.character.ability_scores["INT"] = 20
+        model.derived_stats_changed.emit()
+
+        assert tab._manifester_lbl.text() == "10"
+        assert tab._total_pp.value() == 113
+        assert model.character.options["psionic_total_pp"] == "113"
+
+    def test_manual_override_survives_recalculation(self, model: object) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        tab = PsionicsTab(model=model)
+        model.character.classes = [("Psion", 10)]
+        model.character.ability_scores["INT"] = 20
+        model.derived_stats_changed.emit()
+
+        # A manual edit switches off auto-calculation and is preserved.
+        tab._total_pp.setValue(200)
+        assert tab._auto_pp.isChecked() is False
+        assert model.character.options["psionic_pp_auto"] == "false"
+
+        model.character.classes = [("Psion", 5)]
+        model.derived_stats_changed.emit()
+        assert tab._total_pp.value() == 200
+
+        # Re-enabling auto-calculation recomputes from the current build.
+        tab._auto_pp.setChecked(True)
+        assert tab._total_pp.value() == 37  # Psion 5, INT 20: 25 + floor(5*5/2)
+
+    def test_legacy_manual_total_is_preserved_on_load(self, model: object) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        # A saved character (no auto flag) with a hand-entered total differing
+        # from the computed value is treated as a manual override.
+        model.character.classes = [("Psion", 10)]
+        model.character.ability_scores["INT"] = 20
+        model.character.options["psionic_total_pp"] = "50"
+        tab = PsionicsTab(model=model)
+        model.character_loaded.emit(0)
+
+        assert tab._auto_pp.isChecked() is False
+        assert tab._total_pp.value() == 50
+
+    def test_manifesting_progressions_are_cached(
+        self, model: object, monkeypatch: object
+    ) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        repo = model.game_data()
+        calls = 0
+        original = repo.psionic_progressions
+
+        def counting_progressions() -> object:
+            nonlocal calls
+            calls += 1
+            return original()
+
+        monkeypatch.setattr(repo, "psionic_progressions", counting_progressions)
+
+        tab = PsionicsTab(model=model)
+        model.character.classes = [("Psion", 5)]
+        model.character.ability_scores["INT"] = 20
+        model.derived_stats_changed.emit()
+        model.derived_stats_changed.emit()
+
+        assert calls == 1
+        assert tab._total_pp.value() == 37
+
+    def test_auto_calc_persists_clamped_spinbox_value(self, model: object) -> None:
+        """Persisted total must equal the spinbox value, not the raw computed value.
+
+        If the computed PP exceeds the spinbox's maximum (e.g. the range was
+        reduced), the spinbox clamps it.  The model must store the *clamped*
+        value so that the persisted state matches the UI.
+        """
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        tab = PsionicsTab(model=model)
+        # Override the spinbox range so any value > 50 is clamped to 50.
+        tab._total_pp.setRange(0, 50)
+
+        # Psion 10 with INT 20 computes to 113 PP — above the new cap of 50.
+        model.character.classes = [("Psion", 10)]
+        model.character.ability_scores["INT"] = 20
+        model.derived_stats_changed.emit()
+
+        # The spinbox must display the clamped value.
+        assert tab._total_pp.value() == 50
+        # The persisted value must match what the spinbox shows, not 113.
+        assert model.character.options["psionic_total_pp"] == "50"
 
     def test_maneuver_and_stance_classified(self, model: object) -> None:
         from heroforge.ui.tabs.maneuvers_and_stances import ManeuversAndStancesTab
