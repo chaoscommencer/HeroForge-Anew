@@ -23,6 +23,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from heroforge.logic.combat import (
+    damage_bonus,
+    format_attack_line,
+    iterative_attacks,
+    weapon_base_dice,
+    weapon_damage,
+)
 from heroforge.ui.tabs._tab_helper import pick_from_catalog
 
 if TYPE_CHECKING:
@@ -115,10 +122,26 @@ class AttacksTab(QWidget):
         if self._model is None:
             return "+0"
         stats = self._model.derived_stats()
-        return _signed(stats.ranged_attack if ranged else stats.melee_attack)
+        first = stats.ranged_attack if ranged else stats.melee_attack
+        bonuses = iterative_attacks(first, stats.base_attack_bonus)
+        return format_attack_line(bonuses)
+
+    def _damage_for(self, ranged: bool, dice: str) -> str:
+        """Compute a weapon's per-attack damage string from its dice and STR.
+
+        Melee attacks add the Strength damage bonus (PHB p138); ranged attacks
+        use the weapon dice as-is unless a bonus is supplied elsewhere.
+        """
+        base = weapon_base_dice(dice)
+        if not base:
+            return dice
+        if ranged or self._model is None:
+            return base
+        str_mod = self._model.derived_stats().ability_modifiers.get("STR", 0)
+        return weapon_damage(base, damage_bonus(str_mod))
 
     def _recompute_attack_bonuses(self) -> None:
-        """Recompute each weapon's attack-bonus cell from current derived stats."""
+        """Recompute each weapon's attack-bonus and damage cells."""
         for row in range(self._weapons_table.rowCount()):
             range_item = self._weapons_table.item(row, 4)
             text = range_item.text().strip() if range_item else ""
@@ -128,6 +151,12 @@ class AttacksTab(QWidget):
                 ranged = text not in ("", "—")
             bonus = self._attack_bonus_for(ranged)
             self._weapons_table.setItem(row, 1, QTableWidgetItem(bonus))
+            damage_item = self._weapons_table.item(row, 2)
+            dice = damage_item.text() if damage_item else ""
+            if dice:
+                self._weapons_table.setItem(
+                    row, 2, QTableWidgetItem(self._damage_for(ranged, dice))
+                )
         self._sync_to_model()
 
     # ------------------------------------------------------------------

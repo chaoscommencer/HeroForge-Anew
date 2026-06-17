@@ -488,6 +488,27 @@ class TestAttacksTab:
         tab.add_weapon(weapon)
         assert any(a["weapon_name"] == "Longsword" for a in model.character.attacks)
 
+    def test_iterative_attacks_and_damage_displayed(self, model: object) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        # 8 character levels at default (medium) BAB -> +6, with STR 18 (+4).
+        model.character.classes = [("Fighter", 8)]
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        weapon = next(
+            w for w in model.game_data().list_weapons() if w.name == "Longsword"
+        )
+        tab.add_weapon(weapon)
+        model.derived_stats_changed.emit()
+
+        attack_cell = tab._weapons_table.item(0, 1)
+        damage_cell = tab._weapons_table.item(0, 2)
+        assert attack_cell is not None and damage_cell is not None
+        # BAB +6, STR +4 -> first attack +10, iterative at +5.
+        assert attack_cell.text() == "+10/+5"
+        # Longsword 1d8 + STR damage (+4).
+        assert damage_cell.text() == "1d8+4"
+
 
 # ---------------------------------------------------------------------------
 # Soulmelds / Psionics / Maneuvers
