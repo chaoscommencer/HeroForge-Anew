@@ -71,29 +71,29 @@ def cross_class_rank_cost() -> int:
 
 def skill_synergy_bonus(
     qualifying_skills: list[str],
-    synergies: list[tuple[str, str]],
+    synergies: list[tuple[str, str, int]],
 ) -> dict[str, int]:
     """Calculate synergy bonuses granted by *qualifying_skills*.
 
-    A skill grants a +2 synergy bonus to another skill when the character
-    has 5 or more ranks in the source skill.  Only skills in
+    A skill grants a synergy bonus (typically +2) to another skill when the
+    character has 5 or more ranks in the source skill.  Only skills in
     *qualifying_skills* (i.e. those with ≥ 5 ranks) are considered.
 
     Reference: PHB p65.
 
     Args:
         qualifying_skills: Skill names for which the character has ≥ 5 ranks.
-        synergies:         List of ``(from_skill, to_skill)`` pairs from the
-                           ``skill_synergies`` database table.
+        synergies:         List of ``(from_skill, to_skill, bonus)`` triples
+                           from the ``skill_synergies`` database table.
 
     Returns:
         Mapping of skill name → total synergy bonus applicable to that skill.
     """
     bonuses: dict[str, int] = {}
     qualifying_set = set(qualifying_skills)
-    for from_skill, to_skill in synergies:
+    for from_skill, to_skill, bonus in synergies:
         if from_skill in qualifying_set:
-            bonuses[to_skill] = bonuses.get(to_skill, 0) + 2
+            bonuses[to_skill] = bonuses.get(to_skill, 0) + bonus
     return bonuses
 
 

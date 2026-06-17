@@ -59,31 +59,38 @@ class TestCrossClassRankCost:
 class TestSkillSynergyBonus:
     def test_single_synergy(self) -> None:
         qualifying = ["Tumble"]
-        synergies = [("Tumble", "Balance")]
+        synergies = [("Tumble", "Balance", 2)]
         result = skill_synergy_bonus(qualifying, synergies)
         assert result == {"Balance": 2}
 
     def test_no_qualifying(self) -> None:
         qualifying: list[str] = []
-        synergies = [("Tumble", "Balance")]
+        synergies = [("Tumble", "Balance", 2)]
         result = skill_synergy_bonus(qualifying, synergies)
         assert result == {}
 
     def test_multiple_synergies_same_target(self) -> None:
         qualifying = ["Tumble", "Perform"]
-        synergies = [("Tumble", "Balance"), ("Perform", "Balance")]
+        synergies = [("Tumble", "Balance", 2), ("Perform", "Balance", 2)]
         result = skill_synergy_bonus(qualifying, synergies)
         assert result["Balance"] == 4
 
     def test_multiple_targets(self) -> None:
         qualifying = ["Spellcraft", "Knowledge (Arcana)"]
         synergies = [
-            ("Spellcraft", "Use Magic Device"),
-            ("Knowledge (Arcana)", "Spellcraft"),
+            ("Spellcraft", "Use Magic Device", 2),
+            ("Knowledge (Arcana)", "Spellcraft", 2),
         ]
         result = skill_synergy_bonus(qualifying, synergies)
         assert "Use Magic Device" in result
         assert "Spellcraft" in result
+
+    def test_custom_bonus_value(self) -> None:
+        """The bonus column value is used rather than a hardcoded +2."""
+        qualifying = ["Bluff"]
+        synergies = [("Bluff", "Diplomacy", 4)]
+        result = skill_synergy_bonus(qualifying, synergies)
+        assert result == {"Diplomacy": 4}
 
 
 class TestSkillPointsPerLevel:

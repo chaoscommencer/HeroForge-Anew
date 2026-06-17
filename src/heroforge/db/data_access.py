@@ -952,21 +952,22 @@ class GameDataRepository:
             for r in rows
         ]
 
-    def list_skill_synergies(self) -> list[tuple[str, str]]:
+    def list_skill_synergies(self) -> list[tuple[str, str, int]]:
         """Return the *unconditional* skill-synergy pairs from the database.
 
-        Each pair is ``(from_skill, to_skill)``: a character with 5+ ranks in
-        ``from_skill`` gains a +2 synergy bonus on ``to_skill`` (PHB p65).  Only
-        rows without a ``condition`` are returned, so circumstance-specific
-        synergies never feed a flat total.  Returns an empty list when the
-        database is unavailable or the ``skill_synergies`` table is unseeded.
+        Each entry is ``(from_skill, to_skill, bonus)``: a character with 5+
+        ranks in ``from_skill`` gains ``bonus`` on ``to_skill`` (PHB p65
+        specifies +2 for all standard synergies).  Only rows without a
+        ``condition`` are returned, so circumstance-specific synergies never
+        feed a flat total.  Returns an empty list when the database is
+        unavailable or the ``skill_synergies`` table is unseeded.
         """
         rows = self._query(
-            "SELECT from_skill, to_skill FROM skill_synergies "
+            "SELECT from_skill, to_skill, bonus FROM skill_synergies "
             "WHERE condition IS NULL OR condition = '' ORDER BY id"
         )
         return [
-            (r["from_skill"], r["to_skill"])
+            (r["from_skill"], r["to_skill"], int(r["bonus"] or 2))
             for r in rows
             if r["from_skill"] and r["to_skill"]
         ]

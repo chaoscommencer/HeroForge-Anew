@@ -100,6 +100,12 @@ class SkillsTab(QWidget):
         self._familiar_skill_bonuses: dict[str, int] = {}
         self._class_skills: set[str] = set()
         self._updating = False
+        # Caches for static game-data lookups so _recalculate() stays in-memory.
+        # These are populated once (and refreshed on character load) rather than
+        # opening a new DB connection on every spinbox change.
+        self._cached_armor_catalog: dict[str, int] = {}  # name → check_penalty
+        self._cached_synergy_pairs: list[tuple[str, str, int]] = []
+        self._cached_class_base_points: dict[str, int] = {}
         self._build_ui()
         if model:
             model.character_reset.connect(self._reset)
@@ -107,6 +113,7 @@ class SkillsTab(QWidget):
             model.character_loaded.connect(lambda _id: self._sync_from_model())
             model.derived_stats_changed.connect(self._refresh_familiar_bonuses)
             model.class_levels_changed.connect(self._refresh_class_skills)
+            self._refresh_game_data_caches()
             self._update_ability_mods()
             self._refresh_class_skills()
             self._refresh_familiar_bonuses()
@@ -174,6 +181,44 @@ class SkillsTab(QWidget):
 
         # Toggling a "Class?" checkbox changes max ranks, point cost and totals.
         self._table.itemChanged.connect(self._on_item_changed)
+
+    def _refresh_game_data_caches(self) -> None:
+        """Populate in-memory caches of static game-data DB lookups.
+
+        Called once at construction (when a model is available) and again
+        whenever the character is loaded from disk (so a fresh DB is reflected).
+        All three datasets are static for the lifetime of a session; caching
+        them here means :meth:`_recalculate` never opens a new DB connection.
+        """
+        if self._model is None or not self._model.game_data().available:
+            self._cached_armor_catalog = {}
+            self._cached_synergy_pairs = []
+            self._cached_class_base_points = {}
+            return
+        repo = self._model.game_data()
+
+        # Armor catalog: name → check_penalty (≤ 0).
+        self._cached_armor_catalog = {
+            armor.name: armor.check_penalty for armor in repo.list_armor()
+        }
+
+        # Synergy pairs with explicit bonus values.
+        raw = repo.list_skill_synergies()
+        display_by_key = {name.casefold(): name for name, *_ in _SKILLS}
+        self._cached_synergy_pairs = [
+            (
+                display_by_key.get(from_skill.casefold(), from_skill),
+                display_by_key.get(to_skill.casefold(), to_skill),
+                bonus,
+            )
+            for from_skill, to_skill, bonus in raw
+        ]
+
+        # Class base skill-points per level.
+        self._cached_class_base_points = {
+            info.name: info.skill_points_per_level
+            for info in repo.list_classes(include_prestige=True)
+        }
 
     def _on_rank_changed(self, row: int, value: float) -> None:
         """Announce a skill-rank change so the model and dependent tabs update.
@@ -284,16 +329,16 @@ class SkillsTab(QWidget):
     def _armor_check_penalty(self) -> int:
         """Return the combined armor-check penalty from equipped armor/shield.
 
-        Penalties (stored as ≤ 0 values) are looked up from the seeded ``armor``
-        catalogue and the character's custom armor, then summed across the
-        equipped Body Armor and Shield slots (PHB p123).  Returns ``0`` when no
-        penalising armor is equipped or no game data is available.
+        Penalties (stored as ≤ 0 values) are looked up from the cached armor
+        catalogue (seeded at init) and the character's custom armor, then
+        summed across the equipped Body Armor and Shield slots (PHB p123).
+        Returns ``0`` when no penalising armor is equipped or the model is
+        unset.
         """
         if self._model is None:
             return 0
-        penalties: dict[str, int] = {}
-        for armor in self._model.game_data().list_armor():
-            penalties[armor.name] = armor.check_penalty
+        # Merge the cached DB catalog with any character-specific custom entries.
+        penalties = dict(self._cached_armor_catalog)
         for entry in self._model.character.custom_armor:
             name = entry.get("name")
             if name:
@@ -305,29 +350,18 @@ class SkillsTab(QWidget):
         return total
 
     def _synergy_bonuses(self) -> dict[str, int]:
-        """Return the +2 synergy bonuses earned by the current rank allocation.
+        """Return the synergy bonuses earned by the current rank allocation.
 
-        Synergy pairs are read from the seeded ``skill_synergies`` table and
-        translated to the tab's display skill names (the workbook stores some
-        skills, e.g. Knowledge sub-skills, with different capitalisation) so the
-        bonuses match the rows rendered here.
+        Uses the cached synergy pairs (populated from the ``skill_synergies``
+        table at init/reload) so no DB connection is opened per call.
         """
         ranks_by_skill = {
             _SKILLS[row][0]: self._rank_spinboxes[row].value()
             for row in range(len(_SKILLS))
         }
-        synergies: list[tuple[str, str]] = []
-        if self._model is not None:
-            raw = self._model.game_data().list_skill_synergies()
-            display_by_key = {name.casefold(): name for name, *_ in _SKILLS}
-            synergies = [
-                (
-                    display_by_key.get(from_skill.casefold(), from_skill),
-                    display_by_key.get(to_skill.casefold(), to_skill),
-                )
-                for from_skill, to_skill in raw
-            ]
-        return skill_synergy_bonus(qualifying_synergy_skills(ranks_by_skill), synergies)
+        return skill_synergy_bonus(
+            qualifying_synergy_skills(ranks_by_skill), self._cached_synergy_pairs
+        )
 
     def _recalculate(self) -> None:
         acp = self._armor_check_penalty()

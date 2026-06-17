@@ -143,7 +143,7 @@ def _normalize_skill_key(name: str) -> str:
     ``KnowledgeArcana``) with their canonical skill names (e.g.
     ``Knowledge (arcana)``).
     """
-    return re.sub(r"[^a-z0-9]", "", name.lower())
+    return re.sub(r"[^a-z0-9]", "", name.casefold())
 
 
 def _strip_footnotes(name: str) -> str:
