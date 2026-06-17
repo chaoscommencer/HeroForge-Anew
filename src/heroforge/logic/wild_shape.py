@@ -16,7 +16,7 @@ import json
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
+if TYPE_CHECKING:  # pragma: no cover - typing-only
     from heroforge.db.data_access import Creature
 
 # Persisted ``companion_type`` discriminator for the active Wild Shape form.
