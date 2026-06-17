@@ -125,6 +125,9 @@ class FeatsTab(QWidget):
         self._update_slots_label()
         stats = self._model.derived_stats()
         char = self._model.character
+        prereq_map_lower = {
+            name.lower(): reqs for name, reqs in self._prerequisites.items()
+        }
         for i in range(self._avail_list.count()):
             item = self._avail_list.item(i)
             if item is None:
@@ -138,6 +141,7 @@ class FeatsTab(QWidget):
                 char.feats,
                 char.total_level,
                 feat_prereqs=self._prerequisites,
+                _prereq_map_lower=prereq_map_lower,
             )
             flags = item.flags()
             if met or not prereqs:

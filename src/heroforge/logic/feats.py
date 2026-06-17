@@ -247,6 +247,7 @@ def available_feats(
         Sorted list of available feat names.
     """
     current_feats_set = set(character_feats)
+    prereq_map_lower = {name.lower(): reqs for name, reqs in feat_prereqs.items()}
     result = []
     for feat in all_feats:
         if feat in current_feats_set:
@@ -260,6 +261,7 @@ def available_feats(
             character_feats,
             character_level,
             feat_prereqs=feat_prereqs,
+            _prereq_map_lower=prereq_map_lower,
         ):
             result.append(feat)
     return sorted(result)
