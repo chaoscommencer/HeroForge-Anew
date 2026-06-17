@@ -1906,14 +1906,14 @@ def seed_familiar_bonuses(conn: sqlite3.Connection) -> None:
 # Spellcasting class data extraction from the reference workbook
 # ---------------------------------------------------------------------------
 
-# Column indices in the "Spells per Day" sheet that identify the caster
-# progression archetype for a class.  These are fixed across all sections of
-# the sheet and determined by the original workbook layout:
-#   col 1  – Bard-like archetype (limited spell levels, ≤ 6th) → three_quarter
-#   col 9  – Cleric-like archetype (full 9 spell levels, 0–9)  → full
-#   col 20 – Paladin-like archetype (CL column + 4 spell levels) → half
-# Col 31 holds the "Standard Prestige Good/Poor" archetypes, which are not
-# mapped to a caster type here.
+# 0-based column indices in the "Spells per Day" sheet that identify the
+# caster progression archetype for a class.  These are fixed across all
+# sections of the sheet and determined by the original workbook layout:
+#   index 1  (2nd column)  – Bard-like (limited, ≤ 6th level)   → three_quarter
+#   index 9  (10th column) – Cleric-like (full 9 spell levels)   → full
+#   index 20 (21st column) – Paladin-like (CL + 4 spell levels)  → half
+# Index 31 (32nd column) holds "Standard Prestige Good/Poor" archetypes,
+# which are not mapped to a caster type here.
 _SPD_PARTIAL_CASTER_COL: int = 1
 _SPD_FULL_CASTER_COL: int = 9
 _SPD_HALF_CASTER_COL: int = 20
@@ -1930,7 +1930,7 @@ _SPD_NON_CLASS_HEADERS: frozenset[str] = frozenset(
 
 
 def _extract_spellcasting_class_data(
-    wb: object,
+    wb: openpyxl.Workbook,
 ) -> dict[str, tuple[str, str]]:
     """Extract spellcasting ability and caster type for each class in *wb*.
 
@@ -1949,12 +1949,12 @@ def _extract_spellcasting_class_data(
     Returns:
         ``{class_name: (spellcasting_ability, caster_type)}``
     """
-    sheet_titles = {ws.title for ws in wb.worksheets}  # type: ignore[union-attr]
+    sheet_titles = {ws.title for ws in wb.worksheets}
 
     # --- Step 1: spellcasting ability from "Spell Info" ---
     ability_map: dict[str, str] = {}
     if "Spell Info" in sheet_titles:
-        ws_si = wb["Spell Info"]  # type: ignore[index]
+        ws_si = wb["Spell Info"]
         for row_idx, row in enumerate(ws_si.iter_rows(values_only=True)):
             if row_idx < 3:
                 # row 0 = column-number row, row 1 = header, row 2 = sub-header
@@ -1962,17 +1962,17 @@ def _extract_spellcasting_class_data(
             class_name = row[0]
             stat = row[7]  # "Stat" column – e.g. 'Wis', 'Int', 'Cha'
             if (
-                class_name
-                and stat
-                and isinstance(class_name, str)
+                isinstance(class_name, str)
+                and class_name
                 and isinstance(stat, str)
+                and stat
             ):
                 ability_map[class_name] = stat.upper()
 
     # --- Step 2: caster type from "Spells per Day" column positions ---
     caster_type_map: dict[str, str] = {}
     if "Spells per Day" in sheet_titles:
-        ws_spd = wb["Spells per Day"]  # type: ignore[index]
+        ws_spd = wb["Spells per Day"]
         col_ctype_pairs = (
             (_SPD_PARTIAL_CASTER_COL, "three_quarter"),
             (_SPD_FULL_CASTER_COL, "full"),
