@@ -1483,25 +1483,31 @@ def seed_weapon_damage(
 
 
 def seed_psionic_progression(
-    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+    conn: sqlite3.Connection,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
+    workbook: object | None = None,
 ) -> None:
     """Seed the *psionic_progression* table from the "Psionic Info" sheet.
 
     Replaces the table in full with the per-class power-point-per-day and
     powers-known progressions transcribed from the workbook (Excel tab 7b),
     including each class's key ability.  The workbook is loaded in formula mode
-    so the key-ability formulas in column G are readable.  If the workbook is
+    so the key-ability formulas in column G are readable.  Callers may pass an
+    already-open formula-mode ``workbook`` to avoid re-parsing the ``.xlsm``;
+    when omitted the workbook is loaded (and closed) here.  If the workbook is
     missing the function logs a warning and leaves the table untouched.
     """
-    workbook_path = Path(workbook_path)
-    if not workbook_path.exists():
-        logger.warning(
-            "Workbook not found at %s – skipping psionic_progression",
-            workbook_path,
-        )
-        return
-
-    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
+    wb = workbook
+    owns_workbook = wb is None
+    if wb is None:
+        workbook_path = Path(workbook_path)
+        if not workbook_path.exists():
+            logger.warning(
+                "Workbook not found at %s – skipping psionic_progression",
+                workbook_path,
+            )
+            return
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
     try:
         rows = _extract_psionic_progression(wb)
     except KeyError:
@@ -1511,7 +1517,8 @@ def seed_psionic_progression(
         )
         return
     finally:
-        wb.close()
+        if owns_workbook:
+            wb.close()
 
     if not rows:
         logger.warning(
@@ -2132,24 +2139,30 @@ def _extract_skill_synergies(wb: object) -> list[tuple[object, ...]]:
 
 
 def seed_skill_synergies(
-    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+    conn: sqlite3.Connection,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
+    workbook: object | None = None,
 ) -> None:
     """Seed the *skill_synergies* table from the workbook "Synergy" column.
 
     The pairs are parsed from cell formulas (see :func:`_extract_skill_synergies`),
-    so the workbook is opened with ``data_only=False`` to expose them.  If the
+    so the workbook is opened with ``data_only=False`` to expose them.  Callers
+    may pass an already-open formula-mode ``workbook`` to avoid re-parsing the
+    ``.xlsm``; when omitted the workbook is loaded (and closed) here.  If the
     workbook is missing the function logs a warning and leaves the table
     untouched.
     """
-    workbook_path = Path(workbook_path)
-    if not workbook_path.exists():
-        logger.warning(
-            "Workbook not found at %s – skipping skill_synergies",
-            workbook_path,
-        )
-        return
-
-    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
+    wb = workbook
+    owns_workbook = wb is None
+    if wb is None:
+        workbook_path = Path(workbook_path)
+        if not workbook_path.exists():
+            logger.warning(
+                "Workbook not found at %s – skipping skill_synergies",
+                workbook_path,
+            )
+            return
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
     try:
         rows = _extract_skill_synergies(wb)
     except KeyError:
@@ -2159,7 +2172,8 @@ def seed_skill_synergies(
         )
         return
     finally:
-        wb.close()
+        if owns_workbook:
+            wb.close()
 
     if not rows:
         logger.warning(
@@ -2394,25 +2408,33 @@ def seed_all(
 
     logger.info("Seeding database at %s from data dir %s", db_path, data_dir)
     conn = initialize_database(db_path)
-    wb: object | None = None
+    wb_values: object | None = None
+    wb_formulas: object | None = None
     if workbook_path.exists():
         logger.info("Loading workbook %s", workbook_path.name)
-        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
+        wb_values = openpyxl.load_workbook(
+            str(workbook_path), read_only=True, data_only=True
+        )
+        wb_formulas = openpyxl.load_workbook(
+            str(workbook_path), read_only=True, data_only=False
+        )
 
     try:
-        seed_weapon_damage(conn, workbook_path, workbook=wb)
+        seed_weapon_damage(conn, workbook_path, workbook=wb_values)
         seed_weapons(conn, data_dir)
         seed_creatures(conn, data_dir)
         seed_tables(conn, data_dir)
         seed_familiar_bonuses(conn)
         seed_classes(conn, data_dir)
-        seed_class_spellcasting_info(conn, workbook_path, workbook=wb)
-        seed_workbook(conn, workbook_path, workbook=wb)
-        seed_skill_synergies(conn, workbook_path)
-        seed_psionic_progression(conn, workbook_path)
+        seed_class_spellcasting_info(conn, workbook_path, workbook=wb_values)
+        seed_workbook(conn, workbook_path, workbook=wb_values)
+        seed_skill_synergies(conn, workbook_path, workbook=wb_formulas)
+        seed_psionic_progression(conn, workbook_path, workbook=wb_formulas)
     finally:
-        if wb is not None:
-            wb.close()
+        if wb_values is not None:
+            wb_values.close()
+        if wb_formulas is not None:
+            wb_formulas.close()
         conn.close()
 
     logger.info("Seeding complete.")

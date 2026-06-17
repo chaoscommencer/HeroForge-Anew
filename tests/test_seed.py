@@ -301,12 +301,14 @@ class TestSeedAllWorkbookLoading:
             def close(self) -> None:
                 self.closed = True
 
-        wb = _DummyWorkbook()
-        load_calls: list[str] = []
+        created: list[_DummyWorkbook] = []
+        load_calls: list[dict[str, object]] = []
 
-        def fake_load_workbook(path: str, **_kwargs: object) -> _DummyWorkbook:
-            load_calls.append(path)
-            return wb
+        def fake_load_workbook(file_path: str, **kwargs: object) -> _DummyWorkbook:
+            load_calls.append({"path": file_path, **kwargs})
+            new_wb = _DummyWorkbook()
+            created.append(new_wb)
+            return new_wb
 
         workbook_args: dict[str, object | None] = {}
 
@@ -340,17 +342,41 @@ class TestSeedAllWorkbookLoading:
             ),
         )
         monkeypatch.setattr(
-            seed, "seed_skill_synergies", lambda *_args, **_kwargs: None
+            seed,
+            "seed_skill_synergies",
+            lambda _conn, _path, workbook=None: workbook_args.setdefault(
+                "synergies", workbook
+            ),
         )
         monkeypatch.setattr(
-            seed, "seed_psionic_progression", lambda *_args, **_kwargs: None
+            seed,
+            "seed_psionic_progression",
+            lambda _conn, _path, workbook=None: workbook_args.setdefault(
+                "psionic", workbook
+            ),
         )
 
         seed.seed_all(db_path=db_path, data_dir=data_dir, workbook_path=workbook_path)
 
-        assert len(load_calls) == 1
-        assert workbook_args == {"weapon": wb, "spellcasting": wb, "workbook": wb}
-        assert wb.closed
+        # The workbook is parsed at most once per openpyxl mode: one
+        # value-only load (shared by the value-based seeders) and one
+        # formula-mode load (shared by the formula-based seeders).
+        assert len(load_calls) == 2
+        data_only_flags = sorted(bool(call.get("data_only")) for call in load_calls)
+        assert data_only_flags == [False, True]
+        # Value-based seeders share the same value-only workbook object.
+        values_wb = workbook_args["weapon"]
+        assert values_wb is not None
+        assert workbook_args["spellcasting"] is values_wb
+        assert workbook_args["workbook"] is values_wb
+        # Formula-based seeders share the same formula-mode workbook object,
+        # distinct from the value-only one.
+        formulas_wb = workbook_args["synergies"]
+        assert formulas_wb is not None
+        assert workbook_args["psionic"] is formulas_wb
+        assert formulas_wb is not values_wb
+        # Every workbook opened by seed_all is closed before returning.
+        assert all(w.closed for w in created)
 
 
 class TestWeaponDamageMatrix:
