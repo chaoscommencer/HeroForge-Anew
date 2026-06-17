@@ -120,6 +120,7 @@ _EFFECTIVE_LEVEL_SOURCES: dict[str, Callable[[int], int]] = {
 # Parses a Hit Dice expression such as ``"3d8+6"`` or ``"5d10"`` into its
 # component groups: number of dice, die size, and optional flat modifier.
 _HIT_DICE_RE = re.compile(r"^\s*(\d+)\s*d\s*(\d+)\s*([+-]\s*\d+)?\s*$", re.IGNORECASE)
+_HIT_DICE_COUNT_ONLY_RE = re.compile(r"^\s*(\d+)\s*$")
 
 
 def companion_progression(
@@ -254,15 +255,22 @@ def adjust_hit_dice(hit_dice: str, bonus_hd: int, con_score: int | None = None) 
     """
     match = _HIT_DICE_RE.match(hit_dice or "")
     if match is None:
-        return hit_dice
-    count = int(match.group(1))
-    die = int(match.group(2))
+        count_only_match = _HIT_DICE_COUNT_ONLY_RE.match(hit_dice or "")
+        if count_only_match is None:
+            return hit_dice
+        count = int(count_only_match.group(1))
+        die = 8
+        original_modifier = 0
+    else:
+        count = int(match.group(1))
+        die = int(match.group(2))
+        raw = match.group(3)
+        original_modifier = int(raw.replace(" ", "")) if raw else 0
     new_count = count + max(0, bonus_hd)
     if con_score is not None:
         modifier = _ability_modifier(con_score) * new_count
     else:
-        raw = match.group(3)
-        modifier = int(raw.replace(" ", "")) if raw else 0
+        modifier = original_modifier
     result = f"{new_count}d{die}"
     if modifier > 0:
         result += f"+{modifier}"

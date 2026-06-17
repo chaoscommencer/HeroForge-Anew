@@ -1995,12 +1995,22 @@ def _read_companion_progression(
                 header_col = _find_companion_header(row)
                 continue
             level = row[header_col] if header_col < len(row) else None
-            if header_col + 3 >= len(row) or not isinstance(level, int):
+            if level is None:
+                continue
+            if header_col + 3 >= len(row):
+                continue
+            if isinstance(level, float):
+                if not level.is_integer():
+                    break
+                level_value = int(level)
+            elif isinstance(level, int):
+                level_value = level
+            else:
                 break
             abilities = row[header_col + 4] if header_col + 4 < len(row) else None
             levels.append(
                 (
-                    level,
+                    level_value,
                     _safe_int(row[header_col + 1]),
                     _safe_int(row[header_col + 2]),
                     _safe_int(row[header_col + 3]),

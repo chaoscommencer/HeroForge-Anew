@@ -119,6 +119,10 @@ def test_adjust_hit_dice_adds_d8_and_recomputes_modifier() -> None:
     assert adjust_hit_dice("3d8+3", 0) == "3d8+3"
     # Negative Con modifier yields a negative flat modifier.
     assert adjust_hit_dice("1d8", 1, con_score=8) == "2d8-2"
+    # Catalogue creature HD is often a plain count (for example, "2" for Wolf).
+    assert adjust_hit_dice("2", 2, con_score=15) == "4d8+8"
+    # Without a Con score, count-only HD still scales and keeps no flat modifier.
+    assert adjust_hit_dice("2", 2) == "4d8"
     # Unparsable strings are returned unchanged.
     assert adjust_hit_dice("special", 2) == "special"
 
@@ -256,6 +260,44 @@ def test_progression_falls_back_when_workbook_missing(tmp_path: Path) -> None:
 
     missing = tmp_path / "does-not-exist.xlsm"
     assert _read_companion_progression(missing) == STANDARD_COMPANION_PROGRESSION
+
+
+def test_progression_parser_handles_float_levels_and_blank_rows(tmp_path: Path) -> None:
+    """Workbook parsing tolerates float level cells and blank spacer rows."""
+    import openpyxl
+
+    from heroforge.db.seed import _COMPANION_SHEET, _read_companion_progression
+
+    workbook = tmp_path / "companion.xlsm"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = _COMPANION_SHEET
+    ws.append(
+        [
+            "Level",
+            "Bonus HD",
+            "Bonus Nat Armor",
+            "Str/Dex adjust",
+            "Abilities",
+        ]
+    )
+    ws.append([None, None, None, None, None])
+    for level in range(1, 21):
+        tier = companion_progression(level)
+        assert tier is not None
+        ws.append(
+            [
+                float(level),
+                tier.bonus_hd,
+                tier.natural_armor,
+                tier.ability_adjustment,
+                tier.special,
+            ]
+        )
+    wb.save(workbook)
+    wb.close()
+
+    assert _read_companion_progression(workbook) == STANDARD_COMPANION_PROGRESSION
 
 
 def test_seed_and_repository_round_trip(tmp_path: Path) -> None:
