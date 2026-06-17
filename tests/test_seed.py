@@ -378,6 +378,49 @@ class TestSeedAllWorkbookLoading:
         # Every workbook opened by seed_all is closed before returning.
         assert all(w.closed for w in created)
 
+    def test_seed_all_closes_partial_resources_when_workbook_load_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        db_path = tmp_path / "seed.db"
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        workbook_path = tmp_path / "reference.xlsm"
+        workbook_path.write_bytes(b"placeholder")
+
+        class _DummyWorkbook:
+            closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        class _DummyConnection:
+            closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+        first_workbook = _DummyWorkbook()
+        dummy_conn = _DummyConnection()
+        load_calls = 0
+
+        def fake_load_workbook(_file_path: str, **_kwargs: object) -> _DummyWorkbook:
+            nonlocal load_calls
+            load_calls += 1
+            if load_calls == 1:
+                return first_workbook
+            raise ValueError("failed to parse formula workbook")
+
+        monkeypatch.setattr(seed, "initialize_database", lambda _db_path: dummy_conn)
+        monkeypatch.setattr(seed.openpyxl, "load_workbook", fake_load_workbook)
+
+        with pytest.raises(ValueError, match="failed to parse formula workbook"):
+            seed.seed_all(
+                db_path=db_path, data_dir=data_dir, workbook_path=workbook_path
+            )
+
+        assert first_workbook.closed
+        assert dummy_conn.closed
+
 
 class TestWeaponDamageMatrix:
     """The size-aware ``weapon_damage`` matrix replaces the in-code constant."""

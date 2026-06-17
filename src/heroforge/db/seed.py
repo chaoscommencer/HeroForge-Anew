@@ -2408,16 +2408,22 @@ def seed_all(
 
     logger.info("Seeding database at %s from data dir %s", db_path, data_dir)
     conn = initialize_database(db_path)
-    wb_values: object | None = None
-    wb_formulas: object | None = None
-    if workbook_path.exists():
-        logger.info("Loading workbook %s", workbook_path.name)
-        wb_values = openpyxl.load_workbook(
-            str(workbook_path), read_only=True, data_only=True
-        )
-        wb_formulas = openpyxl.load_workbook(
-            str(workbook_path), read_only=True, data_only=False
-        )
+    wb_values: openpyxl.Workbook | None = None
+    wb_formulas: openpyxl.Workbook | None = None
+    try:
+        if workbook_path.exists():
+            logger.info("Loading workbook %s", workbook_path.name)
+            wb_values = openpyxl.load_workbook(
+                str(workbook_path), read_only=True, data_only=True
+            )
+            wb_formulas = openpyxl.load_workbook(
+                str(workbook_path), read_only=True, data_only=False
+            )
+    except Exception:
+        if wb_values is not None:
+            wb_values.close()
+        conn.close()
+        raise
 
     try:
         seed_weapon_damage(conn, workbook_path, workbook=wb_values)
