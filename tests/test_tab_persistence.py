@@ -532,6 +532,29 @@ class TestIncarnumPsionicsManeuvers:
         assert calls == 1
         assert tab._total_pp.value() == 37
 
+    def test_auto_calc_persists_clamped_spinbox_value(self, model: object) -> None:
+        """Persisted total must equal the spinbox value, not the raw computed value.
+
+        If the computed PP exceeds the spinbox's maximum (e.g. the range was
+        reduced), the spinbox clamps it.  The model must store the *clamped*
+        value so that the persisted state matches the UI.
+        """
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        tab = PsionicsTab(model=model)
+        # Override the spinbox range so any value > 50 is clamped to 50.
+        tab._total_pp.setRange(0, 50)
+
+        # Psion 10 with INT 20 computes to 113 PP — above the new cap of 50.
+        model.character.classes = [("Psion", 10)]
+        model.character.ability_scores["INT"] = 20
+        model.derived_stats_changed.emit()
+
+        # The spinbox must display the clamped value.
+        assert tab._total_pp.value() == 50
+        # The persisted value must match what the spinbox shows, not 113.
+        assert model.character.options["psionic_total_pp"] == "50"
+
     def test_maneuver_and_stance_classified(self, model: object) -> None:
         from heroforge.ui.tabs.maneuvers_and_stances import ManeuversAndStancesTab
 

@@ -150,7 +150,7 @@ class PsionicsTab(QWidget):
         self._spent_pp.setMaximum(self._total_pp.value())
         self._update_remaining()
         if not self._loading and self._model is not None:
-            self._model.character.options[_TOTAL_KEY] = str(value)
+            self._model.character.options[_TOTAL_KEY] = str(self._total_pp.value())
 
     def _on_auto_toggled(self, checked: bool) -> None:
         self._total_pp.setEnabled(not checked)
