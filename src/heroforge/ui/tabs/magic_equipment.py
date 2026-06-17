@@ -126,8 +126,29 @@ class MagicEquipmentTab(QWidget):
     # State helpers
     # ------------------------------------------------------------------
 
+    def _weight_lookup(self) -> dict[str, float]:
+        """Return a name → unit-weight map from the catalogue and custom items.
+
+        Weights come from the seeded ``magic_equipment`` catalogue so items
+        chosen from the database contribute their weight to encumbrance; any
+        user-defined custom items supply their own weight.
+        """
+        weights: dict[str, float] = {}
+        if self._model is not None:
+            for m in self._model.game_data().list_magic_equipment():
+                weights[m.name] = float(m.weight)
+            for entry in self._model.character.custom_items:
+                name = entry.get("name", "")
+                if name:
+                    try:
+                        weights[name] = float(entry.get("weight", 0.0) or 0.0)
+                    except (TypeError, ValueError):
+                        weights[name] = 0.0
+        return weights
+
     def _entries(self) -> list[dict]:  # type: ignore[type-arg]
         result: list[dict] = []  # type: ignore[type-arg]
+        weights = self._weight_lookup()
         for row in range(len(_SLOTS)):
             item = self._slots_table.item(row, 1)
             notes = self._slots_table.item(row, 2)
@@ -137,7 +158,7 @@ class MagicEquipmentTab(QWidget):
                     {
                         "item_name": name,
                         "quantity": 1,
-                        "weight": 0,
+                        "weight": weights.get(name, 0.0),
                         "equipped": 1,
                         "slot": _SLOTS[row],
                         "notes": notes.text() if notes else "",
@@ -151,7 +172,7 @@ class MagicEquipmentTab(QWidget):
                 {
                     "item_name": li.text(),
                     "quantity": 1,
-                    "weight": 0,
+                    "weight": weights.get(li.text(), 0.0),
                     "equipped": 0,
                     "slot": _WONDROUS,
                     "notes": "",

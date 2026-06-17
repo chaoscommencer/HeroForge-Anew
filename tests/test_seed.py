@@ -92,6 +92,10 @@ class TestWorkbookSeeding:
         try:
             assert conn.execute("SELECT COUNT(*) FROM skills").fetchone()[0] == 57
             assert conn.execute("SELECT COUNT(*) FROM armor").fetchone()[0] == 104
+            assert (
+                conn.execute("SELECT COUNT(*) FROM magic_equipment").fetchone()[0]
+                == 602
+            )
             assert conn.execute("SELECT COUNT(*) FROM maneuvers").fetchone()[0] == 208
             assert (
                 conn.execute("SELECT COUNT(*) FROM incarnum_abilities").fetchone()[0]
@@ -222,6 +226,28 @@ class TestWorkbookSeeding:
         assert row is not None
         assert row["raw_name"] == "Appraise¹"
         assert row["marker"] == "¹"
+
+    def test_magic_equipment_seeded_with_slot_and_weight(self, seeded_db: Path) -> None:
+        """Magic items carry their slot, weight and price from the workbook."""
+        conn = get_connection(seeded_db)
+        try:
+            gauntlets = conn.execute(
+                "SELECT slot, weight, price_gp FROM magic_equipment WHERE name = ?",
+                ("Gauntlets of ogre power",),
+            ).fetchone()
+            ring = conn.execute(
+                "SELECT slot, weight FROM magic_equipment WHERE name = ?",
+                ("Animal friendship",),
+            ).fetchone()
+        finally:
+            conn.close()
+        assert gauntlets is not None
+        assert gauntlets["slot"] == "Hand"
+        assert gauntlets["weight"] == 2.0
+        assert gauntlets["price_gp"] == 4000
+        assert ring is not None
+        assert ring["slot"] == "Ring"
+        assert ring["weight"] == 0.0
 
     def test_skill_footnote_definitions_preserve_text(self, seeded_db: Path) -> None:
         conn = get_connection(seeded_db)
