@@ -189,6 +189,8 @@ class MagicItem:
     slot: str
     description: str
     source: str
+    weight: float = 0.0
+    price_gp: int = 0
 
 
 @dataclass(frozen=True)
@@ -956,7 +958,7 @@ class GameDataRepository:
         fragment, params = self._source_filter("source", sources)
         where = f"WHERE {fragment}" if fragment else ""
         rows = self._query(
-            "SELECT name, slot, description, source "
+            "SELECT name, slot, description, source, weight, price_gp "
             f"FROM magic_equipment {where} ORDER BY name",
             params,
         )
@@ -966,9 +968,30 @@ class GameDataRepository:
                 slot=r["slot"] or "",
                 description=r["description"] or "",
                 source=r["source"] or "",
+                weight=float(r["weight"] or 0.0),
+                price_gp=int(r["price_gp"] or 0),
             )
             for r in rows
         ]
+
+    def get_magic_item(self, name: str) -> MagicItem | None:
+        """Return the magic item named *name*, or ``None`` if not found."""
+        rows = self._query(
+            "SELECT name, slot, description, source, weight, price_gp "
+            "FROM magic_equipment WHERE name = ?",
+            (name,),
+        )
+        if not rows:
+            return None
+        r = rows[0]
+        return MagicItem(
+            name=r["name"],
+            slot=r["slot"] or "",
+            description=r["description"] or "",
+            source=r["source"] or "",
+            weight=float(r["weight"] or 0.0),
+            price_gp=int(r["price_gp"] or 0),
+        )
 
     # ------------------------------------------------------------------
     # Grafts, soulmelds, psionics, maneuvers
