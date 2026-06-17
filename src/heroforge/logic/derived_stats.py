@@ -175,11 +175,16 @@ def compute_derived_stats(
 
     hit_die_lookup = {name: prog.hit_die for name, prog in progressions.items()}
     hit_dice = hit_dice_sequence(character.classes, hit_die_lookup)
-    hit_points = max_hit_points(
+    computed_hit_points = max_hit_points(
         hit_dice,
         con_mod,
         flat_bonus=hp_flat_bonus,
         per_level_bonus=hp_per_level_bonus,
+    )
+    hit_points = (
+        character.hit_points
+        if character.hit_points is not None
+        else computed_hit_points
     )
 
     ac = combat.aggregate_armor_class(

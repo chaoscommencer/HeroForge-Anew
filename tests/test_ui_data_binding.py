@@ -1042,3 +1042,21 @@ class TestStatsTabHitPointsAndLevels:
         tab._sync_from_model()
         assert not tab._hp_auto_check.isChecked()
         assert tab._hp_spin.value() == 42
+
+    def test_hp_override_changes_emit_derived_stats_changed(
+        self, model: object
+    ) -> None:
+        from PyQt6.QtTest import QSignalSpy
+
+        model.character.classes = [("Fighter", 2)]
+        tab = self._stats_tab(model)
+        spy = QSignalSpy(model.derived_stats_changed)
+
+        tab._hp_auto_check.setChecked(False)
+        assert len(spy) == 1
+
+        tab._hp_spin.setValue(tab._hp_spin.value() + 1)
+        assert len(spy) == 2
+
+        tab._hp_auto_check.setChecked(True)
+        assert len(spy) == 3

@@ -333,16 +333,22 @@ class StatsAndCharacterDetailsTab(QWidget):
         self._apply_hp_auto_state()
         if self._model:
             if self._hp_auto_check.isChecked():
-                self._model.character.hit_points = None
+                new_value = None
             else:
                 # Seed the override with the current computed value.
-                self._model.character.hit_points = int(self._computed_hp)
+                new_value = int(self._computed_hp)
+            if self._model.character.hit_points != new_value:
+                self._model.character.hit_points = new_value
+                self._model.derived_stats_changed.emit()
         self._refresh_hp_display()
 
     def _on_hp_value_changed(self, value: int) -> None:
         # Only manual edits matter; auto mode mirrors the computed value.
         if self._model and not self._hp_auto_check.isChecked():
-            self._model.character.hit_points = int(value)
+            new_value = int(value)
+            if self._model.character.hit_points != new_value:
+                self._model.character.hit_points = new_value
+                self._model.derived_stats_changed.emit()
 
     def _refresh_point_buy(self) -> None:
         """Update the point-buy summary against the configured budget.

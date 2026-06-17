@@ -157,6 +157,12 @@ class TestHitPoints:
         # (10 + 1) + (6 + 1) + 3 flat = 21.
         assert stats.hit_points == 21
 
+    def test_manual_hit_points_override_takes_precedence(self) -> None:
+        char = Character(hit_points=99)
+        char.classes = [("Fighter", 2)]
+        progressions = {"Fighter": ClassProgression("Fighter", hit_die=10)}
+        assert compute_derived_stats(char, progressions).hit_points == 99
+
 
 class TestAggregatedArmorClass:
     def test_ac_bonuses_aggregated_by_type(self) -> None:
