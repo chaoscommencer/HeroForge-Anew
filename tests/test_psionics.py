@@ -16,9 +16,10 @@ from heroforge.logic.psionics import (
     psionic_class_levels,
 )
 
-# Manifesting-class catalogue used as test data, transcribed from the workbook's
-# "Psionic Info" sheet.  At runtime this mapping is sourced from the seeded
-# ``psionic_progression`` table via ``GameDataRepository.psionic_progressions``.
+# Minimal manifesting-class catalogue used as a test fixture: only the classes
+# exercised below, transcribed from the workbook's "Psionic Info" sheet.  At
+# runtime the full catalogue is sourced from the seeded ``psionic_progression``
+# table via ``GameDataRepository.psionic_progressions``.
 _PP_PRIMARY: tuple[int, ...] = (
     0, 2, 6, 11, 17, 25, 35, 46, 58, 72, 88,
     106, 126, 147, 170, 195, 221, 250, 280, 311, 343,
