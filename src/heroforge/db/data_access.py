@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from heroforge.db.schema import get_connection
+from heroforge.logic.animal_companion import CompanionProgression
 from heroforge.logic.derived_stats import ClassProgression
 from heroforge.logic.familiar import (
     FamiliarBonus,
@@ -1040,6 +1041,53 @@ class GameDataRepository:
             for r in rows
             if r["name"]
         ]
+
+    # ------------------------------------------------------------------
+    # Animal companion progression
+    # ------------------------------------------------------------------
+
+    def get_companion_progression_records(self) -> list[CompanionProgression]:
+        """Return the standard animal-companion progression tiers (PHB p36).
+
+        Data is read from the ``companion_progression`` table (seeded from
+        :data:`heroforge.logic.animal_companion.STANDARD_COMPANION_PROGRESSION`),
+        ordered as the workbook lists them.  Returns an empty list when the
+        database is unavailable or the table has not been seeded yet; callers can
+        fall back to the in-code constant.
+        """
+        rows = self._query(
+            "SELECT min_level, max_level, bonus_hd, natural_armor, "
+            "ability_adjustment, bonus_tricks, special "
+            "FROM companion_progression ORDER BY sort_order, min_level"
+        )
+        return [
+            CompanionProgression(
+                min_level=int(r["min_level"]),
+                max_level=int(r["max_level"]),
+                bonus_hd=int(r["bonus_hd"] or 0),
+                natural_armor=int(r["natural_armor"] or 0),
+                ability_adjustment=int(r["ability_adjustment"] or 0),
+                bonus_tricks=int(r["bonus_tricks"] or 0),
+                special=r["special"] or "",
+            )
+            for r in rows
+        ]
+
+    def get_companion_progression_labels(self) -> dict[str, str]:
+        """Return the Animal Companion tab row headings keyed by field.
+
+        The headings (``field_key`` → display label) are read from the
+        ``companion_progression_labels`` table, seeded from the workbook's
+        *Animal Companion* tab via
+        :data:`heroforge.logic.animal_companion.COMPANION_PROGRESSION_LABELS`.
+        Returns an empty dict when the database is unavailable or the table has
+        not been seeded yet; callers can fall back to the in-code constant.
+        """
+        rows = self._query(
+            "SELECT field_key, label FROM companion_progression_labels "
+            "ORDER BY sort_order, id"
+        )
+        return {r["field_key"]: r["label"] for r in rows if r["field_key"]}
 
     # ------------------------------------------------------------------
     # Incarnum abilities

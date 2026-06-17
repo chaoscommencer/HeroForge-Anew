@@ -25,6 +25,10 @@ import openpyxl
 
 from heroforge.db.schema import initialize_database
 from heroforge.logging_config import configure_logging
+from heroforge.logic.animal_companion import (
+    COMPANION_PROGRESSION_LABELS,
+    STANDARD_COMPANION_PROGRESSION,
+)
 from heroforge.logic.familiar import STANDARD_FAMILIAR_BONUSES
 
 logger = logging.getLogger(__name__)
@@ -1902,6 +1906,72 @@ def seed_familiar_bonuses(conn: sqlite3.Connection) -> None:
     logger.info("Familiar bonuses: inserted/replaced %d rows", inserted)
 
 
+def seed_companion_progression(conn: sqlite3.Connection) -> None:
+    """Insert the standard animal-companion progression into the game database.
+
+    The level-based progression tiers (PHB p36) and the *Animal Companion* tab's
+    row headings are defined once in
+    :data:`heroforge.logic.animal_companion.STANDARD_COMPANION_PROGRESSION` and
+    :data:`heroforge.logic.animal_companion.COMPANION_PROGRESSION_LABELS` (the
+    same structured source the original workbook used).  Both the
+    ``companion_progression`` and ``companion_progression_labels`` tables are
+    upserted so repeated calls are idempotent.
+
+    No external file is read: unlike the other seeders this is reference data the
+    application owns, so it is kept in code rather than a CSV.
+    """
+    tiers = 0
+    for order, tier in enumerate(STANDARD_COMPANION_PROGRESSION):
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO companion_progression
+                    (min_level, max_level, bonus_hd, natural_armor,
+                     ability_adjustment, bonus_tricks, special, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    tier.min_level,
+                    tier.max_level,
+                    tier.bonus_hd,
+                    tier.natural_armor,
+                    tier.ability_adjustment,
+                    tier.bonus_tricks,
+                    tier.special,
+                    order,
+                ),
+            )
+            tiers += 1
+        except sqlite3.Error as exc:
+            logger.debug(
+                "Skipping companion progression tier %r: %s", tier.min_level, exc
+            )
+
+    labels = 0
+    for order, entry in enumerate(COMPANION_PROGRESSION_LABELS):
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO companion_progression_labels
+                    (field_key, label, sort_order)
+                VALUES (?, ?, ?)
+                """,
+                (entry.field_key, entry.label, order),
+            )
+            labels += 1
+        except sqlite3.Error as exc:
+            logger.debug(
+                "Skipping companion progression label %r: %s", entry.field_key, exc
+            )
+
+    conn.commit()
+    logger.info(
+        "Companion progression: inserted/replaced %d tiers, %d labels",
+        tiers,
+        labels,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -1932,6 +2002,7 @@ def seed_all(
         seed_creatures(conn, data_dir)
         seed_tables(conn, data_dir)
         seed_familiar_bonuses(conn)
+        seed_companion_progression(conn)
         seed_classes(conn, data_dir)
         seed_workbook(conn, workbook_path)
     finally:

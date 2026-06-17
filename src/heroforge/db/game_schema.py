@@ -431,6 +431,26 @@ CREATE TABLE IF NOT EXISTS familiar_master_abilities (
     sort_order      INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS companion_progression (
+    id                  INTEGER PRIMARY KEY,
+    min_level           INTEGER NOT NULL,
+    max_level           INTEGER NOT NULL,
+    bonus_hd            INTEGER NOT NULL,
+    natural_armor       INTEGER NOT NULL,
+    ability_adjustment  INTEGER NOT NULL,
+    bonus_tricks        INTEGER NOT NULL,
+    special             TEXT NOT NULL DEFAULT '',
+    sort_order          INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(min_level, max_level)
+);
+
+CREATE TABLE IF NOT EXISTS companion_progression_labels (
+    id          INTEGER PRIMARY KEY,
+    field_key   TEXT UNIQUE NOT NULL,
+    label       TEXT NOT NULL,
+    sort_order  INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS languages (
     id                  INTEGER PRIMARY KEY,
     name                TEXT UNIQUE NOT NULL,

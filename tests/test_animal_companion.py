@@ -222,3 +222,88 @@ def test_tab_manual_entry_not_overwritten_by_progression(qapp: object) -> None:
     # The read-only summary still reflects the effective druid level.
     assert tab._eff_level_label.text() == "9"
     assert tab._bonus_hd_label.text() == "+6"
+
+
+# ---------------------------------------------------------------------------
+# Database seeding: the progression table and row headings live in the game DB
+# and are read back through the repository rather than hardcoded at runtime.
+# ---------------------------------------------------------------------------
+
+
+def test_seed_and_repository_round_trip(tmp_path: object) -> None:
+    """Seeded progression tiers and labels are read back via the repository."""
+    from pathlib import Path
+
+    from heroforge.db.data_access import GameDataRepository
+    from heroforge.db.schema import initialize_database
+    from heroforge.db.seed import seed_companion_progression
+    from heroforge.logic.animal_companion import COMPANION_PROGRESSION_LABELS
+
+    db_path = Path(str(tmp_path)) / "game.db"
+    conn = initialize_database(db_path)
+    try:
+        seed_companion_progression(conn)
+        # Idempotent: a second seeding must not duplicate rows.
+        seed_companion_progression(conn)
+    finally:
+        conn.close()
+
+    repo = GameDataRepository(db_path)
+    records = repo.get_companion_progression_records()
+    assert tuple(records) == STANDARD_COMPANION_PROGRESSION
+
+    labels = repo.get_companion_progression_labels()
+    assert labels == {e.field_key: e.label for e in COMPANION_PROGRESSION_LABELS}
+
+
+def test_repository_empty_when_unseeded(tmp_path: object) -> None:
+    """An unseeded database yields empty results so callers fall back."""
+    from pathlib import Path
+
+    from heroforge.db.data_access import GameDataRepository
+    from heroforge.db.schema import initialize_database
+
+    db_path = Path(str(tmp_path)) / "game.db"
+    initialize_database(db_path).close()
+
+    repo = GameDataRepository(db_path)
+    assert repo.get_companion_progression_records() == []
+    assert repo.get_companion_progression_labels() == {}
+
+
+def test_tab_reads_progression_and_labels_from_db(
+    qapp: object, tmp_path: object
+) -> None:
+    """The tab sources its progression table and row headings from the DB."""
+    from pathlib import Path
+
+    from heroforge.db.data_access import GameDataRepository
+    from heroforge.db.schema import initialize_database
+    from heroforge.db.seed import seed_companion_progression
+    from heroforge.ui.main_window import CharacterModel
+    from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
+
+    db_path = Path(str(tmp_path)) / "game.db"
+    conn = initialize_database(db_path)
+    try:
+        seed_companion_progression(conn)
+    finally:
+        conn.close()
+
+    model = CharacterModel(game_data=GameDataRepository(db_path))
+    model.character.classes = [("Druid", 9)]
+    tab = AnimalCompanionTab(model=model)
+
+    # Loaded from the seeded database, not the in-code constant.
+    assert tab._progression == STANDARD_COMPANION_PROGRESSION
+    assert tab._labels["effective_druid_level"] == "Effective Druid Level"
+
+    # Progression still applies correctly when driven by the DB-loaded table.
+    tab._base = {
+        "scores": {"STR": 13, "DEX": 15, "CON": 15, "INT": 2, "WIS": 12, "CHA": 6},
+        "natural_armor": 2,
+        "hd": "2d8+4",
+    }
+    tab._apply_progression()
+    assert tab._ability_spins["STR"].value() == 16
+    assert tab._na_spin.value() == 8

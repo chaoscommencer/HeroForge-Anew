@@ -32,6 +32,9 @@ from PyQt6.QtWidgets import (
 )
 
 from heroforge.logic.animal_companion import (
+    COMPANION_PROGRESSION_LABELS,
+    STANDARD_COMPANION_PROGRESSION,
+    CompanionProgression,
     apply_progression,
     companion_progression,
     cumulative_special_qualities,
@@ -44,6 +47,14 @@ if TYPE_CHECKING:
 
 _COMPANION_TYPE = "animal"
 _ABILITIES = ("STR", "DEX", "CON", "INT", "WIS", "CHA")
+
+# Offline fallback for the level-progression row headings, generated from the
+# single structured source so it matches the seeded
+# ``companion_progression_labels`` rows (see
+# ``GameDataRepository.get_companion_progression_labels``).
+_FALLBACK_LABELS: dict[str, str] = {
+    entry.field_key: entry.label for entry in COMPANION_PROGRESSION_LABELS
+}
 
 
 class AnimalCompanionTab(QWidget):
@@ -60,6 +71,11 @@ class AnimalCompanionTab(QWidget):
         # a species is picked from the catalogue so the level-based progression
         # can be re-applied whenever the effective druid level changes.
         self._base: dict[str, object] | None = None
+        # Progression tiers and row headings are read from the seeded game
+        # database (PHB p36); the in-code constants are only an offline fallback
+        # when the database has not been seeded yet.
+        self._progression: tuple[CompanionProgression, ...] = self._load_progression()
+        self._labels: dict[str, str] = self._load_labels()
         self._build_ui()
         if model:
             model.character_reset.connect(self._sync_from_model)
@@ -68,6 +84,31 @@ class AnimalCompanionTab(QWidget):
             # effective druid level) change.
             model.class_levels_changed.connect(self._refresh_progression)
             self._sync_from_model()
+
+    def _load_progression(self) -> tuple[CompanionProgression, ...]:
+        """Return the progression tiers from the DB, falling back to the constant.
+
+        The seeded ``companion_progression`` table is the source of truth; the
+        in-code :data:`STANDARD_COMPANION_PROGRESSION` is used only when the
+        database is unavailable or has not been seeded.
+        """
+        if self._model is not None:
+            records = self._model.game_data().get_companion_progression_records()
+            if records:
+                return tuple(records)
+        return STANDARD_COMPANION_PROGRESSION
+
+    def _load_labels(self) -> dict[str, str]:
+        """Return the row headings from the DB, falling back to the constant."""
+        if self._model is not None:
+            labels = self._model.game_data().get_companion_progression_labels()
+            if labels:
+                return labels
+        return dict(_FALLBACK_LABELS)
+
+    def _label(self, field_key: str) -> str:
+        """Return the heading text for *field_key* (DB value or fallback)."""
+        return self._labels.get(field_key, _FALLBACK_LABELS.get(field_key, field_key))
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -126,12 +167,16 @@ class AnimalCompanionTab(QWidget):
         self._bonus_tricks_label = QLabel("0")
         self._special_label = QLabel("—")
         self._special_label.setWordWrap(True)
-        prog_form.addRow("Effective Druid Level:", self._eff_level_label)
-        prog_form.addRow("Bonus HD:", self._bonus_hd_label)
-        prog_form.addRow("Natural Armor Adj.:", self._na_adj_label)
-        prog_form.addRow("Str/Dex Adj.:", self._ability_adj_label)
-        prog_form.addRow("Bonus Tricks:", self._bonus_tricks_label)
-        prog_form.addRow("Special:", self._special_label)
+        prog_form.addRow(
+            f"{self._label('effective_druid_level')}:", self._eff_level_label
+        )
+        prog_form.addRow(f"{self._label('bonus_hd')}:", self._bonus_hd_label)
+        prog_form.addRow(f"{self._label('natural_armor')}:", self._na_adj_label)
+        prog_form.addRow(
+            f"{self._label('ability_adjustment')}:", self._ability_adj_label
+        )
+        prog_form.addRow(f"{self._label('bonus_tricks')}:", self._bonus_tricks_label)
+        prog_form.addRow(f"{self._label('special')}:", self._special_label)
         inner_layout.addWidget(prog_box)
 
         inner_layout.addStretch()
@@ -248,7 +293,9 @@ class AnimalCompanionTab(QWidget):
         base_na = int(raw_na) if isinstance(raw_na, (int, float)) else 0
         raw_hd = base.get("hd", "")
         base_hd = raw_hd if isinstance(raw_hd, str) else ""
-        result = apply_progression(base_scores, base_na, base_hd, level)
+        result = apply_progression(
+            base_scores, base_na, base_hd, level, self._progression
+        )
         self._loading = True
         for ability, score in result.ability_scores.items():
             if ability in self._ability_spins:
@@ -260,7 +307,7 @@ class AnimalCompanionTab(QWidget):
     def _update_progression_labels(self, level: int) -> None:
         """Refresh the read-only progression summary for *level*."""
         self._eff_level_label.setText(str(level))
-        tier = companion_progression(level)
+        tier = companion_progression(level, self._progression)
         if tier is None:
             self._bonus_hd_label.setText("+0")
             self._na_adj_label.setText("+0")
@@ -272,7 +319,7 @@ class AnimalCompanionTab(QWidget):
         self._na_adj_label.setText(f"+{tier.natural_armor}")
         self._ability_adj_label.setText(f"+{tier.ability_adjustment}")
         self._bonus_tricks_label.setText(str(tier.bonus_tricks))
-        qualities = cumulative_special_qualities(level)
+        qualities = cumulative_special_qualities(level, self._progression)
         self._special_label.setText(", ".join(qualities) if qualities else "—")
 
     def _sync_from_model(self) -> None:

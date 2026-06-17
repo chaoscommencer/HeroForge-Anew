@@ -74,6 +74,36 @@ STANDARD_COMPANION_PROGRESSION: tuple[CompanionProgression, ...] = (
     CompanionProgression(18, 20, 12, 12, 6, 7),
 )
 
+
+@dataclass(frozen=True)
+class ProgressionLabel:
+    """A field heading shown on the Animal Companion tab (workbook tab 9).
+
+    Attributes:
+        field_key: Stable identifier for the progression field.
+        label:     The human-readable heading text as it appears on the
+            workbook's *Animal Companion* tab.
+    """
+
+    field_key: str
+    label: str
+
+
+# Row headings for the level-progression summary, transcribed from the
+# workbook's *Animal Companion* tab (``HeroForge Anew 3.5 v7.4.0.1.xlsm`` tab 9).
+# Kept here as the single structured source of truth seeded into the
+# ``companion_progression_labels`` table and read back by the UI so the headings
+# are never hardcoded at runtime (the constant is only an offline fallback).
+COMPANION_PROGRESSION_LABELS: tuple[ProgressionLabel, ...] = (
+    ProgressionLabel("effective_druid_level", "Effective Druid Level"),
+    ProgressionLabel("bonus_hd", "Bonus HD"),
+    ProgressionLabel("natural_armor", "Natural Armor Adj."),
+    ProgressionLabel("ability_adjustment", "Str/Dex Adj."),
+    ProgressionLabel("bonus_tricks", "Bonus Tricks"),
+    ProgressionLabel("special", "Special"),
+)
+
+
 # Map a companion-granting class (lower-cased) to a function returning that
 # class's contribution to the effective druid level.  Extensible: add further
 # classes/archetypes here without touching the lookup logic.
