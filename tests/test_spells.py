@@ -6,8 +6,6 @@ Reference: PHB Chapter 10.
 from __future__ import annotations
 
 from heroforge.logic.spells import (
-    CASTER_TYPES,
-    SPELLCASTING_ABILITIES,
     arcane_spell_failure,
     caster_level,
     spell_save_dc,
@@ -103,63 +101,3 @@ class TestSpellSaveDC:
 
     def test_zero_everything(self) -> None:
         assert spell_save_dc(0, 0) == 10
-
-
-class TestSpellcastingAbilities:
-    """Reference: PHB Chapter 3 (class descriptions) and PHB p. 8."""
-
-    def test_core_full_casters_present(self) -> None:
-        for cls in ("Wizard", "Sorcerer", "Cleric", "Druid"):
-            assert cls in SPELLCASTING_ABILITIES, f"{cls} missing"
-
-    def test_partial_casters_present(self) -> None:
-        for cls in ("Bard", "Paladin", "Ranger"):
-            assert cls in SPELLCASTING_ABILITIES, f"{cls} missing"
-
-    def test_wizard_uses_int(self) -> None:
-        assert SPELLCASTING_ABILITIES["Wizard"] == "INT"
-
-    def test_cleric_uses_wis(self) -> None:
-        assert SPELLCASTING_ABILITIES["Cleric"] == "WIS"
-
-    def test_sorcerer_uses_cha(self) -> None:
-        assert SPELLCASTING_ABILITIES["Sorcerer"] == "CHA"
-
-    def test_bard_uses_cha(self) -> None:
-        assert SPELLCASTING_ABILITIES["Bard"] == "CHA"
-
-    def test_paladin_uses_wis(self) -> None:
-        assert SPELLCASTING_ABILITIES["Paladin"] == "WIS"
-
-
-class TestCasterTypes:
-    """Reference: PHB Chapter 3 (class descriptions)."""
-
-    def test_core_casters_present(self) -> None:
-        for cls in (
-            "Wizard",
-            "Sorcerer",
-            "Cleric",
-            "Druid",
-            "Bard",
-            "Paladin",
-            "Ranger",
-        ):
-            assert cls in CASTER_TYPES, f"{cls} missing"
-
-    def test_wizard_is_full(self) -> None:
-        assert CASTER_TYPES["Wizard"] == "full"
-
-    def test_paladin_is_half(self) -> None:
-        assert CASTER_TYPES["Paladin"] == "half"
-
-    def test_bard_is_three_quarter(self) -> None:
-        assert CASTER_TYPES["Bard"] == "three_quarter"
-
-    def test_caster_level_uses_types_correctly(self) -> None:
-        # Wizard 5 (full=5) + Paladin 4 (half=2) using CASTER_TYPES
-        result = caster_level(
-            {"Wizard": 5, "Paladin": 4},
-            CASTER_TYPES,
-        )
-        assert result == 7

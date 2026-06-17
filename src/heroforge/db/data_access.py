@@ -282,6 +282,8 @@ class ClassInfo:
     ref_progression: str
     will_progression: str
     skill_points_per_level: int
+    spellcasting_ability: str | None
+    caster_type: str | None
     source: str
 
 
@@ -467,7 +469,8 @@ class GameDataRepository:
         rows = self._query(
             "SELECT name, is_prestige, hit_die, bab_progression, "
             "fort_progression, ref_progression, will_progression, "
-            f"skill_points_per_level, source FROM classes {where} ORDER BY name",
+            "skill_points_per_level, spellcasting_ability, caster_type, "
+            f"source FROM classes {where} ORDER BY name",
             params,
         )
         return [
@@ -480,6 +483,8 @@ class GameDataRepository:
                 ref_progression=r["ref_progression"] or "poor",
                 will_progression=r["will_progression"] or "poor",
                 skill_points_per_level=r["skill_points_per_level"] or 2,
+                spellcasting_ability=r["spellcasting_ability"],
+                caster_type=r["caster_type"],
                 source=r["source"] or "",
             )
             for r in rows
@@ -493,6 +498,39 @@ class GameDataRepository:
             (class_name,),
         )
         return [r["skill_name"] for r in rows]
+
+    def get_spellcasting_abilities(self) -> dict[str, str]:
+        """Return a mapping of class name → spellcasting ability (INT/WIS/CHA).
+
+        Only classes with a non-NULL ``spellcasting_ability`` are included;
+        non-caster classes are absent from the result.  Returns an empty dict
+        when the database is unavailable or the column is not yet populated.
+
+        Reference: PHB Chapter 3 class descriptions; supplement class entries.
+        """
+        rows = self._query(
+            "SELECT name, spellcasting_ability FROM classes "
+            "WHERE spellcasting_ability IS NOT NULL "
+            "ORDER BY name"
+        )
+        return {r["name"]: r["spellcasting_ability"] for r in rows}
+
+    def get_caster_types(self) -> dict[str, str]:
+        """Return a mapping of class name → caster type string.
+
+        Caster type is one of ``'full'``, ``'three_quarter'``, or ``'half'``.
+        Only classes with a non-NULL ``caster_type`` are included.  Returns an
+        empty dict when the database is unavailable or the column is not yet
+        populated.
+
+        Reference: PHB Chapter 3 class descriptions; supplement class entries.
+        """
+        rows = self._query(
+            "SELECT name, caster_type FROM classes "
+            "WHERE caster_type IS NOT NULL "
+            "ORDER BY name"
+        )
+        return {r["name"]: r["caster_type"] for r in rows}
 
     def class_proficiencies(self, class_name: str) -> list[str]:
         """Return the weapon/armor proficiencies granted by *class_name*.

@@ -1902,6 +1902,74 @@ def seed_familiar_bonuses(conn: sqlite3.Connection) -> None:
     logger.info("Familiar bonuses: inserted/replaced %d rows", inserted)
 
 
+# D&D 3.5 spellcasting class data (PHB Chapter 3 and supplement class descriptions).
+# Keyed by class name; value is (spellcasting_ability, caster_type).
+# This data is authoritative reference material from the rulebooks and is
+# stored here so it can be seeded into the ``classes`` table rather than
+# remaining as hardcoded Python constants in the logic layer.
+_SPELLCASTING_CLASS_DATA: dict[str, tuple[str, str]] = {
+    # Full casters – PHB
+    "Cleric": ("WIS", "full"),
+    "Druid": ("WIS", "full"),
+    "Sorcerer": ("CHA", "full"),
+    "Wizard": ("INT", "full"),
+    # Three-quarter / partial casters – PHB
+    "Bard": ("CHA", "three_quarter"),
+    # Half casters – PHB
+    "Paladin": ("WIS", "half"),
+    "Ranger": ("WIS", "half"),
+    # Full casters – supplements (Complete Arcane / Complete Divine / etc.)
+    "Favored Soul": ("CHA", "full"),
+    "Archivist": ("INT", "full"),
+    "Dread Necromancer": ("CHA", "full"),
+    "Healer": ("WIS", "full"),
+    "Spirit Shaman": ("WIS", "full"),
+    "Wu Jen": ("INT", "full"),
+    # Three-quarter casters – supplements
+    "Warmage": ("INT", "three_quarter"),
+    "Hexblade": ("INT", "three_quarter"),
+    "Shugenja": ("WIS", "three_quarter"),
+}
+
+
+def seed_class_spellcasting_info(conn: sqlite3.Connection) -> None:
+    """Update the ``classes`` table with spellcasting ability and caster type.
+
+    For each known spellcasting class in :data:`_SPELLCASTING_CLASS_DATA` this
+    function sets ``spellcasting_ability`` (``INT``/``WIS``/``CHA``) and
+    ``caster_type`` (``full``/``three_quarter``/``half``) on the matching row.
+    Rows that do not yet exist in ``classes`` are silently skipped so this
+    seeder can safely run before or after :func:`seed_classes`.
+
+    The data comes from PHB Chapter 3 class descriptions and supplement class
+    entries; it is stored in the database rather than hard-coded in the logic
+    layer so that the application has a single authoritative source of truth.
+
+    Reference: PHB Chapter 3; Complete Arcane, Complete Divine, and other
+    supplement class entries.
+    """
+    updated = 0
+    for class_name, (
+        spellcasting_ability,
+        caster_type,
+    ) in _SPELLCASTING_CLASS_DATA.items():
+        try:
+            result = conn.execute(
+                """
+                UPDATE classes
+                SET spellcasting_ability = ?, caster_type = ?
+                WHERE name = ?
+                """,
+                (spellcasting_ability, caster_type, class_name),
+            )
+            updated += result.rowcount
+        except sqlite3.Error as exc:
+            logger.debug("Skipping spellcasting info for %r: %s", class_name, exc)
+
+    conn.commit()
+    logger.info("Class spellcasting info: updated %d rows", updated)
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -1933,6 +2001,7 @@ def seed_all(
         seed_tables(conn, data_dir)
         seed_familiar_bonuses(conn)
         seed_classes(conn, data_dir)
+        seed_class_spellcasting_info(conn)
         seed_workbook(conn, workbook_path)
     finally:
         conn.close()

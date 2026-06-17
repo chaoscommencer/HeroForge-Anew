@@ -29,8 +29,6 @@ from PyQt6.QtWidgets import (
 )
 
 from heroforge.logic.spells import (
-    CASTER_TYPES,
-    SPELLCASTING_ABILITIES,
     arcane_spell_failure,
     caster_level,
     spells_per_day,
@@ -272,7 +270,8 @@ class SpellsTab(QWidget):
         """
         if self._model is None:
             return 0
-        ability = SPELLCASTING_ABILITIES.get(class_name, "INT")
+        spellcasting_abilities = self._model.game_data().get_spellcasting_abilities()
+        ability = spellcasting_abilities.get(class_name, "INT")
         score = self._model.character.ability_scores.get(ability, 10)
         return (score - 10) // 2
 
@@ -291,7 +290,8 @@ class SpellsTab(QWidget):
             cls: sum(lvl for c, lvl in self._model.character.classes if c == cls)
             for cls in {c for c, _ in self._model.character.classes}
         }
-        cl = caster_level(cls_levels, CASTER_TYPES)
+        caster_types = self._model.game_data().get_caster_types()
+        cl = caster_level(cls_levels, caster_types)
         self._cl_label.setText(str(cl))
 
     def _refresh_asf(self) -> None:

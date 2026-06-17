@@ -73,6 +73,8 @@ CREATE TABLE IF NOT EXISTS classes (
     ref_progression         TEXT,
     will_progression        TEXT,
     skill_points_per_level  INTEGER,
+    spellcasting_ability    TEXT,
+    caster_type             TEXT,
     source                  TEXT
 );
 
