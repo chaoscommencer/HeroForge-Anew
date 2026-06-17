@@ -204,7 +204,9 @@ _TOUCH_EXCLUDED_AC_TYPES: frozenset[str] = frozenset({"armor", "shield", "natura
 # AC bonus types that stack with themselves (PHB p150–151).  Every other named
 # bonus type is non-stacking, so only the single largest bonus of that type
 # applies.  Penalties (negative values) always stack regardless of type.
-_STACKING_AC_TYPES: frozenset[str] = frozenset({"untyped", "dodge", "circumstance"})
+_STACKING_AC_TYPES: frozenset[str] = frozenset(
+    {"untyped", "dodge", "circumstance"}
+)
 
 
 def aggregate_ac_bonuses(
