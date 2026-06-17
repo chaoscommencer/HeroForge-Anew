@@ -344,7 +344,7 @@ class TestArmorTab:
     def test_ac_computation(self, model: object) -> None:
         from heroforge.ui.tabs.armor import ArmorTab
 
-        model.character.ability_scores["DEX"] = 14  # +2, capped to 1 by Full Plate
+        model.character.ability_scores["DEX"] = 14  # +2, capped to +1 by Full Plate
         tab = ArmorTab(model=model)
 
         catalog = {a.name: a for a in model.game_data().list_armor()}
@@ -365,7 +365,7 @@ class TestArmorTab:
     def test_derived_ac_ignores_armor_special_ability_bonus_equivalent(
         self, model: object
     ) -> None:
-        model.character.ability_scores["DEX"] = 14  # +2, capped to 1 by Full Plate
+        model.character.ability_scores["DEX"] = 14  # +2, capped to +1 by Full Plate
         model.character.equipment = [
             {"slot": "Body Armor", "item_name": "Full Plate"},
             {"slot": "Shield", "item_name": "Heavy Steel Shield"},
