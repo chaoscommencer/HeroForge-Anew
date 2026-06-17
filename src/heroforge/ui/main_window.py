@@ -27,7 +27,7 @@ from heroforge.db.character_repo import (
     load_character_from_file,
     save_character_to_file,
 )
-from heroforge.db.data_access import ArmorItem, GameDataRepository
+from heroforge.db.data_access import ArmorItem, Creature, GameDataRepository
 from heroforge.env_paths import dir_from_env
 from heroforge.logic import race_templates
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
@@ -38,6 +38,12 @@ from heroforge.logic.familiar import (
 )
 from heroforge.logic.familiar import save_bonuses as familiar_save_bonuses
 from heroforge.logic.legacy_import import import_hfg
+from heroforge.logic.wild_shape import (
+    active_form_name as wild_shape_active_form_name,
+)
+from heroforge.logic.wild_shape import (
+    wild_shape_ability_adjustments,
+)
 from heroforge.models.character import Character
 from heroforge.models.options import point_buy_budget as _options_point_buy_budget
 from heroforge.ui.dialogs.custom_class import CustomClassDialog
@@ -76,6 +82,7 @@ from heroforge.ui.tabs.spells import SpellsTab
 from heroforge.ui.tabs.stats_and_character_details import StatsAndCharacterDetailsTab
 from heroforge.ui.tabs.table_tent import TableTentTab
 from heroforge.ui.tabs.traits_and_flaws import TraitsAndFlawsTab
+from heroforge.ui.tabs.wild_shape import WildShapeTab
 
 logger = logging.getLogger(__name__)
 
@@ -350,10 +357,22 @@ class CharacterModel(QObject):
             if self._game_data.available and self._character.templates
             else []
         )
-        adjustments = race_templates.ability_adjustments(race, templates)
+        adjustments = dict(race_templates.ability_adjustments(race, templates))
         level_adjustment = race_templates.total_level_adjustment(race, templates)
         size = race.size if race is not None else "Medium"
         natural_armor = race.natural_armor if race is not None else 0
+        # Wild Shape (PHB p37): while a form is active the druid gains the new
+        # form's size, physical ability scores and natural armor, retaining
+        # their own mental scores.  The form's physical scores are applied as
+        # additive deltas on top of the base scores so they *replace* the
+        # character's STR/DEX/CON in the derived stats.
+        form = self._wild_shape_form()
+        if form is not None:
+            size = form.size or size
+            natural_armor = int(form.natural_armor)
+            adjustments.update(
+                wild_shape_ability_adjustments(self._character.ability_scores, form)
+            )
         ac_bonuses, max_dex = self._armor_class_sources(natural_armor)
         hp_flat, hp_per_level = self._hit_point_bonuses()
         return compute_derived_stats(
@@ -368,6 +387,18 @@ class CharacterModel(QObject):
             hp_flat_bonus=hp_flat,
             hp_per_level_bonus=hp_per_level,
         )
+
+    def _wild_shape_form(self) -> Creature | None:
+        """Return the active Wild Shape form's creature entry, if any.
+
+        Resolves the ``wild_shape`` companion entry's selected creature against
+        the seeded catalogue when the form is flagged active (PHB p37).  Returns
+        ``None`` when no form is active or the game data is unavailable.
+        """
+        name = wild_shape_active_form_name(self._character.companions)
+        if not name or not self._game_data.available:
+            return None
+        return self._game_data.get_creature(name)
 
     def _armor_class_sources(
         self, natural_armor: int
@@ -553,6 +584,7 @@ class MainWindow(QMainWindow):
         ("Psionics", PsionicsTab),
         ("Animal Companion", AnimalCompanionTab),
         ("Familiar", FamiliarTab),
+        ("Wild Shape", WildShapeTab),
         ("Character Sheet", CharacterSheetTab),
         ("Table Tent", TableTentTab),
         ("Game Log", GameLogTab),

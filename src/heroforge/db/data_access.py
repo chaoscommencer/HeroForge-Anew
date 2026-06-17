@@ -211,6 +211,10 @@ class Creature:
     hit_dice: str
     ability_scores: dict[str, int]
     natural_armor: int
+    subtype: str = ""
+    """Creature subtype (e.g. an elemental's element), ``""`` when unrecorded."""
+    speed: str = ""
+    """Movement modes as recorded in the source (e.g. ``"40 ft., swim 20 ft."``)."""
 
 
 @dataclass(frozen=True)
@@ -1123,29 +1127,51 @@ class GameDataRepository:
         fragment, params = self._source_filter("source", sources)
         where = f"WHERE {fragment}" if fragment else ""
         rows = self._query(
-            "SELECT name, size, type, hit_dice, str_score, dex_score, con_score, "
-            "int_score, wis_score, cha_score, natural_armor "
+            "SELECT name, size, type, subtype, hit_dice, str_score, dex_score, "
+            "con_score, int_score, wis_score, cha_score, natural_armor, speed "
             f"FROM creatures {where} ORDER BY name",
             params,
         )
-        return [
-            Creature(
-                name=r["name"],
-                size=r["size"] or "",
-                type=r["type"] or "",
-                hit_dice=r["hit_dice"] or "",
-                ability_scores={
-                    "STR": int(r["str_score"] or 10),
-                    "DEX": int(r["dex_score"] or 10),
-                    "CON": int(r["con_score"] or 10),
-                    "INT": int(r["int_score"] or 10),
-                    "WIS": int(r["wis_score"] or 10),
-                    "CHA": int(r["cha_score"] or 10),
-                },
-                natural_armor=int(r["natural_armor"] or 0),
-            )
-            for r in rows
-        ]
+        return [self._creature_from_row(r) for r in rows]
+
+    def get_creature(self, name: str) -> Creature | None:
+        """Return the creature named *name* (case-insensitive), or ``None``.
+
+        Used to resolve a selected Wild Shape / companion form back to its full
+        catalogue entry so the form's size and physical ability scores can feed
+        the derived stats (PHB p37).
+        """
+        if not name:
+            return None
+        rows = self._query(
+            "SELECT name, size, type, subtype, hit_dice, str_score, dex_score, "
+            "con_score, int_score, wis_score, cha_score, natural_armor, speed "
+            "FROM creatures WHERE name = ? COLLATE NOCASE LIMIT 1",
+            (name,),
+        )
+        return self._creature_from_row(rows[0]) if rows else None
+
+    @staticmethod
+    def _creature_from_row(r: sqlite3.Row) -> Creature:
+        """Build a :class:`Creature` from a ``creatures`` table row."""
+        columns = r.keys()
+        return Creature(
+            name=r["name"],
+            size=r["size"] or "",
+            type=r["type"] or "",
+            hit_dice=r["hit_dice"] or "",
+            ability_scores={
+                "STR": int(r["str_score"] or 10),
+                "DEX": int(r["dex_score"] or 10),
+                "CON": int(r["con_score"] or 10),
+                "INT": int(r["int_score"] or 10),
+                "WIS": int(r["wis_score"] or 10),
+                "CHA": int(r["cha_score"] or 10),
+            },
+            natural_armor=int(r["natural_armor"] or 0),
+            subtype=(r["subtype"] or "") if "subtype" in columns else "",
+            speed=(r["speed"] or "") if "speed" in columns else "",
+        )
 
     def get_familiar_bonus_records(self) -> list[FamiliarBonus]:
         """Return the structured standard-familiar bonus rows.
