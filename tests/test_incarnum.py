@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from heroforge.logic.incarnum import (
     IncarnumProgression,
+    _table_lookup,
     chakra_binds_available,
     compute_incarnum,
     essentia_pool,
@@ -16,6 +17,21 @@ from heroforge.logic.incarnum import (
     soulmelds_shapeable,
     unlocked_chakras,
 )
+
+
+class TestTableLookup:
+    def test_zero_and_negative_levels(self) -> None:
+        assert _table_lookup((0, 1, 2), 0) == 0
+        assert _table_lookup((0, 1, 2), -3) == 0
+
+    def test_empty_table(self) -> None:
+        assert _table_lookup((), 5) == 0
+
+    def test_level_within_range(self) -> None:
+        assert _table_lookup((0, 1, 2, 3), 2) == 2
+
+    def test_level_beyond_length_clamps_to_last(self) -> None:
+        assert _table_lookup((0, 1, 2), 99) == 2
 
 
 class TestEssentiaPool:

@@ -1116,7 +1116,7 @@ def _parse_incarnum_chakra_formula(
     """
     if not isinstance(formula, str):
         return None
-    level_match = re.search(rf"{re.escape(level_token)}>=(\d+)", formula)
+    level_match = re.search(rf"{re.escape(level_token)}\s*>=\s*(\d+)", formula)
     if level_match is None:
         return None
     chakra_match = re.search(r'"([A-Za-z]+)"\s*,\s*""', formula)
