@@ -25,7 +25,6 @@ from heroforge.logic.familiar import (
     skill_bonuses,
 )
 from heroforge.logic.skills import (
-    STANDARD_SKILL_SYNERGIES,
     max_ranks,
     qualifying_synergy_skills,
     skill_modifier,
@@ -306,16 +305,28 @@ class SkillsTab(QWidget):
         return total
 
     def _synergy_bonuses(self) -> dict[str, int]:
-        """Return the +2 synergy bonuses earned by the current rank allocation."""
+        """Return the +2 synergy bonuses earned by the current rank allocation.
+
+        Synergy pairs are read from the seeded ``skill_synergies`` table and
+        translated to the tab's display skill names (the workbook stores some
+        skills, e.g. Knowledge sub-skills, with different capitalisation) so the
+        bonuses match the rows rendered here.
+        """
         ranks_by_skill = {
             _SKILLS[row][0]: self._rank_spinboxes[row].value()
             for row in range(len(_SKILLS))
         }
         synergies: list[tuple[str, str]] = []
         if self._model is not None:
-            synergies = self._model.game_data().list_skill_synergies()
-        if not synergies:
-            synergies = list(STANDARD_SKILL_SYNERGIES)
+            raw = self._model.game_data().list_skill_synergies()
+            display_by_key = {name.casefold(): name for name, *_ in _SKILLS}
+            synergies = [
+                (
+                    display_by_key.get(from_skill.casefold(), from_skill),
+                    display_by_key.get(to_skill.casefold(), to_skill),
+                )
+                for from_skill, to_skill in raw
+            ]
         return skill_synergy_bonus(qualifying_synergy_skills(ranks_by_skill), synergies)
 
     def _recalculate(self) -> None:

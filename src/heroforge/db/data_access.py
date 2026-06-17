@@ -959,9 +959,7 @@ class GameDataRepository:
         ``from_skill`` gains a +2 synergy bonus on ``to_skill`` (PHB p65).  Only
         rows without a ``condition`` are returned, so circumstance-specific
         synergies never feed a flat total.  Returns an empty list when the
-        database is unavailable or the ``skill_synergies`` table is unseeded; the
-        Skills tab then falls back to
-        :data:`heroforge.logic.skills.STANDARD_SKILL_SYNERGIES`.
+        database is unavailable or the ``skill_synergies`` table is unseeded.
         """
         rows = self._query(
             "SELECT from_skill, to_skill FROM skill_synergies "

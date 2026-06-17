@@ -41,6 +41,19 @@ _SKILL_FOOTNOTE_LEGEND_CELLS = (
     ("Familiar", "BI145"),
 )
 
+#: The workbook's "Skills" sheet computes each skill's *unconditional* synergy
+#: bonus in column GQ ("Synergy").  Each formula adds ``(2 + …)`` once for every
+#: *source* skill that reaches 5 ranks, e.g. Diplomacy's cell reads
+#: ``=(2+…)*((SkBluffRanks>=5)+…+(SkSenseMotiveRanks>=5)+…)``.  The
+#: ``(from_skill -> to_skill)`` pairs are therefore encoded as the
+#: ``Sk<Name>Ranks>=5`` references, which :func:`_extract_skill_synergies`
+#: parses to seed ``skill_synergies`` rather than transcribing PHB p65 by hand.
+_SKILL_SYNERGY_SHEET = "Skills"
+_SKILL_SYNERGY_COLUMN_INDEX = 198  # column GQ ("Synergy"), 0-based
+_SKILL_DATA_START_ROW = 5  # 0-based; data rows begin below the header
+_SKILL_SYNERGY_BONUS = 2
+_SKILL_SYNERGY_SOURCE_RE = re.compile(r"Sk([A-Za-z]+)Ranks>=5\)")
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -121,6 +134,16 @@ def _sheet_rows(
         blank = 0
         collected.append(row)
     return collected
+
+
+def _normalize_skill_key(name: str) -> str:
+    """Return a casefolded, punctuation-free key for matching skill names.
+
+    Used to reconcile the workbook's ``Sk<Name>Ranks`` formula identifiers (e.g.
+    ``KnowledgeArcana``) with their canonical skill names (e.g.
+    ``Knowledge (arcana)``).
+    """
+    return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
 def _strip_footnotes(name: str) -> str:
@@ -1866,6 +1889,112 @@ def seed_classes(conn: sqlite3.Connection, data_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _extract_skill_synergies(wb: object) -> list[tuple[object, ...]]:
+    """Extract the unconditional ``(from_skill, to_skill)`` synergy pairs.
+
+    Parses the "Synergy" column (GQ) on the workbook's "Skills" sheet: each
+    cell's formula references ``Sk<Name>Ranks>=5`` for every source skill that
+    grants the row's skill a +2 synergy bonus (PHB p65).  The source skills are
+    mapped back to their canonical names (as seeded into the ``skills`` table),
+    and the row's own skill name is the bonus target.
+
+    Returns ``(from_skill, to_skill, bonus, condition)`` tuples with a ``None``
+    condition, so only the always-on synergies are seeded; circumstance-specific
+    synergies are handled elsewhere in the workbook and are intentionally
+    excluded from this flat table.
+    """
+    ws = wb[_SKILL_SYNERGY_SHEET]  # type: ignore[index]
+    sheet_rows = _sheet_rows(ws, _SKILL_DATA_START_ROW)
+
+    # Map each skill's ``Sk<Name>Ranks`` key back to its canonical name so the
+    # formula references can be resolved to seeded skill names.
+    name_by_key: dict[str, str] = {}
+    for row in sheet_rows:
+        raw_name = _col(row, "A")
+        if not raw_name or raw_name.upper() == "SKILL NAME":
+            continue
+        name = _strip_footnotes(raw_name)
+        if name:
+            name_by_key.setdefault(_normalize_skill_key(name), name)
+
+    extracted: list[tuple[object, ...]] = []
+    for row in sheet_rows:
+        raw_name = _col(row, "A")
+        if not raw_name or raw_name.upper() == "SKILL NAME":
+            continue
+        to_skill = _strip_footnotes(raw_name)
+        formula = (
+            row[_SKILL_SYNERGY_COLUMN_INDEX]
+            if len(row) > _SKILL_SYNERGY_COLUMN_INDEX
+            else None
+        )
+        if not (to_skill and isinstance(formula, str)):
+            continue
+        for match in _SKILL_SYNERGY_SOURCE_RE.finditer(formula.replace(" ", "")):
+            from_skill = name_by_key.get(_normalize_skill_key(match.group(1)))
+            if not from_skill:
+                logger.warning(
+                    "Unknown synergy source %r for skill %r", match.group(1), to_skill
+                )
+                continue
+            extracted.append((from_skill, to_skill, _SKILL_SYNERGY_BONUS, None))
+    return extracted
+
+
+def seed_skill_synergies(
+    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+) -> None:
+    """Seed the *skill_synergies* table from the workbook "Synergy" column.
+
+    The pairs are parsed from cell formulas (see :func:`_extract_skill_synergies`),
+    so the workbook is opened with ``data_only=False`` to expose them.  If the
+    workbook is missing the function logs a warning and leaves the table
+    untouched.
+    """
+    workbook_path = Path(workbook_path)
+    if not workbook_path.exists():
+        logger.warning(
+            "Workbook not found at %s – skipping skill_synergies",
+            workbook_path,
+        )
+        return
+
+    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=False)
+    try:
+        rows = _extract_skill_synergies(wb)
+    except KeyError:
+        logger.warning(
+            "Sheet %r not found in workbook – skipping skill_synergies",
+            _SKILL_SYNERGY_SHEET,
+        )
+        return
+    finally:
+        wb.close()
+
+    if not rows:
+        logger.warning(
+            "No skill_synergies rows extracted from workbook – leaving table untouched"
+        )
+        return
+
+    conn.execute("DELETE FROM skill_synergies")
+    inserted = 0
+    skipped = 0
+    for values in rows:
+        try:
+            conn.execute(
+                "INSERT INTO skill_synergies (from_skill, to_skill, bonus, condition) "
+                "VALUES (?, ?, ?, ?)",
+                values,
+            )
+            inserted += 1
+        except sqlite3.Error as exc:
+            logger.debug("Skipping skill_synergies row %r: %s", values, exc)
+            skipped += 1
+    conn.commit()
+    logger.info("skill_synergies: inserted %d rows, skipped %d", inserted, skipped)
+
+
 def seed_familiar_bonuses(conn: sqlite3.Connection) -> None:
     """Insert the standard-familiar master-bonus rows into ``familiar_bonuses``.
 
@@ -1934,6 +2063,7 @@ def seed_all(
         seed_familiar_bonuses(conn)
         seed_classes(conn, data_dir)
         seed_workbook(conn, workbook_path)
+        seed_skill_synergies(conn, workbook_path)
     finally:
         conn.close()
 

@@ -10,31 +10,6 @@ from collections.abc import Iterable, Mapping
 # Number of ranks a skill must reach before it grants a synergy bonus (PHB p65).
 SYNERGY_RANK_THRESHOLD = 5
 
-# The canonical, *unconditional* PHB p65 skill-synergy pairs.  A character with
-# ``SYNERGY_RANK_THRESHOLD`` or more ranks in ``from_skill`` gains a +2 bonus on
-# ``to_skill`` checks.  Only synergies that apply in every situation are listed
-# here; the many circumstance-specific synergies (e.g. Knowledge (dungeoneering)
-# → Survival *while underground*) are deliberately omitted so they are never
-# baked into a flat total.  This mirrors the reference workbook's Skills sheet,
-# which only adds the unconditional synergies automatically, and serves as the
-# offline fallback when the ``skill_synergies`` database table has not been
-# seeded (see :meth:`heroforge.db.data_access.GameDataRepository.list_skill_synergies`).
-STANDARD_SKILL_SYNERGIES: tuple[tuple[str, str], ...] = (
-    ("Bluff", "Diplomacy"),
-    ("Bluff", "Intimidate"),
-    ("Bluff", "Sleight of Hand"),
-    ("Handle Animal", "Ride"),
-    ("Jump", "Tumble"),
-    ("Knowledge (Arcana)", "Spellcraft"),
-    ("Knowledge (Local)", "Gather Information"),
-    ("Knowledge (Nature)", "Survival"),
-    ("Knowledge (Nobility)", "Diplomacy"),
-    ("Sense Motive", "Diplomacy"),
-    ("Spellcraft", "Use Magic Device"),
-    ("Tumble", "Balance"),
-    ("Tumble", "Jump"),
-)
-
 
 def max_ranks(character_level: int, is_class_skill: bool) -> float:
     """Return the maximum skill ranks for a character of *character_level*.

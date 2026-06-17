@@ -413,6 +413,73 @@ class TestWeaponDamageMatrix:
         assert "skipping weapon seeding" in caplog.text
 
 
+class TestSkillSynergies:
+    """The ``skill_synergies`` table is parsed from the workbook Synergy column."""
+
+    @pytest.fixture(scope="class")
+    def synergy_db(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        from heroforge.db.schema import initialize_database
+
+        db_path = tmp_path_factory.mktemp("skill_synergies") / "syn.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_skill_synergies(conn)
+        finally:
+            conn.close()
+        return db_path
+
+    @requires_workbook
+    def test_table_is_populated(self, synergy_db: Path) -> None:
+        conn = get_connection(synergy_db)
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM skill_synergies").fetchone()[0]
+        finally:
+            conn.close()
+        assert count > 0
+
+    @requires_workbook
+    def test_known_pairs_are_seeded(self, synergy_db: Path) -> None:
+        # Pairs transcribed from the workbook "Skills" sheet Synergy formulas.
+        conn = get_connection(synergy_db)
+        try:
+            pairs = {
+                (r["from_skill"], r["to_skill"])
+                for r in conn.execute(
+                    "SELECT from_skill, to_skill FROM skill_synergies"
+                )
+            }
+        finally:
+            conn.close()
+        assert ("Tumble", "Balance") in pairs
+        assert ("Tumble", "Jump") in pairs
+        assert ("Knowledge (arcana)", "Spellcraft") in pairs
+        assert ("Handle Animal", "Ride") in pairs
+
+    @requires_workbook
+    def test_pairs_are_unconditional(self, synergy_db: Path) -> None:
+        conn = get_connection(synergy_db)
+        try:
+            conditioned = conn.execute(
+                "SELECT COUNT(*) FROM skill_synergies "
+                "WHERE condition IS NOT NULL AND condition != ''"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        assert conditioned == 0
+
+    def test_missing_workbook_leaves_table_untouched(self, tmp_path: Path) -> None:
+        from heroforge.db.schema import initialize_database
+
+        db_path = tmp_path / "no_workbook.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_skill_synergies(conn, tmp_path / "does_not_exist.xlsm")
+            count = conn.execute("SELECT COUNT(*) FROM skill_synergies").fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 0
+
+
 class TestHelpers:
     def test_strip_footnotes(self) -> None:
         assert seed._strip_footnotes("Appraise\u00b9") == "Appraise"

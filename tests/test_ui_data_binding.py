@@ -75,6 +75,15 @@ def seeded_db(tmp_path: Path) -> Path:
             "VALUES (?, ?, ?, ?)",
             [("Wizard", 1, 0, 3), ("Wizard", 1, 1, 2), ("Cleric", 1, 0, 4)],
         )
+        conn.executemany(
+            "INSERT INTO skill_synergies (from_skill, to_skill, bonus, condition) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("Tumble", "Balance", 2, None),
+                ("Tumble", "Jump", 2, None),
+                ("Knowledge (arcana)", "Spellcraft", 2, None),
+            ],
+        )
         conn.commit()
     finally:
         conn.close()
@@ -441,10 +450,10 @@ class TestDerivedStatsRealtime:
         # (3 + 2) Listen doubled by Natural Link = 10.
         assert tab._table.item(listen_row, 6).text() == "10"
 
-    def test_synergy_bonus_applied_at_five_ranks(self, empty_model: object) -> None:
+    def test_synergy_bonus_applied_at_five_ranks(self, model: object) -> None:
         from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
 
-        tab = SkillsTab(model=empty_model)
+        tab = SkillsTab(model=model)
         tumble_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Tumble")
         balance_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Balance")
         jump_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Jump")
@@ -457,6 +466,15 @@ class TestDerivedStatsRealtime:
         tab._rank_spinboxes[tumble_row].setValue(5.0)
         assert tab._table.item(balance_row, 6).text() == "2"
         assert tab._table.item(jump_row, 6).text() == "2"
+
+        # Synergy pairs stored with the workbook's lower-case Knowledge naming
+        # still match the tab's title-cased rows (case-insensitive mapping).
+        arcana_row = next(
+            i for i, s in enumerate(_SKILLS) if s[0] == "Knowledge (Arcana)"
+        )
+        spellcraft_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Spellcraft")
+        tab._rank_spinboxes[arcana_row].setValue(5.0)
+        assert tab._table.item(spellcraft_row, 6).text() == "2"
 
     def test_armor_check_penalty_applied_to_relevant_skills(
         self, empty_model: object

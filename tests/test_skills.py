@@ -6,7 +6,6 @@ Reference: PHB Chapter 4.
 from __future__ import annotations
 
 from heroforge.logic.skills import (
-    STANDARD_SKILL_SYNERGIES,
     cross_class_rank_cost,
     max_ranks,
     qualifying_synergy_skills,
@@ -120,20 +119,6 @@ class TestQualifyingSynergySkills:
 
     def test_empty_input(self) -> None:
         assert qualifying_synergy_skills({}) == []
-
-
-class TestStandardSynergyTable:
-    def test_unconditional_pairs_apply_with_five_ranks(self) -> None:
-        # 5 ranks of Tumble grants +2 Balance and +2 Jump (PHB p65).
-        bonuses = skill_synergy_bonus(
-            qualifying_synergy_skills({"Tumble": 5.0}),
-            list(STANDARD_SKILL_SYNERGIES),
-        )
-        assert bonuses["Balance"] == 2
-        assert bonuses["Jump"] == 2
-
-    def test_table_pairs_are_unique(self) -> None:
-        assert len(STANDARD_SKILL_SYNERGIES) == len(set(STANDARD_SKILL_SYNERGIES))
 
 
 class TestSkillPointsSpent:
