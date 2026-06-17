@@ -421,6 +421,19 @@ class SkillsTab(QWidget):
             parts.append(f"armor-check penalty {armor_check_penalty:+d}")
         return "Includes " + ", ".join(parts) + "." if parts else ""
 
+    def _effective_class_skills(self) -> set[str]:
+        """Return the class-skill set derived from the current UI checkbox state.
+
+        This reflects any manual overrides the user has made to the "Class?"
+        column and is therefore the correct basis for both max-rank caps and
+        point-cost calculations (PHB p62).  It intentionally differs from
+        :attr:`_class_skills`, which is the DB-seeded default and is used only
+        to *initialise* the checkboxes.
+        """
+        return {
+            _SKILLS[row][0] for row in range(len(_SKILLS)) if self._is_class_skill(row)
+        }
+
     def _update_budget(self) -> None:
         """Update the skill-point budget readout (spent vs. available)."""
         if self._model is None:
@@ -430,11 +443,10 @@ class SkillsTab(QWidget):
             _SKILLS[row][0]: self._rank_spinboxes[row].value()
             for row in range(len(_SKILLS))
         }
-        spent = skill_points_spent(ranks_by_skill, self._class_skills)
-        base_points = {
-            info.name: info.skill_points_per_level
-            for info in self._model.game_data().list_classes(include_prestige=True)
-        }
+        # Use the UI checkbox state so manual "Class?" overrides affect the cost
+        # (same source as _recalculate / _enforce_max_ranks, PHB p62).
+        spent = skill_points_spent(ranks_by_skill, self._effective_class_skills())
+        base_points = self._cached_class_base_points
         int_mod = ability_modifier(
             int(self._model.character.ability_scores.get("INT", 10))
         )
