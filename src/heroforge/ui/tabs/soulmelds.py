@@ -101,6 +101,11 @@ class SoulmeldsTab(QWidget):
         self._remaining_lbl = QLabel("0")
         self._capacity_lbl = QLabel("0")
         self._binds_lbl = QLabel("0 / 0")
+        self._binds_lbl.setToolTip(
+            "Bound soulmelds / open chakras. A soulmeld can only be bound to a "
+            "chakra you have unlocked, and each open chakra holds one bound "
+            "soulmeld (Magic of Incarnum)."
+        )
         self._auto_chk.toggled.connect(self._on_auto_toggled)
         self._total_spin.valueChanged.connect(self._on_total_changed)
         pool_form.addRow("Meldshaper Level:", self._meldshaper_lbl)
