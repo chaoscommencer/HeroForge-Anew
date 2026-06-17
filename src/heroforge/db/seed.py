@@ -1930,7 +1930,8 @@ def _extract_skill_synergies(wb: object) -> list[tuple[object, ...]]:
         )
         if not (to_skill and isinstance(formula, str)):
             continue
-        for match in _SKILL_SYNERGY_SOURCE_RE.finditer(formula.replace(" ", "")):
+        compact_formula = formula.replace(" ", "")
+        for match in _SKILL_SYNERGY_SOURCE_RE.finditer(compact_formula):
             from_skill = name_by_key.get(_normalize_skill_key(match.group(1)))
             if not from_skill:
                 logger.warning(
