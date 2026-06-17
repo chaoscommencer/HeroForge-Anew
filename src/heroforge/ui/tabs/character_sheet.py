@@ -12,7 +12,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from heroforge.logic.export import character_sheet_data, export_character_sheet_text
+from heroforge.logic.export import (
+    character_sheet_data,
+    export_character_sheet_pdf,
+    export_character_sheet_text,
+)
 
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
@@ -26,6 +30,7 @@ class CharacterSheetTab(QWidget):
     ) -> None:
         super().__init__(parent)
         self._model = model
+        self._data: dict = {}  # type: ignore[type-arg]
         self._build_ui()
         if model:
             model.character_reset.connect(self._refresh)
@@ -41,8 +46,11 @@ class CharacterSheetTab(QWidget):
         refresh_btn.clicked.connect(self._refresh)
         export_btn = QPushButton("Export to Text…")
         export_btn.clicked.connect(self._export)
+        export_pdf_btn = QPushButton("Export to PDF…")
+        export_pdf_btn.clicked.connect(self._export_pdf)
         btn_row.addWidget(refresh_btn)
         btn_row.addWidget(export_btn)
+        btn_row.addWidget(export_pdf_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
@@ -52,12 +60,32 @@ class CharacterSheetTab(QWidget):
         layout.addWidget(self._text_edit)
         self._refresh()
 
+    def _base_speed(self) -> int | None:
+        """Return the active character's base land speed (feet) from its race.
+
+        Returns ``None`` when no race is selected or the game database is
+        unavailable, in which case the exporter falls back to its 30 ft.
+        default.
+        """
+        if self._model is None:
+            return None
+        repo = self._model.game_data()
+        race_name = self._model.character.race
+        if repo.available and race_name:
+            race = repo.get_race(race_name)
+            if race is not None:
+                return race.base_land_speed
+        return None
+
     def _refresh(self) -> None:
         data: dict = {}  # type: ignore[type-arg]
         if self._model is not None:
             data = character_sheet_data(
-                self._model.character, self._model.derived_stats()
+                self._model.character,
+                self._model.derived_stats(),
+                speed=self._base_speed(),
             )
+        self._data = data
         text = export_character_sheet_text(data)
         self._text_edit.setPlainText(text)
 
@@ -70,3 +98,19 @@ class CharacterSheetTab(QWidget):
         if path:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(self._text_edit.toPlainText())
+
+    def _export_pdf(self) -> None:
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Character Sheet to PDF",
+            "",
+            "PDF Files (*.pdf);;All files (*)",
+        )
+        if not path:
+            return
+        try:
+            export_character_sheet_pdf(self._data, path)
+        except RuntimeError as exc:
+            QMessageBox.warning(self, "PDF Export Failed", str(exc))
