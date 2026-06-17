@@ -1208,7 +1208,6 @@ def seed_workbook(
             _seed_workbook_table(conn, wb, spec)
     finally:
         if owns_workbook:
-            assert wb is not None
             wb.close()
 
 
@@ -1309,7 +1308,6 @@ def seed_weapon_damage(
         return
     finally:
         if owns_workbook:
-            assert wb is not None
             wb.close()
 
     if not rows:
@@ -2043,7 +2041,6 @@ def seed_class_spellcasting_info(
         spellcasting_data = _extract_spellcasting_class_data(wb)
     finally:
         if owns_workbook:
-            assert wb is not None
             wb.close()
 
     updated = 0
