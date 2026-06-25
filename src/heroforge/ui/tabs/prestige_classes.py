@@ -196,6 +196,9 @@ class PrestigeClassesTab(QWidget):
                 char.feats,
                 char.total_level,
                 classes,
+                character_alignment=char.alignment,
+                character_race=char.race,
+                character_spellcasting={}, # TODO: Simplified for now, should be derived
             )
             flags = item.flags()
             if met:

@@ -190,11 +190,15 @@ def check_prestige_prerequisites(
     character_feats: list[str],
     character_level: int,
     character_classes: dict[str, int],
+    character_alignment: str = "",
+    character_race: str = "",
+    character_spellcasting: dict[str, int] | None = None,
 ) -> bool:
     """Determine whether a character meets all prerequisites for a prestige class.
 
     Extends the generic feat prerequisite checker with support for
-    class-level prerequisites (e.g. ``'Spellcaster level 3'``).
+    class-level prerequisites (e.g. ``'Spellcaster level 3'``) and narrative
+    tags (e.g. ``'ALIGN:Evil'``, ``'RACE:Human'``, ``'CAST:Arcane:3'``).
 
     Reference: PHB p168 (Prestige Class descriptions).
 
@@ -202,20 +206,48 @@ def check_prestige_prerequisites(
         prerequisites:           List of prerequisite strings.
         character_bab:           Current base attack bonus.
         character_ability_scores: Ability score mapping.
-        character_skills:        Skill ranks mapping.
+        character_skills:         Skill ranks mapping.
         character_feats:         Feats already taken.
         character_level:         Total character level.
         character_classes:       Mapping of class name → levels taken.
+        character_alignment:     Current character alignment.
+        character_race:           Current character race.
+        character_spellcasting:  Mapping of casting type (e.g. 'Arcane') → max level.
 
     Returns:
         ``True`` if all prerequisites are satisfied.
     """
     import re
 
+    if character_spellcasting is None:
+        character_spellcasting = {}
+
     for prereq in prerequisites:
         prereq = prereq.strip()
         if not prereq:
             continue
+
+        # Check narrative tags: ALIGN:..., RACE:..., CAST:...
+        if prereq.startswith("ALIGN:"):
+            required_align = prereq[6:].strip()
+            if character_alignment.lower() != required_align.lower():
+                return False
+            continue
+
+        if prereq.startswith("RACE:"):
+            required_race = prereq[5:].strip()
+            if character_race.lower() != required_race.lower():
+                return False
+            continue
+
+        if prereq.startswith("CAST:"):
+            # Format: CAST:Type:Level (e.g. CAST:Arcane:3)
+            parts = prereq[5:].split(":")
+            if len(parts) == 2:
+                cast_type, min_lvl = parts[0].strip(), int(parts[1].strip())
+                if character_spellcasting.get(cast_type, 0) < min_lvl:
+                    return False
+                continue
 
         # Check class-level prerequisites: "Wizard 5", "Fighter 2", …
         class_m = re.match(r"^(\w[\w\s]*?)\s+(\d+)$", prereq, re.IGNORECASE)
@@ -249,7 +281,7 @@ def check_prestige_prerequisites(
 
 
 def available_prestige_classes(
-    all_prestige_classes: list[dict],  # type: ignore[type-arg]
+    all_prestige_classes: list[dict[str,str]],
     prereq_map: dict[str, list[str]],
     character_bab: int,
     character_ability_scores: dict[str, int],
@@ -257,6 +289,9 @@ def available_prestige_classes(
     character_feats: list[str],
     character_level: int,
     character_classes: dict[str, int],
+    character_alignment: str = "",
+    character_race: str = "",
+    character_spellcasting: dict[str, int] | None = None,
 ) -> list[str]:
     """Return prestige class names that the character currently qualifies for.
 
@@ -270,13 +305,16 @@ def available_prestige_classes(
         character_feats:      Feats taken.
         character_level:      Total character level.
         character_classes:    Class levels taken.
+        character_alignment:   Current character alignment.
+        character_race:       Current character race.
+        character_spellcasting: Mapping of casting type (e.g. 'Arcane') → max level.
 
     Returns:
         Sorted list of available prestige class names.
     """
-    result = []
+    result: list[str] = []
     for pc in all_prestige_classes:
-        name = pc.get("name", "")
+        name: str = pc.get("name", "")
         if not name:
             continue
         prereqs = prereq_map.get(name, [])
@@ -288,6 +326,9 @@ def available_prestige_classes(
             character_feats,
             character_level,
             character_classes,
+            character_alignment=character_alignment,
+            character_race=character_race,
+            character_spellcasting=character_spellcasting,
         ):
             result.append(name)
     return sorted(result)
