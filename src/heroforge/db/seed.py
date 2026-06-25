@@ -2255,6 +2255,19 @@ def seed_prestige_prerequisites(conn: sqlite3.Connection) -> None:
     Each prestige class's rows are cleared before re-insertion so repeated
     seeding stays idempotent (the table has no UNIQUE key of its own).
     """
+    # Validate that all prestige classes in the source data exist in the classes table.
+    existing_classes = {
+        r[0] for r in conn.execute("SELECT name FROM classes").fetchall()
+    }
+    for class_name in STANDARD_PRESTIGE_PREREQUISITES:
+        if class_name not in existing_classes:
+            logger.warning(
+                "Prestige prerequisite source contains class %r, but it was not "
+                "found in the 'classes' table. Prereqs will be seeded, but the "
+                "class may be missing from the game data.",
+                class_name,
+            )
+
     inserted = 0
     for class_name, prerequisites in STANDARD_PRESTIGE_PREREQUISITES.items():
         conn.execute(
