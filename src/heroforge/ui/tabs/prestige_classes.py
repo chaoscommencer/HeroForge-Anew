@@ -188,25 +188,39 @@ class PrestigeClassesTab(QWidget):
             if item is None:
                 continue
             prereqs = self._prereq_map.get(item.text(), [])
-            met = check_prestige_prerequisites(
-                prereqs,
-                stats.base_attack_bonus,
-                char.ability_scores,
-                char.skills,
-                char.feats,
-                char.total_level,
-                classes,
-                character_alignment=char.alignment,
-                character_race=char.race,
-                character_spellcasting={}, # TODO: Simplified for now, should be derived
-            )
+            
+            # Evaluate each prerequisite individually for the tooltip
+            met_list: list[str] = []
+            unmet_list: list[str] = []
+            
+            for p in prereqs:
+                # We use a helper that checks a single prereq string
+                is_met = check_prestige_prerequisites(
+                    [p],
+                    stats.base_attack_bonus,
+                    char.ability_scores,
+                    char.skills,
+                    char.feats,
+                    char.total_level,
+                    classes,
+                    character_alignment=char.alignment,
+                    character_race=char.race,
+                    character_spellcasting={}, # TODO: Simplified for now, should be derived
+                )
+                if is_met:
+                    met_list.append(f"[X] {p}")
+                else:
+                    unmet_list.append(f"[ ] {p}")
+            
+            all_met = len(unmet_list) == 0
             flags = item.flags()
-            if met:
+            if all_met:
                 item.setFlags(flags | Qt.ItemFlag.ItemIsEnabled)
                 item.setToolTip("")
             else:
                 item.setFlags(flags & ~Qt.ItemFlag.ItemIsEnabled)
-                item.setToolTip("Prerequisites not met: " + ", ".join(prereqs))
+                tooltip_text = "Prerequisites not met:\n" + "\n".join(met_list + unmet_list)
+                item.setToolTip(tooltip_text)
         self._show_prerequisites(self._selected_avail_name() or "")
 
     def _selected_avail_name(self) -> str | None:
