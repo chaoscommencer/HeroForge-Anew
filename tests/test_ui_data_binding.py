@@ -1015,6 +1015,7 @@ class TestCrossTabSignalPropagation:
         assert not any(b["name"] == "Bless" for b in empty_model.character.buffs)
 
     def test_class_levels_changed_updates_attacks_bab(self, model: object) -> None:
+        from PyQt6.QtCore import Qt
         from PyQt6.QtTest import QSignalSpy
 
         from heroforge.ui.tabs.attacks import AttacksTab
@@ -1024,15 +1025,20 @@ class TestCrossTabSignalPropagation:
         attacks = AttacksTab(model=model)
 
         spy = QSignalSpy(model.class_levels_changed)
-        prestige._avail_list.addItem("Fighter")
-        prestige._avail_list.setCurrentRow(0)
+        # "Arcane Archer" is the seeded prestige class; the tab populates it in
+        # its available list and enables selection directly.
+        items = prestige._avail_list.findItems(
+            "Arcane Archer", Qt.MatchFlag.MatchExactly
+        )
+        assert items
+        prestige._avail_list.setCurrentItem(items[0])
         prestige._add_prestige_class()
-        # Fighter has fast BAB progression; 1 level -> +1.
+        # Arcane Archer has fast BAB progression; 5 levels -> +5.
         prestige._taken_table.cellWidget(0, 1).setValue(5)
 
         assert len(spy) >= 1
-        assert model.character.classes == [("Fighter", 5)]
-        # Fighter 5 (fast BAB) -> +5, surfaced on the Attacks tab via the model.
+        assert model.character.classes == [("Arcane Archer", 5)]
+        # Arcane Archer 5 (fast BAB) -> +5, surfaced on the Attacks tab.
         assert attacks._bab_lbl.text() == "+5"
 
     def test_buffs_tab_syncs_from_model_on_character_loaded(

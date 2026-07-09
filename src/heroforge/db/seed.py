@@ -32,6 +32,7 @@ from heroforge.logic.animal_companion import (
     CompanionProgression,
 )
 from heroforge.logic.familiar import STANDARD_FAMILIAR_BONUSES
+from heroforge.logic.prestige import STANDARD_PRESTIGE_PREREQUISITES
 
 logger = logging.getLogger(__name__)
 
@@ -2241,6 +2242,55 @@ def seed_familiar_bonuses(conn: sqlite3.Connection) -> None:
     logger.info("Familiar bonuses: inserted/replaced %d rows", inserted)
 
 
+def seed_prestige_prerequisites(conn: sqlite3.Connection) -> None:
+    """Insert the standard prestige-class prerequisites into the database.
+
+    The data is the structured DMG prerequisite table defined once in
+    :data:`heroforge.logic.prestige.STANDARD_PRESTIGE_PREREQUISITES`.  The
+    original workbook encodes each prerequisite as a per-cell spreadsheet
+    formula evaluated against the live character sheet rather than as textual
+    data, so there is no source file to read: this is reference data the
+    application owns and keeps in code.
+
+    Each prestige class's rows are cleared before re-insertion so repeated
+    seeding stays idempotent (the table has no UNIQUE key of its own).
+    """
+    # Validate that all prestige classes in the source data exist in the classes table.
+    existing_classes = {
+        r[0] for r in conn.execute("SELECT name FROM classes").fetchall()
+    }
+    for class_name in STANDARD_PRESTIGE_PREREQUISITES:
+        if class_name not in existing_classes:
+            logger.warning(
+                "Prestige prerequisite source contains class %r, but it was not "
+                "found in the 'classes' table. Prereqs will be seeded, but the "
+                "class may be missing from the game data.",
+                class_name,
+            )
+
+    inserted = 0
+    for class_name, prerequisites in STANDARD_PRESTIGE_PREREQUISITES.items():
+        conn.execute(
+            "DELETE FROM prestige_class_prerequisites WHERE class_name = ?",
+            (class_name,),
+        )
+        for prerequisite in prerequisites:
+            try:
+                conn.execute(
+                    "INSERT INTO prestige_class_prerequisites "
+                    "(class_name, prerequisite) VALUES (?, ?)",
+                    (class_name, prerequisite),
+                )
+                inserted += 1
+            except sqlite3.Error as exc:
+                logger.debug(
+                    "Skipping prestige prerequisite row %r: %s", class_name, exc
+                )
+
+    conn.commit()
+    logger.info("Prestige prerequisites: inserted/replaced %d rows", inserted)
+
+
 # The progression table sits on the *Animal Companion* sheet under a small block
 # of headings; it is located by scanning for the ``Level`` / ``Bonus HD`` header
 # pair so the seeder is resilient to the exact column the workbook uses.
@@ -2653,6 +2703,7 @@ def seed_all(
         seed_familiar_bonuses(conn)
         seed_companion_progression(conn, workbook_path)
         seed_classes(conn, data_dir)
+        seed_prestige_prerequisites(conn)
         seed_class_spellcasting_info(conn, workbook_path, workbook=wb_values)
         seed_workbook(conn, workbook_path, workbook=wb_values)
         seed_skill_synergies(conn, workbook_path, workbook=wb_formulas)

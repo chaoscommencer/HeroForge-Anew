@@ -270,6 +270,45 @@ class TestIdempotency:
         assert all(v > 0 for v in second.values())
 
 
+class TestSeedPrestigePrerequisites:
+    def test_seeds_standard_prerequisites(self, tmp_path: Path) -> None:
+        from heroforge.db.schema import initialize_database
+        from heroforge.logic.prestige import STANDARD_PRESTIGE_PREREQUISITES
+
+        db_path = tmp_path / "prestige.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_prestige_prerequisites(conn)
+            rows = conn.execute(
+                "SELECT prerequisite FROM prestige_class_prerequisites "
+                "WHERE class_name = 'Blackguard' ORDER BY id"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert [r[0] for r in rows] == list(
+            STANDARD_PRESTIGE_PREREQUISITES["Blackguard"]
+        )
+
+    def test_reseeding_is_idempotent(self, tmp_path: Path) -> None:
+        from heroforge.db.schema import initialize_database
+
+        db_path = tmp_path / "prestige_idempotent.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_prestige_prerequisites(conn)
+            first = conn.execute(
+                "SELECT COUNT(*) FROM prestige_class_prerequisites"
+            ).fetchone()[0]
+            seed.seed_prestige_prerequisites(conn)
+            second = conn.execute(
+                "SELECT COUNT(*) FROM prestige_class_prerequisites"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        assert first > 0
+        assert first == second
+
+
 class TestMissingWorkbook:
     def test_missing_workbook_is_skipped(self, tmp_path: Path) -> None:
         """A missing workbook logs a warning and leaves tables untouched."""
@@ -320,6 +359,9 @@ class TestSeedAllWorkbookLoading:
             seed, "seed_familiar_bonuses", lambda *_args, **_kwargs: None
         )
         monkeypatch.setattr(seed, "seed_classes", lambda *_args, **_kwargs: None)
+        monkeypatch.setattr(
+            seed, "seed_prestige_prerequisites", lambda *_args, **_kwargs: None
+        )
         monkeypatch.setattr(
             seed,
             "seed_weapon_damage",

@@ -422,6 +422,23 @@ class GameDataRepository:
             result.setdefault(r["feat_name"], []).append(r["prerequisite"])
         return result
 
+    def prestige_class_prerequisites(self) -> dict[str, list[str]]:
+        """Return a mapping of prestige class name → prerequisite strings.
+
+        Prestige classes with no recorded prerequisites are absent from the
+        mapping.  Used by the Prestige Classes tab (Excel tab 3) to validate
+        which prestige classes a character qualifies for via
+        :func:`heroforge.logic.prestige.check_prestige_prerequisites`.
+        """
+        rows = self._query(
+            "SELECT class_name, prerequisite FROM prestige_class_prerequisites "
+            "ORDER BY class_name, id"
+        )
+        result: dict[str, list[str]] = {}
+        for r in rows:
+            result.setdefault(r["class_name"], []).append(r["prerequisite"])
+        return result
+
     # ------------------------------------------------------------------
     # Classes
     # ------------------------------------------------------------------
@@ -492,6 +509,21 @@ class GameDataRepository:
                 source=r["source"] or "",
             )
             for r in rows
+        ]
+
+    def list_prestige_classes(
+        self,
+        sources: Iterable[str] | None = None,
+    ) -> list[ClassInfo]:
+        """Return only prestige classes (``is_prestige = 1``), ordered by name.
+
+        Convenience wrapper over :meth:`list_classes` used by the Prestige
+        Classes tab (Excel tab 3) to populate its available-class list.
+        """
+        return [
+            info
+            for info in self.list_classes(sources, include_prestige=True)
+            if info.is_prestige
         ]
 
     def class_skills(self, class_name: str) -> list[str]:
