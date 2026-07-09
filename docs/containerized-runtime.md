@@ -43,19 +43,29 @@ black src/ tests/
 ## 2. Run the GUI for QA (Docker / Podman)
 
 The QA stack requires a **VNC password** that gates access to the noVNC desktop.
-It is read from a git-ignored `.env` file in the project root. Create it once:
+It is read from a git-ignored `.env` file in the project root. The easiest path
+is to let the helper script manage it for you:
+
+```bash
+scripts/run-gui.sh                      # build (first run) and launch the GUI
+scripts/run-gui.sh --build              # force a rebuild
+scripts/run-gui.sh --generate-password  # rotate the VNC password, then launch
+scripts/run-gui.sh down                 # tear the stack down
+```
+
+On launch the script ensures `.env` exists (seeding it from `.env.example`) and
+that it carries a strong, randomly generated `VNC_PASSWORD`: one is created
+whenever the value is missing, empty, or still the `change-me` placeholder, and
+`--generate-password` forces a fresh one even if a real password is already set.
+The active password is always written back to `.env` for you to read. (VNC's
+classic auth only honours the first **8 characters**, so the generated secret is
+exactly 8 alphanumeric characters.)
+
+To set it yourself instead, edit `.env` by hand:
 
 ```bash
 cp .env.example .env
 # then edit .env and set a strong VNC_PASSWORD
-```
-
-Then use the helper script:
-
-```bash
-scripts/run-gui.sh            # build the images (first run) and launch the GUI
-scripts/run-gui.sh --build    # force a rebuild
-scripts/run-gui.sh down       # tear the stack down
 ```
 
 Then open the forwarded **port 6080** (noVNC) and enter your `VNC_PASSWORD` — the
@@ -69,8 +79,8 @@ secure) and falling back to Docker:
 3. `docker compose`
 4. `docker-compose`
 
-It aligns the in-container user with your UID/GID and refuses to start if
-`VNC_PASSWORD` is set in neither your environment nor `.env`.
+It aligns the in-container user with your UID/GID and, as described above,
+provisions a `VNC_PASSWORD` automatically when one is not already present.
 
 ### Doing it by hand
 
@@ -95,29 +105,63 @@ sidecar's X server over a **shared `x11-socket` volume** mounted at
 `/tmp/.X11-unix` in both containers. Compose starts `app` only once the display
 is healthy (`depends_on: condition: service_healthy`).
 
-Only the `display` service publishes a port, and only on loopback
-(`127.0.0.1:6080`), so the desktop is reachable solely through VS Code's port
-forwarding. Both containers drop all Linux capabilities and set
-`no-new-privileges`, keeping the QA sandbox tight.
+The slim display image ships no wallpaper setter, so the stock `fbsetbg` would
+pop a *blocking* "I can't find an app to set the wallpaper with" dialog when
+fluxbox starts. fluxbox calls `fbsetbg` by absolute path, so the binary itself is
+replaced at build time with a tiny shim that paints a solid background
+(`fbsetroot -solid black`) — the desktop comes up clean and unattended.
 
-The repository is bind-mounted into the `app` container at `/app`, so source
-edits are picked up on the next launch and the auto-seeded `heroforge.db`
-persists on the host.
+### Persistence and writable paths
+
+Both containers run with a **read-only root filesystem**; the only writable
+locations are explicit mounts:
+
+- **`heroforge-data`** — a persistent named volume mounted at `/app/userdata`
+  (`HEROFORGE_DATA_DIR`). The auto-seeded `heroforge.db` and your character
+  `.hfc` saves live here, so they **survive container removal** (`run-gui.sh
+  down`). They are only discarded by an explicit
+  `scripts/run-gui.sh down --volumes`. The image creates `/app/userdata` owned by
+  the non-root `app` user so the volume inherits that ownership on first use.
+- **`/tmp` and `/home/app`** — in-RAM `tmpfs` mounts (wiped on stop) for X/Qt
+  scratch files, the runtime VNC password and fluxbox config. `/home/app` is
+  mounted `mode=0o1777` because a `tmpfs` over the image directory would
+  otherwise mount root-owned and lock out the non-root user.
+
+The application source is bind-mounted **read-only** into the `app` container
+(`./src`, `./tests`, `./pyproject.toml`, and the seed data/workbooks under
+`./data`), so edits are picked up on the next launch but the running container
+cannot modify the repo.
 
 ---
 
 ## Security notes
 
-- Both containers run as **non-root** users.
-- Both containers run with **all capabilities dropped** and
-  **`no-new-privileges`**.
+- Both containers run as **non-root** users, with **all Linux capabilities
+  dropped** (`cap_drop: ALL`) and **`no-new-privileges`** set.
+- Both containers use a **read-only root filesystem**; only the explicit
+  `heroforge-data` volume and in-RAM `tmpfs` mounts are writable (see *Persistence
+  and writable paths* above). A compromised process cannot tamper with the image
+  binaries or config.
+- The `app` container runs with **`network_mode: none`** — it has no network
+  interface at all, removing any inbound attack or outbound exfiltration path. It
+  communicates only over the shared X11 unix socket and reads local mounts.
+- Both containers carry **resource ceilings** (`mem_limit`, `pids_limit`,
+  `cpus`, `ulimits.nofile`) to blunt local DoS such as fork bombs or memory/CPU
+  exhaustion. Tune them from `docker stats` if needed.
+- Source and seed-data bind mounts are **read-only**, so the running app cannot
+  modify the repository.
 - The viewable desktop lives in the `display` sidecar, which carries **no
   application source and no workspace bind mounts** — a noVNC session is isolated
   from the editor container (and its repo/credentials), unlike the previous
   desktop-lite-in-devcontainer setup.
 - noVNC is published on **loopback only** (`127.0.0.1:6080`) and gated by a
   **required** `VNC_PASSWORD` sourced from the git-ignored `.env` file; the stack
-  refuses to start without it. Use a strong, unique value.
+  refuses to start without it (and rejects the `change-me` placeholder).
+  `scripts/run-gui.sh` generates a strong password automatically — see section 2.
+- Both base images are **pinned by digest** (not just a mutable tag) in
+  `Dockerfile` and `Dockerfile.display`, making builds reproducible and resistant
+  to tag re-pointing / supply-chain tampering. Third-party Python wheels are
+  installed with `--only-binary=:all:` to avoid executing sdist build code.
 - Docker-in-Docker requires a privileged dev container; if you prefer a
   stricter, rootless model, run the Compose stack with **Podman**
   (`podman-compose`), which the helper script selects automatically when present.

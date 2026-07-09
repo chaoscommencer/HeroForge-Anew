@@ -55,6 +55,18 @@ services:
       - type: volume
         source: x11-socket
         target: /tmp/.X11-unix
+      # Writable home for the runtime VNC password, fluxbox config and fbsetbg
+      # shim. The image's /home/app is mode 0755 owned app:app, but a tmpfs
+      # mount is always created root-owned and only inherits the underlying
+      # directory's mode bits — so without an explicit mode granting the
+      # "other" class access the non-root app user cannot write to it. mode
+      # 0o1707 grants owner+other rwx (the app user is "other" here) while
+      # denying the group, and keeps the sticky bit (like /tmp) on this in-RAM,
+      # single-tenant filesystem.
+      - type: tmpfs
+        target: /home/app
+        tmpfs:
+          mode: 0o1707
     # The app service waits on this: the desktop is "healthy" once Xvfb answers.
     healthcheck:
       test: ["CMD", "xdpyinfo", "-display", ":99"]
@@ -68,6 +80,27 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # Immutable root filesystem: nothing in the image layers can be modified at
+    # runtime, so a compromised process cannot tamper with binaries/config. The
+    # only writable paths are the explicit tmpfs mounts (all in RAM, wiped on
+    # stop): /tmp for Xvfb's lock file (/tmp/.X99-lock) and /home/app (declared
+    # as a long-form tmpfs in `volumes:` above so it can carry mode 0o1707) for
+    # the runtime-generated VNC password, fluxbox config and the fbsetbg shim.
+    # The shared X11 socket lives on its own named volume mounted at
+    # /tmp/.X11-unix (nested over the tmpfs).
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Resource ceilings to blunt local DoS (fork bombs, memory/CPU exhaustion).
+    # Sized from observed steady-state (~85 MiB, 6 PIDs) with generous headroom;
+    # tighten further from `docker stats` if desired.
+    mem_limit: 256m
+    pids_limit: 128
+    cpus: 1.0
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 2048
 
   # --- The Qt application (draws into the display sidecar) --------------------
   app:
@@ -101,17 +134,29 @@ services:
       # LOG_LEVEL=DEBUG in .env to surface the per-row detail behind seeding
       # warnings (e.g. "skipped N source rows due to insert errors").
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Writable location for the seeded game database and character saves. It
+      # points at the persistent `heroforge-data` volume mounted below so the
+      # rest of the container filesystem can stay read-only (see read_only).
+      HEROFORGE_DATA_DIR: /app/userdata
+      # The root filesystem is read-only, so Python cannot write .pyc caches next
+      # to the source under /app/src. Redirect the bytecode cache into the
+      # writable /home/app tmpfs (in RAM) instead of suppressing it, so imports
+      # are still cached within a run rather than recompiled every time.
+      PYTHONPYCACHEPREFIX: /home/app/.cache/pycache
     volumes:
-      # --- Code under active development (read-write for live edits) ----------
+      # --- Code under active development (read-only: the app only imports it) -
       - type: bind
         source: ./src
         target: /app/src
+        read_only: true
       - type: bind
         source: ./tests
         target: /app/tests
+        read_only: true
       - type: bind
         source: ./pyproject.toml
         target: /app/pyproject.toml
+        read_only: true
       # --- Seed data and reference workbooks (read-only) ---------------------
       # These feed the first-launch database seeding; the app must not alter them.
       - type: bind
@@ -142,15 +187,59 @@ services:
       - type: volume
         source: x11-socket
         target: /tmp/.X11-unix
+      # --- Persistent user data (seeded game DB + character .hfc saves) -------
+      # Mounted writable so the rest of the container filesystem can be
+      # read-only; survives container removal so saves/DB are not lost.
+      - type: volume
+        source: heroforge-data
+        target: /app/userdata
+      # Writable home for Qt's runtime config/cache and the redirected Python
+      # bytecode cache (PYTHONPYCACHEPREFIX). As with the display service, a
+      # tmpfs over the image's mode-0755 /home/app mounts root-owned, so it
+      # needs an explicit mode granting the non-root app user (the "other"
+      # class) access; 0o1707 gives owner+other rwx, denies the group, and keeps
+      # the sticky bit.
+      - type: tmpfs
+        target: /home/app
+        tmpfs:
+          mode: 0o1707
     # Drop all Linux capabilities and forbid privilege escalation: the GUI needs
     # none of them, which keeps this QA container tightly sandboxed.
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # The app talks to the display sidecar only over the shared X11 unix socket
+    # and reads its data from local bind mounts — it needs no network at all.
+    # Fully isolating it removes any outbound exfiltration / inbound attack path.
+    network_mode: none
+    # Immutable root filesystem: only the explicit writable mounts above (the
+    # heroforge-data volume and the /home/app tmpfs) plus the /tmp tmpfs below
+    # can be written. /tmp is needed for Qt/X scratch files; /home/app (a
+    # long-form tmpfs in `volumes:` above, mode 0o1707) holds Qt's runtime
+    # config/cache and the redirected .pyc cache.
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Resource ceilings to blunt local DoS (fork bombs, memory/CPU exhaustion).
+    # Sized from observed steady-state (~90 MiB, 4 PIDs) with headroom for the
+    # first-launch openpyxl seed spike; tighten from `docker stats` if desired.
+    mem_limit: 512m
+    pids_limit: 256
+    cpus: 2.0
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 2048
 
 # Named volume carrying the X11 unix socket between the two containers. It is
 # initialized from the display image's /tmp/.X11-unix (mode 1777), so both the
 # non-root Xvfb and the non-root Qt process can use the socket.
 volumes:
   x11-socket:
+  # Persistent user data for the app: the seeded game database and character
+  # .hfc saves (HEROFORGE_DATA_DIR=/app/userdata). Kept on a named volume so it
+  # survives container removal and so the app's root filesystem can stay
+  # read-only. Removed by `scripts/run-gui.sh down --volumes` if a clean reset
+  # is wanted.
+  heroforge-data:

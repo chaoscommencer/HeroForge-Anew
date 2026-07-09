@@ -10,9 +10,16 @@
 # viewable at http://localhost:6080 (gated by the VNC password from .env).
 #
 # Usage:
-#   scripts/run-gui.sh             # build (if needed) and run the GUI
-#   scripts/run-gui.sh --build     # force a rebuild
-#   scripts/run-gui.sh down        # tear the whole stack down (app + display)
+#   scripts/run-gui.sh                      # build (if needed) and run the GUI
+#   scripts/run-gui.sh --build              # force a rebuild
+#   scripts/run-gui.sh --generate-password  # rotate the VNC password, then run
+#   scripts/run-gui.sh down                 # tear the whole stack down
+#
+# On a normal run this ensures a .env exists (seeded from .env.example) and that
+# it carries a strong, randomly-generated VNC_PASSWORD: one is generated when
+# .env is missing, empty, or still set to the "change-me" placeholder. Pass
+# --generate-password to force a fresh password even if a real one is already
+# set. The active password is always stored in .env for you to read.
 #
 # Any extra arguments are forwarded to the underlying compose command.
 
@@ -20,9 +27,78 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# --- VNC password helpers ----------------------------------------------------
+# The noVNC desktop is gated by VNC_PASSWORD. x11vnc's classic VNC auth only
+# honours the first 8 characters, so a longer secret buys nothing here; generate
+# exactly 8 from a CSPRNG. The alphabet is restricted to [A-Za-z0-9] so the
+# value is safe to drop into .env and sed without escaping.
+#
+# Read a fixed finite chunk of randomness (head exits normally on EOF) and filter
+# it, rather than piping the *infinite* /dev/urandom into `head -c 8` — there the
+# downstream head closes the pipe early, tr is killed by SIGPIPE, and under
+# `set -o pipefail` that aborts the whole script with exit 141.
+gen_password() {
+    local raw
+    raw="$(LC_ALL=C tr -dc 'A-Za-z0-9' < <(head -c 256 /dev/urandom))"
+    printf '%s' "${raw:0:8}"
+}
+
+# Write VNC_PASSWORD=<pw> into .env, replacing any existing line or appending a
+# new one. The password is alphanumeric, so the sed replacement needs no escaping.
+set_env_password() {
+    local pw="$1"
+    if grep -q '^VNC_PASSWORD=' .env; then
+        sed -i "s/^VNC_PASSWORD=.*/VNC_PASSWORD=${pw}/" .env
+    else
+        printf 'VNC_PASSWORD=%s\n' "$pw" >>.env
+    fi
+}
+
+# Ensure .env exists and holds a usable VNC password. Generates a new one when
+# .env is missing, the password is empty/unset, it is still the "change-me"
+# placeholder, or *force* is set (the --generate-password flag).
+ensure_vnc_password() {
+    local force="$1" current=""
+
+    if [[ ! -f .env ]]; then
+        if [[ -f .env.example ]]; then
+            cp .env.example .env
+            echo "Created .env from .env.example."
+        else
+            : >.env
+            echo "Created empty .env."
+        fi
+    fi
+
+    # Read the password currently recorded in .env (last VNC_PASSWORD wins).
+    current="$(sed -n 's/^VNC_PASSWORD=//p' .env | tail -n1)"
+
+    if [[ "$force" == "1" || -z "$current" || "$current" == "change-me" ]]; then
+        local pw
+        pw="$(gen_password)"
+        set_env_password "$pw"
+        echo "Generated a new VNC_PASSWORD in .env: ${pw}"
+    else
+        echo "Using existing VNC_PASSWORD from .env."
+    fi
+}
+
 # Align the in-container user with the current user for socket/file permissions.
 export APP_UID="$(id -u)"
 export APP_GID="$(id -g)"
+
+# Pull the --generate-password flag out of the argument list (it is ours, not
+# compose's); everything else is forwarded to the compose command untouched.
+GENERATE_PASSWORD=0
+args=()
+for arg in "$@"; do
+    if [[ "$arg" == "--generate-password" ]]; then
+        GENERATE_PASSWORD=1
+    else
+        args+=("$arg")
+    fi
+done
+set -- ${args[@]+"${args[@]}"}
 
 # Pick a compose front-end. Podman is preferred (rootless / more secure);
 # docker is used as a fallback.
@@ -48,16 +124,10 @@ if [[ "${1:-}" =~ ^(down|logs|ps|stop|build|config)$ ]]; then
     exec "${COMPOSE[@]}" -f docker-compose.yml "$@"
 fi
 
-# The display sidecar requires a VNC password to gate noVNC access. Compose
-# auto-loads it from a git-ignored .env file; fail early with guidance if it is
-# defined in neither the environment nor .env.
-if [[ -z "${VNC_PASSWORD:-}" ]] && ! { [[ -f .env ]] && grep -q '^VNC_PASSWORD=' .env; }; then
-    echo "error: VNC_PASSWORD is not set." >&2
-    echo "       Copy .env.example to .env and set a strong VNC_PASSWORD:" >&2
-    echo "         cp .env.example .env   # then edit .env" >&2
-    echo "       It gates the noVNC desktop at http://localhost:6080." >&2
-    exit 1
-fi
+# Ensure .env carries a usable, strong VNC password before launching the stack
+# (generating one when missing/placeholder, or whenever --generate-password is
+# given). Compose auto-loads .env, so the display sidecar picks it up from there.
+ensure_vnc_password "$GENERATE_PASSWORD"
 
 echo "Using: ${COMPOSE[*]}  (UID=$APP_UID, GID=$APP_GID)"
 echo "View the GUI at http://localhost:6080 (use your VNC_PASSWORD from .env)."
