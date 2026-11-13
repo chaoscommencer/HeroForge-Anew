@@ -5,6 +5,7 @@ from __future__ import annotations
 from heroforge.logic.buffs import (
     aggregate_bonuses,
     apply_buff,
+    buff_amount,
     effective_bonus,
     remove_buff,
     stacks_with,
@@ -132,6 +133,17 @@ class TestAggregateBonuses:
 
     def test_empty_records(self) -> None:
         assert aggregate_bonuses([]) == {}
+
+
+class TestBuffAmount:
+    def test_numeric_values(self) -> None:
+        assert buff_amount(3) == 3
+        assert buff_amount("-2") == -2
+        assert buff_amount(2.5) == 2
+
+    def test_unusable_values_are_zero(self) -> None:
+        for value in (None, "", "abc", "nan", "inf", True, [1]):
+            assert buff_amount(value) == 0
 
 
 class TestTemporaryHp:

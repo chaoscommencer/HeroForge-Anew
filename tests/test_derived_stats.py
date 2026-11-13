@@ -304,6 +304,17 @@ class TestBuffApplication:
         assert stats.grapple == 2
         assert stats.hit_points == 30
 
+    def test_malformed_buff_amount_is_ignored(self) -> None:
+        # A hand-edited or corrupted save must not crash derived stats.
+        char = Character()
+        char.buffs = [
+            _buff("Bad", "morale", "attack", "abc"),  # type: ignore[arg-type]
+            _buff("Inf", "luck", "attack", "inf"),  # type: ignore[arg-type]
+            _buff("Fractional", "enhancement", "attack", "2.5"),  # type: ignore[arg-type]
+        ]
+        stats = compute_derived_stats(char)
+        assert stats.melee_attack == 2
+
     def test_tracking_only_buff_has_no_effect(self) -> None:
         char = Character()
         char.buffs = [{"id": "x", "name": "Heroism"}]

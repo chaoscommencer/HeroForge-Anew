@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from heroforge.db.schema import get_connection, initialize_character_database
+from heroforge.logic.buffs import buff_amount
 from heroforge.models.character import Character
 
 
@@ -252,7 +253,7 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
                     buff["name"],
                     (str(buff["bonus_type"]) if buff.get("bonus_type") else None),
                     (str(buff["target_stat"]) if buff.get("target_stat") else None),
-                    int(buff.get("amount") or 0),
+                    buff_amount(buff.get("amount")),
                 )
                 for buff in character.buffs
             ],
@@ -708,8 +709,10 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
             buff["bonus_type"] = br["bonus_type"]
         if br["target_stat"]:
             buff["target_stat"] = br["target_stat"]
-        if br["amount"]:
-            buff["amount"] = br["amount"]
+        # A corrupted (non-numeric) amount is dropped rather than surfaced.
+        amount = buff_amount(br["amount"])
+        if amount:
+            buff["amount"] = amount
         character.buffs.append(buff)
 
     character.languages = [

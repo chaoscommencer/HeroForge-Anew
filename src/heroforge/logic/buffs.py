@@ -129,6 +129,23 @@ def effective_bonus(bonuses: dict[str, dict[str, int]], stat: str) -> int:
     return total
 
 
+def buff_amount(value: object) -> int:
+    """Return a buff's ``amount`` as an ``int``, or ``0`` if it is unusable.
+
+    Save files are untrusted input and SQLite stores a non-numeric value in an
+    ``INTEGER`` column as text, so the amount may arrive as ``"abc"``,
+    ``"2.5"`` or ``None``.  Numeric values are truncated toward zero; anything
+    else (including NaN and infinity) yields ``0`` so the buff contributes
+    nothing instead of breaking every derived-stat consumer.
+    """
+    if value is None or isinstance(value, bool):
+        return 0
+    try:
+        return int(float(value))  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def aggregate_bonuses(
     records: Iterable[tuple[str, str, str, int]],
 ) -> dict[str, int]:

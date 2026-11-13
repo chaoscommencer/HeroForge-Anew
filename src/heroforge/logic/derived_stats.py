@@ -111,7 +111,7 @@ def _buff_bonus_sources(
     records: list[tuple[str, str, str, int]] = []
     ac_bonuses: list[tuple[str, int]] = []
     for index, entry in enumerate(getattr(character, "buffs", None) or []):
-        amount = int(entry.get("amount") or 0)
+        amount = buffs.buff_amount(entry.get("amount"))
         target = str(entry.get("target_stat") or "")
         if amount == 0 or not target.strip():
             continue

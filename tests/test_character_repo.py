@@ -425,6 +425,30 @@ class TestHfcFile:
         finally:
             conn.close()
 
+    def test_file_with_non_numeric_buff_amount_loads(self, tmp_path: Path) -> None:
+        char = _sample_character()
+        char.buffs = [
+            {
+                "id": str(uuid.uuid4()),
+                "name": "Bless",
+                "bonus_type": "morale",
+                "target_stat": "attack",
+                "amount": 1,
+            }
+        ]
+        path = tmp_path / "corrupt.hfc"
+        save_character_to_file(char, path)
+        conn = sqlite3.connect(path)
+        conn.execute("UPDATE character_buffs SET amount = 'abc'")
+        conn.commit()
+        conn.close()
+
+        loaded = load_character_from_file(path)
+        # The unusable amount is dropped; the buff itself is kept.
+        assert loaded.buffs == [{k: v for k, v in char.buffs[0].items() if k != "amount"}]
+        # And the loaded character can be saved again.
+        save_character_to_file(loaded, tmp_path / "resaved.hfc")
+
     def test_save_and_load_file(self, tmp_path: Path) -> None:
         char = _sample_character()
         path = tmp_path / "hero.hfc"
