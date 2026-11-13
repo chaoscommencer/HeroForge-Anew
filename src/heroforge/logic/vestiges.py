@@ -167,11 +167,20 @@ def vestige_level_for(name: str, catalogue_level: int | None = None) -> int | No
     return _STANDARD_LEVELS_BY_KEY.get(name.strip().lower())
 
 
-# Classes whose levels count toward effective binder level.  The Binder is the
-# only base pact-making class currently modelled; pact-magic prestige classes
-# (Anima Mage, Knight of the Sacred Seal, etc.) are not yet seeded and so are
-# not counted here.  Compared case-insensitively.
-_BINDING_CLASS_NAMES: frozenset[str] = frozenset({"binder"})
+# The base pact-making class.  Compared case-insensitively.
+_BINDER_CLASS = "binder"
+
+# Pact-magic prestige classes whose levels add to effective binder level once
+# the character has Binder levels, mapped to the number of their levels that do
+# not count (``effBinLvl``, ``Class Abilities!E4538``: ``BinLvl + AniMLvl +
+# KoSSLvl + ScDLvl + IF(TenALvl>0, TenALvl-1, 0)``).  Compared
+# case-insensitively.
+_BINDING_PRESTIGE_CLASSES: dict[str, int] = {
+    "anima mage": 0,
+    "knight of the sacred seal": 0,
+    "scion of dantalion": 0,
+    "tenebrous apostate": 1,
+}
 
 # Feats that grant limited vestige binding to non-binders, ported from the
 # ``effBinLvl`` fallback ``1 + 4 * FtImprovedBindVestige`` in the reference
@@ -194,18 +203,22 @@ _MAX_VESTIGE_LEVEL_THRESHOLDS: tuple[int, ...] = (1, 3, 5, 7, 10, 12, 15, 17)
 def binder_level(character: Character) -> int:
     """Return the character's effective binder level.
 
-    Sums the levels of any binding class (see :data:`_BINDING_CLASS_NAMES`).
-    A non-binder who has taken the *Bind Vestige* feat counts as a 1st-level
-    binder (5th with *Improved Bind Vestige*), mirroring the ``effBinLvl``
-    fallback in the reference workbook (``Class Abilities!E4538``).
+    Ports ``effBinLvl`` (``Class Abilities!E4538``): a character with Binder
+    levels adds the levels of the pact-magic prestige classes in
+    :data:`_BINDING_PRESTIGE_CLASSES`.  A non-binder who has taken the *Bind
+    Vestige* feat counts as a 1st-level binder (5th with *Improved Bind
+    Vestige*).
     """
-    level = sum(
-        lvl
-        for name, lvl in character.classes
-        if name.strip().lower() in _BINDING_CLASS_NAMES
-    )
+    levels: dict[str, int] = {}
+    for name, lvl in character.classes:
+        key = name.strip().lower()
+        levels[key] = levels.get(key, 0) + lvl
+    level = levels.get(_BINDER_CLASS, 0)
     if level > 0:
-        return level
+        return level + sum(
+            max(0, levels.get(name, 0) - uncounted)
+            for name, uncounted in _BINDING_PRESTIGE_CLASSES.items()
+        )
     feats = {str(f).strip().lower() for f in character.feats}
     if _BIND_VESTIGE_FEAT in feats:
         return 5 if _IMPROVED_BIND_VESTIGE_FEAT in feats else 1

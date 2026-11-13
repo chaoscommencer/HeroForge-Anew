@@ -83,6 +83,28 @@ class TestBinderLevel:
         char = Character(classes=[("Binder", 4)], feats=["Bind Vestige"])
         assert vestiges.binder_level(char) == 4
 
+    @pytest.mark.parametrize(
+        ("prestige", "levels", "expected"),
+        [
+            ("Anima Mage", 3, 8),
+            ("Knight of the Sacred Seal", 3, 8),
+            ("Scion of Dantalion", 3, 8),
+            # Tenebrous Apostate advances binding at every level but the 1st.
+            ("Tenebrous Apostate", 3, 7),
+            ("Tenebrous Apostate", 1, 5),
+        ],
+    )
+    def test_pact_magic_prestige_levels_stack_with_binder(
+        self, prestige: str, levels: int, expected: int
+    ) -> None:
+        # effBinLvl, Class Abilities!E4538.
+        char = Character(classes=[("Binder", 5), (prestige, levels)])
+        assert vestiges.binder_level(char) == expected
+
+    def test_prestige_levels_need_binder_levels(self) -> None:
+        char = Character(classes=[("Fighter", 5), ("Anima Mage", 3)])
+        assert vestiges.binder_level(char) == 0
+
 
 class TestMaxVestigeLevel:
     @pytest.mark.parametrize(
