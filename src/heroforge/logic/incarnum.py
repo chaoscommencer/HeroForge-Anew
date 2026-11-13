@@ -461,11 +461,67 @@ def meldshaping_class_levels(
     return levels
 
 
+def has_soulmelds_available(
+    class_levels: Mapping[str, int],
+    progressions: Mapping[str, IncarnumProgression] | None = None,
+) -> bool:
+    """Return whether any soulmeld is available to the character to shape.
+
+    A soulmeld is available once the character has a level in a class that
+    shapes soulmelds (one whose ``TblClassMelds`` column is not all zero), even
+    if that class shapes none at its current level (e.g. Soulborn 1-3).  This
+    mirrors the workbook's ``TblMeldsAll`` list (``SoulmeldsInfo!X4:X112``),
+    which offers soulmelds for every class in ``TblMeldshaperClass``.
+
+    Args:
+        class_levels: Mapping of class name -> levels in that class.
+        progressions: Override mapping of class -> :class:`IncarnumProgression`.
+
+    Returns:
+        ``True`` when the character has a soulmeld-shaping class level.
+    """
+    tables = progressions if progressions is not None else _fallback_progressions()
+    for cls, lvl in class_levels.items():
+        prog = tables.get(cls)
+        if prog is not None and lvl > 0 and any(prog.soulmelds):
+            return True
+    return False
+
+
+def bonus_essentia(
+    feat_count: int,
+    class_levels: Mapping[str, int],
+    progressions: Mapping[str, IncarnumProgression] | None = None,
+) -> int:
+    """Return the essentia granted by the Bonus Essentia feat.
+
+    The feat grants 2 essentia to a character with soulmelds available and 1
+    otherwise, regardless of how many soulmelds are currently shaped.
+    Reference: MoI p41; workbook "Soulmelds" cell ``AL29``
+    (``FtBonusEssentia*IF(SUMPRODUCT((TblMeldsAll<>"")*1)>1,2,1)``, where
+    ``TblMeldsAll`` holds a "Select a Soulmeld" header plus every available
+    soulmeld).
+
+    Args:
+        feat_count:   Number of times the character has Bonus Essentia.
+        class_levels: Mapping of class name -> levels in that class.
+        progressions: Override mapping of class -> :class:`IncarnumProgression`.
+
+    Returns:
+        Bonus essentia to add to the pool.
+    """
+    if feat_count <= 0:
+        return 0
+    per_feat = 2 if has_soulmelds_available(class_levels, progressions) else 1
+    return feat_count * per_feat
+
+
 def compute_incarnum(
     classes: list[tuple[str, int]],
     character_level: int,
     feat_bonus: int = 0,
     progressions: Mapping[str, IncarnumProgression] | None = None,
+    bonus_essentia_feats: int = 0,
 ) -> IncarnumSummary:
     """Auto-calculate the incarnum totals for a character.
 
@@ -476,19 +532,22 @@ def compute_incarnum(
     Args:
         classes:         Character class list of ``(class_name, level)`` tuples.
         character_level: The character's total level (for soulmeld capacity).
-        feat_bonus:      Additional essentia from feats (e.g. Bonus Essentia).
+        feat_bonus:      Additional flat essentia from other sources.
         progressions:    Catalogue of meldshaping classes (typically from
             :meth:`GameDataRepository.incarnum_progressions`).  If ``None``, the
             in-code fallback tables are used.
+        bonus_essentia_feats: Number of Bonus Essentia feats; each adds the
+            amount from :func:`bonus_essentia`.
 
     Returns:
         An :class:`IncarnumSummary` with the derived totals.
     """
     tables = progressions if progressions is not None else _fallback_progressions()
     levels = meldshaping_class_levels(classes, tables)
+    feat_total = feat_bonus + bonus_essentia(bonus_essentia_feats, levels, tables)
     return IncarnumSummary(
         meldshaper_level=meldshaper_level(levels, tuple(tables)),
-        essentia_pool=essentia_pool(levels, feat_bonus, tables),
+        essentia_pool=essentia_pool(levels, feat_total, tables),
         soulmeld_capacity=soulmeld_capacity(character_level),
         soulmelds_shapeable=soulmelds_shapeable(levels, tables),
         chakra_binds_available=chakra_binds_available(levels, tables),

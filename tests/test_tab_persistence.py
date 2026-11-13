@@ -731,6 +731,23 @@ class TestIncarnumPsionicsManeuvers:
         assert tab._binds_lbl.text() == "0 / 2"
         assert model.character.options["essentia_pool"] == "9"
 
+    def test_bonus_essentia_pool_ignores_shaped_rows(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 5 (5 essentia) with Bonus Essentia: a meldshaper gets +2
+        # (Soulmelds!AL29) before any soulmeld is shaped, and shaping melds
+        # leaves the pool unchanged.
+        model.character.classes = [("Incarnate", 5)]
+        model.character.feats = ["Bonus Essentia"]
+        model.derived_stats_changed.emit()
+        assert tab._total_spin.value() == 7
+
+        assert tab.shape_soulmeld("Airstep Sandals", "Feet") is True
+        assert tab.shape_soulmeld("Mage's Spectacles", "Brow") is True
+        assert tab._total_spin.value() == 7
+        assert model.character.options["essentia_pool"] == "7"
+
     def test_chakra_bind_limit_enforced(self, model: object) -> None:
         from heroforge.ui.tabs.soulmelds import SoulmeldsTab
 

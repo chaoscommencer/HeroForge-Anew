@@ -150,6 +150,29 @@ class TestComputeIncarnum:
         assert summary.chakra_binds_available == 0
         assert summary.meldshaper_level == 0
 
+    def test_bonus_essentia_gives_meldshaper_two(self) -> None:
+        # Soulmelds!AL29: Bonus Essentia adds 2 when any soulmeld is available
+        # to the character (i.e. it has a meldshaping class), whether or not
+        # any soulmeld is shaped yet.  Incarnate 5: 5 + 2 = 7.
+        summary = compute_incarnum(
+            [("Incarnate", 5)], character_level=5, bonus_essentia_feats=1
+        )
+        assert summary.essentia_pool == 7
+
+    def test_bonus_essentia_gives_low_soulborn_two(self) -> None:
+        # Soulborn shapes no soulmeld before 4th level but is still a
+        # meldshaping class with soulmelds available (TblMeldshaperClass).
+        summary = compute_incarnum(
+            [("Soulborn", 1)], character_level=1, bonus_essentia_feats=1
+        )
+        assert summary.essentia_pool == 2
+
+    def test_bonus_essentia_gives_non_meldshaper_one(self) -> None:
+        summary = compute_incarnum(
+            [("Fighter", 5)], character_level=5, bonus_essentia_feats=1
+        )
+        assert summary.essentia_pool == 1
+
     def test_explicit_progressions_override(self) -> None:
         progressions = {
             "Custom": IncarnumProgression(

@@ -49,7 +49,8 @@ _OPTION_KEY = "essentia_pool"
 _AUTO_KEY = "essentia_pool_auto"
 
 #: Incarnum feat that grants bonus essentia (MoI p41); the workbook adds +2 to
-#: the pool when more than one soulmeld is shaped, otherwise +1.
+#: the pool when the character has soulmelds available, otherwise +1 (see
+#: :func:`heroforge.logic.incarnum.bonus_essentia`).
 _BONUS_ESSENTIA_FEAT = "Bonus Essentia"
 
 # Shaped-soulmeld table columns.
@@ -153,14 +154,11 @@ class SoulmeldsTab(QWidget):
             self._progressions = self._model.game_data().incarnum_progressions()
         return self._progressions or {}
 
-    def _feat_essentia_bonus(self) -> int:
-        """Return bonus essentia from feats (MoI p41 Bonus Essentia)."""
+    def _bonus_essentia_feats(self) -> int:
+        """Return how many Bonus Essentia feats the character has (MoI p41)."""
         if self._model is None:
             return 0
-        feats = self._model.character.feats
-        if _BONUS_ESSENTIA_FEAT not in feats:
-            return 0
-        return 2 if self._row_count() > 1 else 1
+        return 1 if _BONUS_ESSENTIA_FEAT in self._model.character.feats else 0
 
     def _compute_summary(self) -> IncarnumSummary:
         """Return the auto-calculated incarnum totals for the character."""
@@ -171,8 +169,8 @@ class SoulmeldsTab(QWidget):
         return compute_incarnum(
             character.classes,
             character.total_level,
-            self._feat_essentia_bonus(),
-            catalogue or None,
+            progressions=catalogue or None,
+            bonus_essentia_feats=self._bonus_essentia_feats(),
         )
 
     def _recalculate(self) -> None:
