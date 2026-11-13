@@ -257,6 +257,31 @@ class TestInitializeDatabase:
         assert row[1] == "PHB"
         conn2.close()
 
+    def test_existing_weapons_table_gains_special_column(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "old-weapons.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE weapons ("
+            "id INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL, category TEXT, "
+            "size TEXT, damage_small TEXT, damage_medium TEXT, critical TEXT, "
+            "range_increment INTEGER DEFAULT 0, weight REAL DEFAULT 0, "
+            "damage_type TEXT, source TEXT)"
+        )
+        conn.execute("INSERT INTO weapons (name, size) VALUES ('Javelin', 'R')")
+        conn.commit()
+        conn.close()
+
+        conn2 = initialize_database(db_path)
+        try:
+            columns = {
+                row[1] for row in conn2.execute("PRAGMA table_info(weapons)").fetchall()
+            }
+            assert "special" in columns
+            row = conn2.execute("SELECT name, size FROM weapons").fetchone()
+            assert tuple(row) == ("Javelin", "R")
+        finally:
+            conn2.close()
+
 
 class TestAllTablesExist:
     @pytest.fixture(autouse=True)

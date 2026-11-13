@@ -13,11 +13,20 @@ from heroforge.logic.combat import (
     carrying_capacity,
     damage_bonus,
     flat_footed_ac,
+    format_attack_line,
     grapple_modifier,
     initiative,
+    iterative_attack_count,
+    iterative_attacks,
     melee_attack,
+    off_hand_attacks,
     ranged_attack,
     touch_ac,
+    two_weapon_feats,
+    two_weapon_penalties,
+    weapon_base_dice,
+    weapon_damage,
+    weapon_strength_damage,
 )
 
 
@@ -227,3 +236,188 @@ class TestAggregateArmorClass:
         # A negative Dex modifier still applies when flat-footed.
         result = aggregate_armor_class(-1)
         assert result.flat_footed == 9
+
+
+class TestIterativeAttacks:
+    def test_count_low_bab(self) -> None:
+        assert iterative_attack_count(0) == 1
+        assert iterative_attack_count(1) == 1
+        assert iterative_attack_count(5) == 1
+
+    def test_count_thresholds(self) -> None:
+        assert iterative_attack_count(6) == 2
+        assert iterative_attack_count(11) == 3
+        assert iterative_attack_count(16) == 4
+        assert iterative_attack_count(20) == 4
+
+    def test_count_capped_at_epic_bab(self) -> None:
+        # Epic attack bonus (BAB above +20) grants no extra iterative attacks.
+        assert iterative_attack_count(21) == 4
+        assert iterative_attack_count(26) == 4
+        assert iterative_attacks(25, 21) == [25, 20, 15, 10]
+
+    def test_progression_single_attack(self) -> None:
+        assert iterative_attacks(7, 5) == [7]
+
+    def test_progression_two_attacks(self) -> None:
+        # BAB +6, +2 STR -> first attack +8, second at -5 = +3.
+        assert iterative_attacks(8, 6) == [8, 3]
+
+    def test_progression_four_attacks(self) -> None:
+        assert iterative_attacks(16, 16) == [16, 11, 6, 1]
+
+    def test_progression_handles_zero_bab(self) -> None:
+        assert iterative_attacks(0, 0) == [0]
+
+
+class TestTwoWeaponPenalties:
+    def test_normal(self) -> None:
+        penalties = two_weapon_penalties()
+        assert (penalties.primary, penalties.off_hand) == (-6, -10)
+
+    def test_light_off_hand(self) -> None:
+        penalties = two_weapon_penalties(off_hand_light=True)
+        assert (penalties.primary, penalties.off_hand) == (-4, -8)
+
+    def test_feat_normal_off_hand(self) -> None:
+        penalties = two_weapon_penalties(has_two_weapon_fighting=True)
+        assert (penalties.primary, penalties.off_hand) == (-4, -4)
+
+    def test_feat_light_off_hand(self) -> None:
+        penalties = two_weapon_penalties(
+            off_hand_light=True, has_two_weapon_fighting=True
+        )
+        assert (penalties.primary, penalties.off_hand) == (-2, -2)
+
+
+class TestTwoWeaponFeats:
+    def test_no_feats(self) -> None:
+        feats = two_weapon_feats(["Power Attack", "Dodge"])
+        assert (feats.two_weapon_fighting, feats.improved, feats.greater) == (
+            False,
+            False,
+            False,
+        )
+
+    def test_detects_feat_chain_case_insensitively(self) -> None:
+        feats = two_weapon_feats(
+            [
+                "Two-Weapon Fighting",
+                "improved two-weapon fighting",
+                " Greater Two-Weapon Fighting ",
+            ]
+        )
+        assert feats.two_weapon_fighting and feats.improved and feats.greater
+
+    def test_improved_alone(self) -> None:
+        feats = two_weapon_feats(["Improved Two-Weapon Fighting"])
+        assert not feats.two_weapon_fighting
+        assert feats.improved and not feats.greater
+
+
+class TestOffHandAttacks:
+    def test_single_off_hand_attack(self) -> None:
+        assert off_hand_attacks(6) == [6]
+
+    def test_improved_two_weapon_fighting(self) -> None:
+        assert off_hand_attacks(6, improved=True) == [6, 1]
+
+    def test_greater_two_weapon_fighting(self) -> None:
+        assert off_hand_attacks(11, greater=True) == [11, 6, 1]
+
+
+class TestWeaponDamage:
+    def test_base_dice_extraction(self) -> None:
+        assert weapon_base_dice("1d8") == "1d8"
+        assert weapon_base_dice("1d8+3") == "1d8"
+        assert weapon_base_dice("2 D 6") == "2d6"
+
+    def test_positive_modifier(self) -> None:
+        assert weapon_damage("1d8", 3) == "1d8+3"
+
+    def test_negative_modifier(self) -> None:
+        assert weapon_damage("1d8", -1) == "1d8-1"
+
+    def test_zero_modifier(self) -> None:
+        assert weapon_damage("1d8", 0) == "1d8"
+
+    def test_recombines_existing_modifier(self) -> None:
+        # An already-modified string is normalised back to dice + new bonus.
+        assert weapon_damage("1d8+2", 4) == "1d8+4"
+
+    def test_base_dice_without_dice_is_empty(self) -> None:
+        assert weapon_base_dice("ref:UnarmedStrikeDamage") == ""
+        assert weapon_base_dice("2") == ""
+        assert weapon_base_dice("") == ""
+
+    def test_damage_without_dice_is_unchanged(self) -> None:
+        # Text with no NdM dice cannot be recombined, so it is left as-is
+        # rather than gaining another modifier on every refresh.
+        assert weapon_damage("ref:GrappleDamage", 4) == "ref:GrappleDamage"
+        assert weapon_damage("2", 4) == "2"
+        assert weapon_damage(weapon_damage("2", 4), 4) == "2"
+
+    def test_two_handed_str_damage(self) -> None:
+        # 1.5x STR damage applied via damage_bonus then formatted.
+        assert weapon_damage("2d6", damage_bonus(4, two_handed=True)) == "2d6+6"
+
+
+class TestWeaponStrengthDamage:
+    def test_one_handed_melee_gets_full_strength(self) -> None:
+        assert weapon_strength_damage(4, "O") == 4
+        assert weapon_strength_damage(4, "L") == 4
+
+    def test_two_handed_melee_gets_one_and_a_half_strength(self) -> None:
+        # PHB p113: two-handed weapons add 1.5x STR bonus (round down).
+        assert weapon_strength_damage(4, "T") == 6
+        assert weapon_strength_damage(3, "T") == 4
+
+    def test_two_handed_strength_penalty_is_not_multiplied(self) -> None:
+        assert weapon_strength_damage(-2, "T") == -2
+
+    def test_unknown_handedness_gets_full_strength(self) -> None:
+        assert weapon_strength_damage(4, "") == 4
+
+    def test_thrown_weapon_gets_full_strength(self) -> None:
+        # PHB p134: Strength applies to thrown-weapon damage.
+        assert weapon_strength_damage(4, "R", special="T", ranged=True) == 4
+        assert weapon_strength_damage(-1, "R", special="U,T", ranged=True) == -1
+
+    def test_melee_weapon_with_range_increment_gets_full_strength(self) -> None:
+        # A dagger keeps its Strength bonus whether stabbed or thrown.
+        assert weapon_strength_damage(4, "L", name="Dagger", ranged=True) == 4
+
+    def test_sling_gets_full_strength(self) -> None:
+        assert weapon_strength_damage(3, "R", name="Sling", ranged=True) == 3
+        assert weapon_strength_damage(-2, "R", name="Sling, War", ranged=True) == -2
+
+    def test_bow_applies_only_a_strength_penalty(self) -> None:
+        # PHB p113-114: bows apply a Strength penalty but not a bonus (a
+        # composite bow's mighty rating is not modelled, so it adds +0).
+        assert weapon_strength_damage(4, "R", name="Longbow", ranged=True) == 0
+        assert weapon_strength_damage(-2, "R", name="Longbow", ranged=True) == -2
+        assert (
+            weapon_strength_damage(
+                -1, "R", special="M", name="Shortbow, Composite", ranged=True
+            )
+            == -1
+        )
+
+    def test_crossbow_and_other_projectiles_get_no_strength(self) -> None:
+        assert weapon_strength_damage(4, "R", name="Crossbow, Light", ranged=True) == 0
+        assert weapon_strength_damage(-2, "R", name="Crossbow, Heavy", ranged=True) == 0
+        assert weapon_strength_damage(4, "R", name="Blowgun", ranged=True) == 0
+
+    def test_unknown_ranged_weapon_gets_no_strength(self) -> None:
+        assert weapon_strength_damage(4, "", name="Custom Gun", ranged=True) == 0
+
+
+class TestFormatAttackLine:
+    def test_positive_chain(self) -> None:
+        assert format_attack_line([11, 6, 1]) == "+11/+6/+1"
+
+    def test_includes_negative(self) -> None:
+        assert format_attack_line([2, -3]) == "+2/-3"
+
+    def test_single(self) -> None:
+        assert format_attack_line([0]) == "+0"

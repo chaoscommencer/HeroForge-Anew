@@ -145,11 +145,16 @@ def catalog_db(tmp_path: Path) -> Path:
             ],
         )
         conn.executemany(
-            "INSERT INTO weapons (name, category, damage_medium, critical, "
-            "range_increment, damage_type, source) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO weapons (name, category, size, special, damage_medium, "
+            "critical, range_increment, damage_type, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                ("Longsword", "Martial", "1d8", "19-20/x2", 0, "slashing", "PHB"),
-                ("Longbow", "Martial", "1d8", "x3", 100, "piercing", "PHB"),
+                ("Longsword", "Martial", "O", "", "1d8", "19-20/x2", 0, "S", "PHB"),
+                ("Longbow", "Martial", "R", "", "1d8", "x3", 100, "P", "PHB"),
+                ("Greatsword", "Martial", "T", "", "2d6", "19-20/x2", 0, "S", "PHB"),
+                ("Javelin", "Simple", "R", "T", "1d6", "x2", 30, "P", "PHB"),
+                ("Dagger", "Simple", "L", "", "1d4", "19-20/x2", 10, "P/S", "PHB"),
+                ("Short Sword", "Martial", "L", "", "1d6", "19-20/x2", 0, "P", "PHB"),
             ],
         )
         conn.executemany(
@@ -486,6 +491,10 @@ class TestEquipmentPartitioning:
 # ---------------------------------------------------------------------------
 
 
+def _catalogue_weapon(model: object, name: str) -> object:
+    return next(w for w in model.game_data().list_weapons() if w.name == name)
+
+
 class TestAttacksTab:
     def test_weapon_from_catalogue_persists(self, model: object) -> None:
         from heroforge.ui.tabs.attacks import AttacksTab
@@ -496,6 +505,197 @@ class TestAttacksTab:
         )
         tab.add_weapon(weapon)
         assert any(a["weapon_name"] == "Longsword" for a in model.character.attacks)
+
+    def test_iterative_attacks_and_damage_displayed(self, model: object) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        # 8 Fighter levels (fast BAB in the test catalogue) -> +8, STR 18 (+4).
+        model.character.classes = [("Fighter", 8)]
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        weapon = next(
+            w for w in model.game_data().list_weapons() if w.name == "Longsword"
+        )
+        tab.add_weapon(weapon)
+        model.derived_stats_changed.emit()
+
+        attack_cell = tab._weapons_table.item(0, 1)
+        damage_cell = tab._weapons_table.item(0, 2)
+        assert attack_cell is not None and damage_cell is not None
+        # BAB +8, STR +4 -> first attack +12, iterative at +7.
+        assert attack_cell.text() == "+12/+7"
+        # Longsword 1d8 + STR damage (+4).
+        assert damage_cell.text() == "1d8+4"
+
+    @pytest.mark.parametrize("damage", ["ref:UnarmedStrikeDamage", "2"])
+    def test_damage_without_dice_is_stable_across_refreshes(
+        self, model: object, damage: str
+    ) -> None:
+        from heroforge.db.data_access import WeaponItem
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        tab.add_weapon(
+            WeaponItem(
+                name="Unarmed Strike",
+                category="S",
+                damage=damage,
+                critical="×2",
+                range_increment=0,
+                damage_type="B",
+                source="",
+            )
+        )
+        model.derived_stats_changed.emit()
+        model.derived_stats_changed.emit()
+
+        damage_cell = tab._weapons_table.item(0, 2)
+        assert damage_cell is not None
+        assert damage_cell.text() == damage
+        assert model.character.attacks[0]["damage"] == damage
+
+    def test_two_handed_weapon_gets_one_and_a_half_strength(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        tab.add_weapon(_catalogue_weapon(model, "Greatsword"))
+        model.derived_stats_changed.emit()
+        # PHB p113: 2d6 + 1.5 x STR (+4) = 2d6+6.
+        assert tab._weapons_table.item(0, 2).text() == "2d6+6"
+
+    @pytest.mark.parametrize(
+        ("weapon", "strength", "expected"),
+        [
+            ("Javelin", 18, "1d6+4"),  # thrown: full STR
+            ("Dagger", 18, "1d4+4"),  # melee weapon with a range increment
+            ("Longbow", 18, "1d8"),  # bows add no STR bonus ...
+            ("Longbow", 6, "1d8-2"),  # ... but do take a STR penalty
+        ],
+    )
+    def test_ranged_and_thrown_weapon_strength_damage(
+        self, model: object, weapon: str, strength: int, expected: str
+    ) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = strength
+        tab = AttacksTab(model=model)
+        tab.add_weapon(_catalogue_weapon(model, weapon))
+        model.derived_stats_changed.emit()
+        assert tab._weapons_table.item(0, 2).text() == expected
+
+    def _cells(self, tab: object, row: int) -> tuple[str, str]:
+        return (
+            tab._weapons_table.item(row, 1).text(),
+            tab._weapons_table.item(row, 2).text(),
+        )
+
+    def test_two_weapon_fighting_with_feats_and_light_off_hand(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.attacks import HAND_OFF, AttacksTab
+
+        # Fighter 8 (BAB +8), STR 18 (+4): single-weapon chain +12/+7.
+        model.character.classes = [("Fighter", 8)]
+        model.character.ability_scores["STR"] = 18
+        model.character.feats = [
+            "Two-Weapon Fighting",
+            "Improved Two-Weapon Fighting",
+        ]
+        tab = AttacksTab(model=model)
+        tab.add_weapon(_catalogue_weapon(model, "Longsword"))
+        tab.add_weapon(_catalogue_weapon(model, "Short Sword"))
+        tab.set_hand(1, HAND_OFF)
+
+        # PHB p160: light off-hand weapon + Two-Weapon Fighting -> -2 / -2.
+        assert self._cells(tab, 0) == ("+10/+5", "1d8+4")
+        # Improved TWF adds a second off-hand attack at -5; off-hand damage
+        # adds half the Strength bonus.
+        assert self._cells(tab, 1) == ("+10/+5", "1d6+2")
+        assert model.character.attacks[1]["hand"] == HAND_OFF
+        assert model.character.attacks[1]["attack_bonus"] == "+10/+5"
+
+    def test_two_weapon_fighting_without_feats(self, model: object) -> None:
+        from heroforge.ui.tabs.attacks import HAND_OFF, HAND_PRIMARY, AttacksTab
+
+        model.character.classes = [("Fighter", 8)]
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        tab.add_weapon(_catalogue_weapon(model, "Longsword"))
+        tab.add_weapon(_catalogue_weapon(model, "Longsword"))
+        tab.set_hand(1, HAND_OFF)
+
+        # One-handed off-hand weapon, no feat: -6 primary / -10 off hand,
+        # and a single off-hand attack.
+        assert self._cells(tab, 0) == ("+6/+1", "1d8+4")
+        assert self._cells(tab, 1) == ("+2", "1d8+2")
+
+        # Switching back to a single weapon restores the normal chain.
+        tab.set_hand(1, HAND_PRIMARY)
+        assert self._cells(tab, 0) == ("+12/+7", "1d8+4")
+        assert self._cells(tab, 1) == ("+12/+7", "1d8+4")
+
+    def test_off_hand_designation_round_trips(
+        self, model: object, tmp_path: Path
+    ) -> None:
+        from heroforge.ui.tabs.attacks import HAND_OFF, HAND_PRIMARY, AttacksTab
+
+        tab = AttacksTab(model=model)
+        tab.add_weapon(_catalogue_weapon(model, "Longsword"))
+        tab.add_weapon(_catalogue_weapon(model, "Short Sword"))
+        tab.set_hand(1, HAND_OFF)
+
+        loaded = _round_trip(model.character, tmp_path)
+        assert [a["hand"] for a in loaded.attacks] == [HAND_PRIMARY, HAND_OFF]
+
+        model.character = loaded
+        tab._sync_from_model()
+        assert tab.hand(0) == HAND_PRIMARY
+        assert tab.hand(1) == HAND_OFF
+
+    def test_user_entered_damage_is_kept(self, model: object) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        weapon = next(
+            w for w in model.game_data().list_weapons() if w.name == "Longsword"
+        )
+        tab.add_weapon(weapon)
+        model.derived_stats_changed.emit()
+        damage_cell = tab._weapons_table.item(0, 2)
+        assert damage_cell is not None and damage_cell.text() == "1d8+4"
+
+        # The user accounts for a +1 enhancement by editing the cell by hand.
+        damage_cell.setText("1d8+5")
+        model.derived_stats_changed.emit()
+        assert tab._weapons_table.item(0, 2).text() == "1d8+5"
+        assert model.character.attacks[0]["damage"] == "1d8+5"
+
+        # Reloading the saved attacks keeps the hand-entered value too.
+        tab._sync_from_model()
+        assert tab._weapons_table.item(0, 2).text() == "1d8+5"
+
+    def test_computed_damage_follows_strength_changes(self, model: object) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        weapon = next(
+            w for w in model.game_data().list_weapons() if w.name == "Longsword"
+        )
+        tab.add_weapon(weapon)
+        model.derived_stats_changed.emit()
+        assert tab._weapons_table.item(0, 2).text() == "1d8+4"
+
+        model.ability_score_changed.emit("STR", 20)
+        assert tab._weapons_table.item(0, 2).text() == "1d8+5"
+        tab._sync_from_model()
+        model.ability_score_changed.emit("STR", 8)
+        assert tab._weapons_table.item(0, 2).text() == "1d8-1"
 
 
 # ---------------------------------------------------------------------------

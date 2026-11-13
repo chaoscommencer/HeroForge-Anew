@@ -1633,8 +1633,9 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
                     """
                     INSERT OR REPLACE INTO weapons
                         (name, category, size, damage_small, damage_medium,
-                         critical, range_increment, weight, damage_type, source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         critical, range_increment, weight, damage_type, source,
+                         special)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         name,
@@ -1674,6 +1675,9 @@ def seed_weapons(conn: sqlite3.Connection, data_dir: Path) -> None:
                         ),
                         (row.get("Type") or row.get("damage_type") or "").strip(),
                         (row.get("Source") or row.get("source") or "").strip(),
+                        # Comma-separated special codes (e.g. "T" thrown,
+                        # "M" mighty/composite) used for Strength damage.
+                        (row.get("Special") or row.get("special") or "").strip(),
                     ),
                 )
                 inserted += 1

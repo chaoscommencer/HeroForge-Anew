@@ -141,6 +141,7 @@ def _sample_character() -> Character:
                 "damage_type": "slashing",
                 "ammunition": None,
                 "notes": "Masterwork",
+                "hand": "Off-hand",
             },
         ],
         enhancements=[
@@ -355,6 +356,19 @@ class TestSaveLoadRoundTrip:
 
 
 class TestHfcFile:
+    def test_file_saved_before_attack_hand_column_loads(self, tmp_path: Path) -> None:
+        char = _sample_character()
+        path = tmp_path / "old.hfc"
+        save_character_to_file(char, path)
+        conn = sqlite3.connect(path)
+        conn.execute("ALTER TABLE character_attacks DROP COLUMN hand")
+        conn.commit()
+        conn.close()
+
+        loaded = load_character_from_file(path)
+        assert [a["weapon_name"] for a in loaded.attacks] == ["Longsword"]
+        assert loaded.attacks[0]["hand"] == ""
+
     def test_save_and_load_file(self, tmp_path: Path) -> None:
         char = _sample_character()
         path = tmp_path / "hero.hfc"

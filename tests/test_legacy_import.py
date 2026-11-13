@@ -171,6 +171,7 @@ class TestParseHfg:
                 "damage_type": "slashing",
                 "ammunition": None,
                 "notes": "Masterwork",
+                "hand": "",
             },
         ]
 

@@ -899,6 +899,23 @@ class TestDataFileSeeding:
         assert rows["Dagger"]["critical"] == "19-20/\u00d72"
         assert rows["Greataxe"]["critical"] == "\u00d73"
 
+    def test_weapon_handedness_is_exposed(self, data_db: Path) -> None:
+        from heroforge.db.data_access import GameDataRepository
+
+        weapons = {w.name: w for w in GameDataRepository(str(data_db)).list_weapons()}
+        assert weapons["Greatsword"].handedness == "T"
+        assert weapons["Longsword"].handedness == "O"
+        assert weapons["Dagger"].handedness == "L"
+        assert weapons["Longbow"].handedness == "R"
+
+    def test_weapon_special_codes_are_exposed(self, data_db: Path) -> None:
+        from heroforge.db.data_access import GameDataRepository
+
+        weapons = {w.name: w for w in GameDataRepository(str(data_db)).list_weapons()}
+        assert weapons["Javelin"].special == "T"
+        assert weapons["Longbow, Composite"].special == "M"
+        assert weapons["Longsword"].special == ""
+
     def test_class_progressions_are_named(self, data_db: Path) -> None:
         conn = get_connection(data_db)
         try:

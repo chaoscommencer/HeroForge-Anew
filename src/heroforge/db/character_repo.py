@@ -433,8 +433,8 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
         cur.executemany(
             "INSERT INTO character_attacks "
             "(character_id, weapon_name, attack_bonus, damage, critical, "
-            "range_increment, damage_type, ammunition, notes, order_taken) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "range_increment, damage_type, ammunition, notes, hand, order_taken) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     cid,
@@ -446,6 +446,7 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
                     attack.get("damage_type"),
                     attack.get("ammunition"),
                     attack.get("notes"),
+                    str(attack.get("hand") or ""),
                     order,
                 )
                 for order, attack in enumerate(character.attacks)
@@ -867,6 +868,12 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
         ).fetchall()
     }
 
+    # Files saved before the ``hand`` column existed load with no hand set.
+    attack_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(character_attacks)").fetchall()
+    }
+    hand_column = "hand" if "hand" in attack_columns else "'' AS hand"
     character.attacks = [
         {
             "weapon_name": atk["weapon_name"],
@@ -877,10 +884,11 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
             "damage_type": atk["damage_type"],
             "ammunition": atk["ammunition"],
             "notes": atk["notes"],
+            "hand": atk["hand"] or "",
         }
         for atk in conn.execute(
             "SELECT weapon_name, attack_bonus, damage, critical, range_increment, "
-            "damage_type, ammunition, notes FROM character_attacks "
+            f"damage_type, ammunition, notes, {hand_column} FROM character_attacks "
             "WHERE character_id = ? ORDER BY order_taken, id",
             (character_id,),
         ).fetchall()
