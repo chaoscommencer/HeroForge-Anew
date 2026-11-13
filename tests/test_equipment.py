@@ -6,10 +6,13 @@ from heroforge.logic.equipment import (
     aggregate_typed_bonuses,
     armor_check_penalty,
     carried_weight,
+    encumbered_speed,
     encumbrance_category,
     equipment_bonuses,
     load_effects,
+    reduced_speed,
     resolve_item_weight,
+    speed_ignores_encumbrance,
     total_weight,
 )
 
@@ -157,6 +160,59 @@ class TestEncumbranceIntegration:
         assert load_effects("Medium") == (3, -3)
         assert load_effects("Heavy") == (1, -6)
         assert load_effects("Overloaded") == (1, -6)
+
+
+class TestEncumberedSpeed:
+    """Armor and load slow the character (PHB p122, p162; workbook Armor!R1/R6)."""
+
+    def test_reduced_speed_matches_phb_table(self) -> None:
+        # PHB p162 Table 9-2: 20 -> 15, 30 -> 20, 40 -> 30 (2/3, rounded up to 5).
+        assert [reduced_speed(s) for s in (0, 5, 20, 30, 40, 50, 60)] == [
+            0,
+            5,
+            15,
+            20,
+            30,
+            35,
+            40,
+        ]
+
+    def test_unencumbered_keeps_full_speed_and_x4_run(self) -> None:
+        assert encumbered_speed(30, None, "Light") == (30, 4)
+        assert encumbered_speed(30, "Light", "Light") == (30, 4)
+
+    def test_medium_armor_slows_but_keeps_x4_run(self) -> None:
+        assert encumbered_speed(30, "Medium", "Light") == (20, 4)
+        assert encumbered_speed(20, "Medium", "Light") == (15, 4)
+
+    def test_heavy_armor_slows_and_drops_run_to_x3(self) -> None:
+        assert encumbered_speed(30, "Heavy", "Light") == (20, 3)
+
+    def test_load_above_light_slows(self) -> None:
+        assert encumbered_speed(30, None, "Medium") == (20, 4)
+        assert encumbered_speed(30, None, "Heavy") == (20, 3)
+        assert encumbered_speed(40, None, "Overloaded") == (30, 3)
+
+    def test_armor_and_load_do_not_stack(self) -> None:
+        assert encumbered_speed(30, "Heavy", "Heavy") == (20, 3)
+
+    def test_non_body_armor_type_does_not_slow(self) -> None:
+        assert encumbered_speed(30, "Shield", "Light") == (30, 4)
+        assert encumbered_speed(30, "Armor", "Light") == (30, 4)
+
+    def test_dwarf_keeps_speed_but_not_run_multiplier(self) -> None:
+        assert encumbered_speed(20, "Heavy", "Heavy", ignore_encumbrance=True) == (
+            20,
+            3,
+        )
+
+    def test_speed_ignores_encumbrance_for_dwarves(self) -> None:
+        assert speed_ignores_encumbrance("Dwarf")
+        assert speed_ignores_encumbrance("Dwarf, Hill")
+        assert speed_ignores_encumbrance("wildren")
+        assert not speed_ignores_encumbrance("Human")
+        assert not speed_ignores_encumbrance("Duergar Dwarf")
+        assert not speed_ignores_encumbrance(None)
 
 
 def test_armor_check_penalty_still_sums() -> None:

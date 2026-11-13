@@ -193,6 +193,10 @@ class DerivedStats:
     """Load category: ``Light``, ``Medium``, ``Heavy`` or ``Overloaded``."""
     load_check_penalty: int = 0
     """Check penalty from the load (0/-3/-6); does not stack with armor's."""
+    speed: int = 30
+    """Land speed in feet after worn armor and load (PHB p162)."""
+    run_multiplier: int = 4
+    """Run multiplier: ×4, or ×3 in heavy armor or under a heavy load."""
 
 
 def _class_levels(character: Character) -> dict[str, int]:
@@ -216,6 +220,9 @@ def compute_derived_stats(
     hp_flat_bonus: int = 0,
     hp_per_level_bonus: int = 0,
     weight_catalog: Mapping[str, float] | None = None,
+    base_speed: int = 30,
+    armor_type: str | None = None,
+    speed_ignores_encumbrance: bool = False,
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
@@ -264,6 +271,14 @@ def compute_derived_stats(
                        the load (PHB p162); a medium or heavy load caps the
                        Dexterity bonus to AC at +3/+1 alongside *max_dex* and
                        sets :attr:`DerivedStats.load_check_penalty`.
+        base_speed:    Base land speed in feet, usually the race's.
+        armor_type:    Type of the worn body armor (``"Light"``, ``"Medium"``,
+                       ``"Heavy"``), or ``None``.  Medium/heavy armor or a load
+                       above light reduces :attr:`DerivedStats.speed`, and heavy
+                       armor or load lowers the run multiplier
+                       (:func:`heroforge.logic.equipment.encumbered_speed`).
+        speed_ignores_encumbrance: Keep the full speed in armor and under load
+                       (e.g. a dwarf, PHB p14).
 
     Returns:
         An immutable :class:`DerivedStats` snapshot.
@@ -326,6 +341,12 @@ def compute_derived_stats(
     load_max_dex, load_check_penalty = equipment.load_effects(load)
     if load_max_dex is not None:
         max_dex = load_max_dex if max_dex is None else min(max_dex, load_max_dex)
+    speed, run_multiplier = equipment.encumbered_speed(
+        base_speed,
+        armor_type,
+        load,
+        ignore_encumbrance=speed_ignores_encumbrance,
+    )
 
     combined_ac_bonuses = list(ac_bonuses or ())
     combined_ac_bonuses.extend(buff_ac)
@@ -369,4 +390,6 @@ def compute_derived_stats(
         carried_weight=carried,
         load=load,
         load_check_penalty=load_check_penalty,
+        speed=speed,
+        run_multiplier=run_multiplier,
     )

@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 def character_sheet_data(
     character: Character,
     derived: DerivedStats | None = None,
+    *,
+    speed: int | None = None,
 ) -> dict:  # type: ignore[type-arg]
     """Build the :func:`export_character_sheet_text` payload for *character*.
 
@@ -23,6 +25,11 @@ def character_sheet_data(
     the optional :class:`~heroforge.logic.derived_stats.DerivedStats` snapshot
     into the flat ``dict`` the text exporter expects, so combat fields render
     real computed values instead of placeholders.
+
+    When *derived* is supplied the character's maximum hit points are included
+    as ``"hp"``, and its armor- and load-adjusted land speed and run multiplier
+    as ``"speed"`` and ``"run_multiplier"``.  An explicit *speed* (feet)
+    overrides the derived one.
     """
     data: dict = {  # type: ignore[type-arg]
         "name": character.name,
@@ -52,6 +59,7 @@ def character_sheet_data(
     if derived is not None:
         data.update(
             {
+                "hp": derived.hit_points,
                 "initiative": derived.initiative,
                 "bab": derived.base_attack_bonus,
                 "fort": derived.fortitude,
@@ -60,8 +68,12 @@ def character_sheet_data(
                 "ac": derived.armor_class,
                 "touch_ac": derived.touch_ac,
                 "flat_footed_ac": derived.flat_footed_ac,
+                "speed": derived.speed,
+                "run_multiplier": derived.run_multiplier,
             }
         )
+    if speed is not None:
+        data["speed"] = speed
     return data
 
 
@@ -91,6 +103,7 @@ def export_character_sheet_text(character_data: dict) -> str:  # type: ignore[ty
     - ``ability_scores`` (dict of ability name → score)
     - ``hp`` (int)
     - ``speed`` (int)
+    - ``run_multiplier`` (int, shown as ``(run xN)`` after the speed)
     - ``initiative`` (int)
     - ``bab`` (int)
     - ``fort`` (int)
@@ -156,6 +169,8 @@ def export_character_sheet_text(character_data: dict) -> str:  # type: ignore[ty
     # Combat stats
     hp = get("hp", "?")
     speed = get("speed", 30)
+    run = get("run_multiplier")
+    speed_str = f"{speed} ft." + (f" (run x{run})" if run else "")
     init = get("initiative", "?")
     bab = get("bab", "?")
     fort = get("fort", "?")
@@ -166,7 +181,7 @@ def export_character_sheet_text(character_data: dict) -> str:  # type: ignore[ty
     ffac = get("flat_footed_ac", "?")
 
     lines.append("COMBAT")
-    lines.append(f"  HP: {hp}    Speed: {speed} ft.    Initiative: {init}")
+    lines.append(f"  HP: {hp}    Speed: {speed_str}    Initiative: {init}")
     lines.append(f"  BAB: {bab}    Fort: {fort}    Ref: {ref}    Will: {will}")
     lines.append(f"  AC: {ac}    Touch: {tac}    Flat-Footed: {ffac}")
     lines.append(line)
@@ -301,13 +316,15 @@ TABLE_TENT_WIDTH = 60
 def table_tent_data(
     character: Character,
     derived: DerivedStats | None = None,
+    *,
+    speed: int | None = None,
 ) -> dict:  # type: ignore[type-arg]
     """Build the :func:`export_table_tent_text` payload for *character*.
 
     The Table Tent currently reuses the full :func:`character_sheet_data`
     payload so both exporters share a single model→dict bridge.
     """
-    return character_sheet_data(character, derived)
+    return character_sheet_data(character, derived, speed=speed)
 
 
 def _signed(value: object) -> str:
