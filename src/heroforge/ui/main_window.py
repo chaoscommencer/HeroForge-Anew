@@ -43,6 +43,10 @@ from heroforge.logic.wild_shape import (
     active_form_name as wild_shape_active_form_name,
 )
 from heroforge.logic.wild_shape import (
+    available_forms as wild_shape_available_forms,
+)
+from heroforge.logic.wild_shape import (
+    druid_wild_shape_level,
     wild_shape_ability_adjustments,
 )
 from heroforge.models.character import Character
@@ -466,12 +470,18 @@ class CharacterModel(QObject):
 
         Resolves the ``wild_shape`` companion entry's selected creature against
         the seeded catalogue when the form is flagged active (PHB p37).  Returns
-        ``None`` when no form is active or the game data is unavailable.
+        ``None`` when no form is active, the game data is unavailable, or the
+        character's Druid levels no longer allow the form (e.g. after losing
+        levels, or a save whose active form outranks its Druid level).
         """
         name = wild_shape_active_form_name(self._character.companions)
         if not name or not self._game_data.available:
             return None
-        return self._game_data.get_creature(name)
+        form = self._game_data.get_creature(name)
+        if form is None:
+            return None
+        level = druid_wild_shape_level(self._character.classes)
+        return form if wild_shape_available_forms(level, [form]) else None
 
     def _armor_class_sources(
         self, natural_armor: int, worn_armor: Sequence[tuple[str, ArmorItem]]

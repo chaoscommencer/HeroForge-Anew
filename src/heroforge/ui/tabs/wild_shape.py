@@ -151,15 +151,24 @@ class WildShapeTab(QWidget):
         return available_forms(self._druid_level(), creatures)
 
     def _refresh_availability(self) -> None:
-        """Update the Druid-level readout and enable/disable selection."""
+        """Update the Druid-level readout and enable/disable selection.
+
+        When the selected form stops being available (the Druid level drops
+        below what the form needs), the active flag is cleared and persisted
+        so the box is never left checked but disabled (PHB p37).
+        """
         level = self._druid_level()
         self._level_label.setText(str(level))
-        can_shape = level >= 5
-        self._select_btn.setEnabled(can_shape)
-        if not can_shape:
-            self._active_check.setEnabled(False)
-        else:
-            self._active_check.setEnabled(self._form is not None)
+        self._select_btn.setEnabled(level >= 5)
+        form_available = self._form is not None and bool(
+            available_forms(level, [self._form])
+        )
+        # Only drop the flag once the form is known to be out of reach: an
+        # unresolved form (no game data) keeps the saved choice untouched.
+        lost = level < 5 or (self._form is not None and not form_available)
+        if lost and self._active_check.isChecked() and not self._loading:
+            self._active_check.setChecked(False)
+        self._active_check.setEnabled(form_available)
 
     def _select_form(self) -> None:
         forms = self._available_forms()

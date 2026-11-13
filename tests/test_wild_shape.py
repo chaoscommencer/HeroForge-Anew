@@ -328,7 +328,7 @@ class TestWildShapeTab:
     def test_active_form_changes_derived_stats(self, model: object) -> None:
         from heroforge.ui.tabs.wild_shape import WildShapeTab
 
-        model.character.classes = [("Druid", 9)]
+        model.character.classes = [("Druid", 12)]
         tab = WildShapeTab(model=model)
         bear = model.game_data().get_creature("Dire Bear")
         tab._form = bear
@@ -346,7 +346,7 @@ class TestWildShapeTab:
     def test_inactive_form_does_not_change_stats(self, model: object) -> None:
         from heroforge.ui.tabs.wild_shape import WildShapeTab
 
-        model.character.classes = [("Druid", 9)]
+        model.character.classes = [("Druid", 12)]
         tab = WildShapeTab(model=model)
         tab._form = model.game_data().get_creature("Dire Bear")
         tab._form_edit.setText("Dire Bear")
@@ -360,7 +360,7 @@ class TestWildShapeTab:
     def test_selection_round_trips(self, model: object, tmp_path: Path) -> None:
         from heroforge.ui.tabs.wild_shape import WildShapeTab
 
-        model.character.classes = [("Druid", 9)]
+        model.character.classes = [("Druid", 12)]
         tab = WildShapeTab(model=model)
         tab._form = model.game_data().get_creature("Dire Bear")
         tab._form_edit.setText("Dire Bear")
@@ -377,7 +377,7 @@ class TestWildShapeTab:
     def test_sync_from_model_restores_active_form(self, model: object) -> None:
         from heroforge.ui.tabs.wild_shape import WildShapeTab
 
-        model.character.classes = [("Druid", 9)]
+        model.character.classes = [("Druid", 12)]
         model.character.companions = [
             {
                 "companion_type": "wild_shape",
@@ -395,7 +395,7 @@ class TestWildShapeTab:
     def test_clear_removes_entry(self, model: object) -> None:
         from heroforge.ui.tabs.wild_shape import WildShapeTab
 
-        model.character.classes = [("Druid", 9)]
+        model.character.classes = [("Druid", 12)]
         tab = WildShapeTab(model=model)
         tab._form = model.game_data().get_creature("Wolf")
         tab._form_edit.setText("Wolf")
@@ -409,3 +409,59 @@ class TestWildShapeTab:
         assert not any(
             c["companion_type"] == "wild_shape" for c in model.character.companions
         )
+
+
+class TestFormLossOfLevels:
+    """An active form stops applying once the druid can no longer assume it."""
+
+    def _activate_dire_bear(self, model: object) -> object:
+        from heroforge.ui.tabs.wild_shape import WildShapeTab
+
+        model.character.classes = [("Druid", 12)]
+        tab = WildShapeTab(model=model)
+        tab._form = model.game_data().get_creature("Dire Bear")
+        tab._form_edit.setText("Dire Bear")
+        tab._refresh_availability()
+        tab._active_check.setChecked(True)
+        assert model.derived_stats().size == "Large"
+        return tab
+
+    @pytest.mark.parametrize(
+        "classes", [[("Druid", 4)], [("Druid", 11)], [("Fighter", 12)]]
+    )
+    def test_derived_stats_ignore_unavailable_form(
+        self, model: object, classes: list
+    ) -> None:
+        self._activate_dire_bear(model)
+        model.character.classes = classes
+        ds = model.derived_stats()
+        assert ds.size == "Medium"
+        assert ds.effective_ability_scores["STR"] == 10
+        assert ds.effective_ability_scores["CON"] == 10
+
+    def test_loaded_active_form_without_druid_levels_ignored(
+        self, model: object
+    ) -> None:
+        model.character.classes = [("Wizard", 12)]
+        model.character.companions = [
+            {
+                "companion_type": "wild_shape",
+                "name": "",
+                "creature": "Dire Bear",
+                "notes": json.dumps({"active": True}),
+            }
+        ]
+        assert model.derived_stats().size == "Medium"
+
+    def test_tab_unchecks_and_persists_when_form_lost(self, model: object) -> None:
+        tab = self._activate_dire_bear(model)
+        model.character.classes = [("Druid", 4)]
+        model.class_levels_changed.emit()
+        assert tab._active_check.isChecked() is False
+        entry = next(
+            c
+            for c in model.character.companions
+            if c["companion_type"] == "wild_shape"
+        )
+        assert json.loads(entry["notes"])["active"] is False
+        assert entry["creature"] == "Dire Bear"
