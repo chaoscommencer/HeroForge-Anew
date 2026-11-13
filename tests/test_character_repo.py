@@ -445,7 +445,9 @@ class TestHfcFile:
 
         loaded = load_character_from_file(path)
         # The unusable amount is dropped; the buff itself is kept.
-        assert loaded.buffs == [{k: v for k, v in char.buffs[0].items() if k != "amount"}]
+        assert loaded.buffs == [
+            {k: v for k, v in char.buffs[0].items() if k != "amount"}
+        ]
         # And the loaded character can be saved again.
         save_character_to_file(loaded, tmp_path / "resaved.hfc")
 
