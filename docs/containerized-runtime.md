@@ -279,6 +279,16 @@ stack rather than engineered around:
   The exposure is already narrowed by publishing noVNC on **loopback only** and
   serving it **over TLS** (see above), so the password is never the sole control
   and never crosses the wire in cleartext.
+- **Debian (apt) packages are not pinned to exact versions.** The base images
+  are pinned by digest and every Python wheel by hash, but the Qt libraries,
+  Podman, Xvfb/x11vnc/noVNC and git come from `apt-get install` of the current
+  bookworm packages at build time. apt verifies every package against Debian's
+  signed release files, so a tampered mirror cannot inject a package; what is
+  lost is byte-for-byte reproducibility. Pinning exact versions is deliberately
+  not done: Debian drops superseded versions from its mirrors once a security
+  update lands, so pinned builds would break exactly when a fix ships, and
+  stale pins would hold back security fixes. If reproducible builds become a
+  requirement, point apt at a dated `snapshot.debian.org` mirror instead.
 - **Dependabot security alerts are a repository-settings toggle, not a repo
   file.** `.github/dependabot.yml` configures **version-update** PRs only.
   Vulnerability **security alerts/updates** are enabled separately under the
