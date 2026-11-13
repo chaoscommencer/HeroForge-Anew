@@ -357,6 +357,14 @@ class TestStandardPrestigePrerequisites:
             assert prereqs, f"{name} has no prerequisites"
             assert all(isinstance(p, str) and p.strip() for p in prereqs)
 
+    def test_dmg_skill_requirements_are_recorded(self) -> None:
+        # DMG 3.5 p181 (Blackguard), p184 (Duelist), p194 (Shadowdancer).
+        # The Skills tab has a single "Perform" skill, so Shadowdancer's
+        # Perform (dance) requirement is recorded against it.
+        assert "Hide 5 ranks" in STANDARD_PRESTIGE_PREREQUISITES["Blackguard"]
+        assert "Perform 3 ranks" in STANDARD_PRESTIGE_PREREQUISITES["Duelist"]
+        assert "Perform 5 ranks" in STANDARD_PRESTIGE_PREREQUISITES["Shadowdancer"]
+
 
 class TestCustomClassContent:
     def test_round_trips_through_content(self) -> None:

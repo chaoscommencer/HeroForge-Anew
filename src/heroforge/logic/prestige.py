@@ -20,9 +20,11 @@ from heroforge.models.class_ import Class
 # Prestige-class prerequisites for the core DMG prestige classes, expressed in
 # the grammar understood by :func:`check_prestige_prerequisites` (ability
 # scores, base attack bonus, skill ranks, feat names, and class/character
-# levels).  The original workbook encodes each prerequisite as a per-cell
-# spreadsheet formula evaluated against the live character sheet rather than as
-# textual data, so there is no source file to seed from; this mapping is the
+# levels).  Skill names use the Skills tab's spelling (``Knowledge (Arcana)``);
+# matching is case-insensitive either way.  The original workbook encodes each
+# prerequisite as a per-cell spreadsheet formula evaluated against the live
+# character sheet rather than as textual data, so there is no source file to
+# seed from; this mapping is the
 # single structured source of truth the application owns (mirroring
 # :data:`heroforge.logic.familiar.STANDARD_FAMILIAR_BONUSES`).  Only the
 # machine-checkable portion of each prestige class's requirements is listed;
@@ -37,7 +39,7 @@ STANDARD_PRESTIGE_PREREQUISITES: dict[str, tuple[str, ...]] = {
         "Decipher Script 7 ranks",
         "Disable Device 7 ranks",
         "Escape Artist 7 ranks",
-        "Knowledge (arcana) 4 ranks",
+        "Knowledge (Arcana) 4 ranks",
     ),
     "Assassin": ("Disguise 4 ranks", "Hide 8 ranks", "Move Silently 8 ranks"),
     "Blackguard": (
@@ -45,21 +47,23 @@ STANDARD_PRESTIGE_PREREQUISITES: dict[str, tuple[str, ...]] = {
         "Cleave",
         "Improved Sunder",
         "Power Attack",
-        "Knowledge (religion) 2 ranks",
+        "Hide 5 ranks",
+        "Knowledge (Religion) 2 ranks",
     ),
-    "Dragon Disciple": ("Knowledge (arcana) 8 ranks",),
+    "Dragon Disciple": ("Knowledge (Arcana) 8 ranks",),
     "Duelist": (
         "+6 BAB",
         "Dodge",
         "Mobility",
         "Weapon Finesse",
+        "Perform 3 ranks",
         "Tumble 5 ranks",
     ),
     "Dwarven Defender": ("+7 BAB", "Dodge", "Endurance", "Toughness"),
-    "Horizon Walker": ("Endurance", "Knowledge (geography) 8 ranks"),
+    "Horizon Walker": ("Endurance", "Knowledge (Geography) 8 ranks"),
     "Mystic Theurge": (
-        "Knowledge (arcana) 6 ranks",
-        "Knowledge (religion) 6 ranks",
+        "Knowledge (Arcana) 6 ranks",
+        "Knowledge (Religion) 6 ranks",
     ),
     "Shadowdancer": (
         "Combat Reflexes",
@@ -67,6 +71,8 @@ STANDARD_PRESTIGE_PREREQUISITES: dict[str, tuple[str, ...]] = {
         "Mobility",
         "Hide 10 ranks",
         "Move Silently 8 ranks",
+        # DMG: Perform (dance) 5 ranks; the Skills tab has a single "Perform".
+        "Perform 5 ranks",
     ),
     "Thaumaturgist": ("Spell Focus (Conjuration)",),
 }

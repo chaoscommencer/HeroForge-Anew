@@ -227,3 +227,19 @@ class TestUnrecordedPrerequisites:
         assert _enabled(archer)
         assert archer.toolTip() == ""
         assert not archer.font().italic()
+
+
+class TestStandardPrerequisiteSkillNames:
+    def test_every_seeded_skill_prereq_names_a_skills_tab_skill(self) -> None:
+        """Seeded skill prereqs must use the Skills tab's exact spelling."""
+        import re
+
+        from heroforge.logic.prestige import STANDARD_PRESTIGE_PREREQUISITES
+        from heroforge.ui.tabs.skills import _SKILLS
+
+        skills_tab_names = {name for name, *_ in _SKILLS}
+        for cls, prereqs in STANDARD_PRESTIGE_PREREQUISITES.items():
+            for prereq in prereqs:
+                m = re.match(r"^(.+?)\s+\d+\s*ranks?$", prereq)
+                if m:
+                    assert m.group(1) in skills_tab_names, (cls, prereq)
