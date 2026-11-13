@@ -384,8 +384,9 @@ class CharacterModel(QObject):
             else DEFAULT_LAND_SPEED
         )
         hp_flat, hp_per_level = self._hit_point_bonuses()
-        # Magic-item bonus specs on character.equipment are stacked together
-        # with active buffs inside compute_derived_stats (PHB p176).
+        # Magic-item bonus specs on character.equipment and the effects of the
+        # active Tome of Battle stances on character.maneuvers are stacked
+        # together with active buffs inside compute_derived_stats (PHB p176).
         return compute_derived_stats(
             self._character,
             progressions,

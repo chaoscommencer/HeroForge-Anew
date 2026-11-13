@@ -1407,6 +1407,30 @@ class TestIncarnumPsionicsManeuvers:
         names = {m["maneuver_name"] for m in model.character.maneuvers}
         assert names == {"Sapphire Nightmare Blade", "Punishing Stance"}
 
+    def test_toggling_stance_refreshes_derived_stats(self, model: object) -> None:
+        """Ticking a stance must announce the derived-stat change to the UI."""
+        from PyQt6.QtCore import Qt
+
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+        from heroforge.ui.tabs.maneuvers_and_stances import ManeuversAndStancesTab
+
+        tab = ManeuversAndStancesTab(model=model)
+        sheet = CharacterSheetTab(model=model)
+        assert tab.add_maneuver("Punishing Stance", stance=True) is True
+        before = model.derived_stats().armor_class
+        assert f"AC: {before}" in sheet._text_edit.toPlainText()
+
+        emitted: list[bool] = []
+        model.derived_stats_changed.connect(lambda: emitted.append(True))
+        item = tab._stance_list.item(0)
+        assert item is not None
+        item.setCheckState(Qt.CheckState.Checked)
+
+        assert emitted, "derived_stats_changed was not emitted"
+        after = model.derived_stats().armor_class
+        assert after == before - 2  # Punishing Stance: -2 AC
+        assert f"AC: {after}" in sheet._text_edit.toPlainText()
+
 
 # ---------------------------------------------------------------------------
 # Companions (animal + familiar partition, JSON round-trip)
