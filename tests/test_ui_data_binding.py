@@ -838,6 +838,46 @@ class TestCharacterSheetTabRealData:
         assert sheet._data["speed"] == 20
         assert "Speed 20 ft." in tent._text_edit.toPlainText()
 
+    @pytest.mark.parametrize(
+        ("button", "filename"),
+        [("Export to PDF…", "sheet.pdf"), ("Export to Text…", "sheet.txt")],
+    )
+    def test_unwritable_export_path_warns_instead_of_raising(
+        self,
+        empty_model: object,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        button: str,
+        filename: str,
+    ) -> None:
+        """An OSError while writing must not escape the Qt slot (it would abort)."""
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox, QPushButton
+
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+
+        target = tmp_path / "missing-dir" / filename
+        monkeypatch.setattr(
+            QFileDialog,
+            "getSaveFileName",
+            staticmethod(lambda *_a, **_k: (str(target), "")),
+        )
+        warnings: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            QMessageBox,
+            "warning",
+            staticmethod(
+                lambda _parent, title, text, *_a: warnings.append((title, text))
+            ),
+        )
+        tab = CharacterSheetTab(model=empty_model)
+        btn = next(b for b in tab.findChildren(QPushButton) if b.text() == button)
+
+        btn.click()
+
+        assert not target.exists()
+        assert len(warnings) == 1
+        assert "missing-dir" in warnings[0][1]
+
     def test_loaded_signal_refreshes_from_loaded_character(
         self, empty_model: object
     ) -> None:

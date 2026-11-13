@@ -72,14 +72,19 @@ class CharacterSheetTab(QWidget):
         self._text_edit.setPlainText(text)
 
     def _export(self) -> None:
-        from PyQt6.QtWidgets import QFileDialog
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Character Sheet", "", "Text Files (*.txt);;All files (*)"
         )
-        if path:
+        if not path:
+            return
+        # An exception escaping a Qt slot aborts the app, so report write errors.
+        try:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(self._text_edit.toPlainText())
+        except OSError as exc:
+            QMessageBox.warning(self, "Text Export Failed", str(exc))
 
     def _export_pdf(self) -> None:
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
@@ -92,7 +97,9 @@ class CharacterSheetTab(QWidget):
         )
         if not path:
             return
+        # RuntimeError: reportlab missing; OSError: the file cannot be written.
+        # Either must not escape the slot, which would abort the app.
         try:
             export_character_sheet_pdf(self._data, path)
-        except RuntimeError as exc:
+        except (RuntimeError, OSError) as exc:
             QMessageBox.warning(self, "PDF Export Failed", str(exc))
