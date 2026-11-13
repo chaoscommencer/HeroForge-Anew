@@ -1,0 +1,66 @@
+// HeroForge-Anew development container — opt-in QA profile with Docker-in-Docker.
+//
+// Use this profile only when you need the containerized Compose QA stack
+// (scripts/run-gui.sh): the app in a network-less, read-only container next to a
+// display sidecar. Docker-in-Docker needs a PRIVILEGED container, and the
+// `vscode` user can use the inner Docker daemon, which amounts to root here and
+// can reach the Codespace VM's kernel. So:
+//   * never use this profile for unattended agents or untrusted code;
+//   * prefer the default profile (.devcontainer/devcontainer.json) and
+//     scripts/run-gui-local.sh for everyday GUI checks.
+// It shares the default image (no sudo, read-only /opt/venv) and pins the
+// Docker-in-Docker feature and the Docker Engine to exact versions.
+{
+  "name": "HeroForge-Anew (QA, Docker-in-Docker)",
+
+  "build": {
+    "dockerfile": "../Dockerfile.devcontainer-default",
+    "context": "../..",
+    "args": {
+      // The desktop runs in the Compose `display` sidecar here.
+      "INSTALL_DISPLAY": "false"
+    }
+  },
+
+  "features": {
+    // Pinned feature version (Dependabot's devcontainers ecosystem proposes
+    // updates, after its 14-day cooldown). Docker CE from download.docker.com
+    // (moby: false) at an exact engine version, rather than "latest".
+    "ghcr.io/devcontainers/features/docker-in-docker:4.1.3": {
+      "version": "29.9.2",
+      "moby": false,
+      "dockerDashComposeVersion": "v2"
+    }
+  },
+
+  "containerEnv": {
+    "PYTHONPATH": "${containerWorkspaceFolder}/src"
+  },
+
+  // noVNC published by the Compose display sidecar on 127.0.0.1:6080. Codespaces
+  // forwards it privately; keep its visibility private.
+  "forwardPorts": [6080],
+  "portsAttributes": {
+    "6080": {
+      "label": "HeroForge GUI (noVNC via Compose)",
+      "onAutoForward": "notify",
+      "protocol": "https"
+    }
+  },
+
+  "remoteUser": "vscode",
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  }
+}

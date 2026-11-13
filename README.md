@@ -76,8 +76,10 @@ The project ships an isolated runtime environment so you can develop and QA the
 PyQt6 GUI without installing anything locally:
 
 - **Develop** in a ready-to-code Codespace / Dev Container
-  (`.devcontainer/`) — Python 3.12, PyQt6 system libraries, and
-  Docker-in-Docker.
+  (`.devcontainer/`) — Python 3.12 and the PyQt6 system libraries. The default
+  profile is unprivileged and shows the GUI with `scripts/run-gui-local.sh`; an
+  opt-in QA profile (`.devcontainer/qa/`) adds Docker-in-Docker for the Compose
+  stack.
 
   > **Note:** The dev container is currently pinned to Python 3.12
   > (`mcr.microsoft.com/devcontainers/python:3-3.12-bookworm@sha256:…`). Consider

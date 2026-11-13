@@ -28,8 +28,8 @@
 #   scripts/enable-userns-remap.sh --status  # report current state, change nothing
 #   USERNS_REMAP_USER=myuser scripts/enable-userns-remap.sh   # custom remap user
 #
-# Requires: a Docker daemon you control (the docker-in-docker inner daemon) and
-# sudo (the `vscode` dev-container user has passwordless sudo).
+# Requires: a Docker daemon you control and sudo. Neither devcontainer profile
+# gives the `vscode` user sudo, so run this on a Docker host you administer.
 
 set -euo pipefail
 

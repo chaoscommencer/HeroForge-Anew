@@ -124,8 +124,9 @@ elif command -v docker-compose >/dev/null 2>&1; then
     COMPOSE=(docker-compose)
 else
     echo "error: no podman/docker compose front-end found on PATH." >&2
-    echo "       Inside a Codespace this is provided by the docker-in-docker" >&2
-    echo "       feature in .devcontainer/devcontainer.json." >&2
+    echo "       In a Codespace, Docker comes with the QA profile" >&2
+    echo "       (.devcontainer/qa/devcontainer.json). In the default profile use" >&2
+    echo "       scripts/run-gui-local.sh instead." >&2
     exit 1
 fi
 
