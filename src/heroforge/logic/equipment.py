@@ -81,7 +81,7 @@ def _normalise_target(target: str) -> str:
     return _SAVE_ALIASES.get(text.lower(), "")
 
 
-def _item_bonus_specs(item: dict) -> list[dict]:  # type: ignore[type-arg]
+def item_bonus_specs(item: dict) -> list[dict]:  # type: ignore[type-arg]
     """Return the list of bonus specs declared on an equipment *item*.
 
     An item may declare a single bonus via top-level ``target``/``bonus_type``/
@@ -118,7 +118,7 @@ def equipment_bonuses(
     save_pairs: dict[str, list[tuple[str, int]]] = {}
     ac_bonuses: list[tuple[str, int]] = []
     for item in items:
-        for spec in _item_bonus_specs(item):
+        for spec in item_bonus_specs(item):
             key = _normalise_target(spec.get("target", ""))
             if not key:
                 continue

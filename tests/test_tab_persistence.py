@@ -487,6 +487,86 @@ class TestEquipmentPartitioning:
 
 
 # ---------------------------------------------------------------------------
+# Magic equipment bonuses, weight and encumbrance
+# ---------------------------------------------------------------------------
+
+
+def _magic_item(
+    name: str, slot: str, target: str, bonus_type: str, value: int
+) -> dict[str, object]:
+    return {
+        "item_name": name,
+        "quantity": 1,
+        "weight": 0.0,
+        "equipped": 1,
+        "slot": slot,
+        "notes": "",
+        "bonuses": [{"target": target, "bonus_type": bonus_type, "value": value}],
+    }
+
+
+def _typed_buff(
+    name: str, bonus_type: str, target: str, amount: int
+) -> dict[str, object]:
+    return {
+        "id": name,
+        "name": name,
+        "bonus_type": bonus_type,
+        "target_stat": target,
+        "amount": amount,
+    }
+
+
+class TestMagicEquipmentIntegration:
+    def test_item_and_buff_enhancements_do_not_stack(self, model: object) -> None:
+        # PHB p176: Bull's Strength (+4 enhancement) and Gauntlets of ogre power
+        # (+2 enhancement) are the same bonus type, so only the +4 applies.
+        model.character.ability_scores["STR"] = 10
+        model.character.equipment = [
+            _magic_item(
+                "Gauntlets of ogre power", "Hands/Rings (x2)", "STR", "enhancement", 2
+            ),
+        ]
+        model.character.buffs = [
+            _typed_buff("Bull's Strength", "enhancement", "STR", 4),
+        ]
+        stats = model.derived_stats()
+        assert stats.effective_ability_scores["STR"] == 14
+
+    def test_item_and_buff_resistance_saves_do_not_stack(self, model: object) -> None:
+        model.character.equipment = [
+            _magic_item("Cloak of resistance", "Shoulders", "fort", "resistance", 1),
+        ]
+        model.character.buffs = [
+            _typed_buff("Resistance", "resistance", "fort", 1),
+        ]
+        stats = model.derived_stats()
+        assert stats.fortitude == 1
+
+    def test_item_and_buff_of_different_types_stack(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10
+        model.character.equipment = [
+            _magic_item(
+                "Gauntlets of ogre power", "Hands/Rings (x2)", "STR", "enhancement", 2
+            ),
+        ]
+        model.character.buffs = [_typed_buff("Rage", "morale", "STR", 4)]
+        stats = model.derived_stats()
+        assert stats.effective_ability_scores["STR"] == 16
+
+    def test_item_deflection_ac_does_not_stack_with_buff(self, model: object) -> None:
+        model.character.ability_scores["DEX"] = 10
+        model.character.equipment = [
+            _magic_item("Protection", "Hands/Rings (x2)", "AC", "deflection", 1),
+        ]
+        model.character.buffs = [
+            _typed_buff("Shield of Faith", "deflection", "AC", 2),
+        ]
+        stats = model.derived_stats()
+        assert stats.armor_class == 12
+
+
+# ---------------------------------------------------------------------------
 # Attacks (weapon catalogue)
 # ---------------------------------------------------------------------------
 

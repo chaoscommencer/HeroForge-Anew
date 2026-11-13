@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from heroforge.logic import buffs, combat, saving_throws
+from heroforge.logic import buffs, combat, equipment, saving_throws
 from heroforge.logic.ability_scores import ability_modifier
 from heroforge.logic.health import hit_dice_sequence, max_hit_points
 
@@ -98,30 +98,48 @@ def _canonical_buff_targets(target: str) -> tuple[str, ...]:
 def _buff_bonus_sources(
     character: Character,
 ) -> tuple[dict[str, int], list[tuple[str, int]]]:
-    """Aggregate the active buffs of *character* into applicable bonuses.
+    """Aggregate the typed bonuses of active buffs and equipped magic items.
 
     Returns ``(net, ac_bonuses)`` where *net* maps canonical derived-stat keys
     (ability scores plus ``melee``/``ranged``/``fort``/``ref``/``will``/
     ``initiative``/``grapple``/``hp``) to their net bonus after stacking, and
     *ac_bonuses* is a list of ``(bonus_type, amount)`` pairs routed through the
-    armor-class aggregator so AC buffs stack with armor/shield sources by type.
+    armor-class aggregator so AC bonuses stack with armor/shield sources by type.
+
+    Buffs and magic items are stacked together, so a Bull's Strength (+4
+    enhancement) and Gauntlets of ogre power (+2 enhancement) give +4, not +6.
 
     Reference: PHB p176 (bonus types and stacking).
     """
     records: list[tuple[str, str, str, int]] = []
     ac_bonuses: list[tuple[str, int]] = []
-    for index, entry in enumerate(getattr(character, "buffs", None) or []):
-        amount = buffs.buff_amount(entry.get("amount"))
-        target = str(entry.get("target_stat") or "")
-        if amount == 0 or not target.strip():
-            continue
-        bonus_type = str(entry.get("bonus_type") or "untyped").strip() or "untyped"
-        source = str(entry.get("id") or index)
-        for canonical in _canonical_buff_targets(target):
+
+    def add(source: str, bonus_type: object, target: object, amount: int) -> None:
+        target_text = str(target or "")
+        if amount == 0 or not target_text.strip():
+            return
+        btype = str(bonus_type or "untyped").strip() or "untyped"
+        for canonical in _canonical_buff_targets(target_text):
             if canonical == "ac":
-                ac_bonuses.append((bonus_type, amount))
+                ac_bonuses.append((btype, amount))
             else:
-                records.append((source, bonus_type, canonical, amount))
+                records.append((source, btype, canonical, amount))
+
+    for index, entry in enumerate(getattr(character, "buffs", None) or []):
+        add(
+            f"buff:{entry.get('id') or index}",
+            entry.get("bonus_type"),
+            entry.get("target_stat"),
+            buffs.buff_amount(entry.get("amount")),
+        )
+    for index, item in enumerate(getattr(character, "equipment", None) or []):
+        for spec in equipment.item_bonus_specs(item):
+            add(
+                f"item:{index}",
+                spec.get("bonus_type"),
+                spec.get("target"),
+                buffs.buff_amount(spec.get("value")),
+            )
     return buffs.aggregate_bonuses(records), ac_bonuses
 
 
@@ -195,7 +213,9 @@ def compute_derived_stats(
     """Compute every derived combat/save value for *character*.
 
     The character's active :attr:`~heroforge.models.character.Character.buffs`
-    are aggregated with the bonus-type stacking rules (PHB p176) and folded in:
+    and the bonus specs of equipped magic items in
+    :attr:`~heroforge.models.character.Character.equipment` are aggregated
+    together with the bonus-type stacking rules (PHB p176) and folded in:
     ability-score buffs adjust the effective scores, AC buffs join the
     armor-class aggregation by type, and the remaining typed bonuses are added to
     the relevant attack, save, initiative, grapple and hit-point readouts.
