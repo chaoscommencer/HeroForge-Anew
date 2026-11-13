@@ -119,6 +119,43 @@ def druid_wild_shape_level(classes: Iterable[tuple[str, int]]) -> int:
     )
 
 
+# Druid levels at which Wild Shape gains a daily use (PHB p36 Table 3-8;
+# workbook ``WildShapeAmount``, 'Class Abilities'!E36), and at which the
+# separate elemental uses appear (``ElementalShapeAmount``, E37).
+_USE_LEVELS: tuple[int, ...] = (5, 6, 7, 10, 14, 18)
+_ELEMENTAL_USE_LEVELS: tuple[int, ...] = (16, 18, 20)
+
+
+def _extra_wild_shape_feats(feats: Iterable[str]) -> int:
+    """Count the Extra Wild Shape feats ("Extra Wild Shape", "… x2", "… x3")."""
+    return sum(
+        1 for f in feats if str(f).strip().lower().startswith("extra wild shape")
+    )
+
+
+def wild_shape_uses_per_day(druid_level: int, feats: Iterable[str] = ()) -> int:
+    """Return the daily Wild Shape uses for *druid_level* (PHB p36-37).
+
+    Each Extra Wild Shape feat adds two uses (CW p97; workbook
+    ``2*FtExtraWildShape``).  Returns 0 before 5th level.
+    """
+    base = sum(1 for level in _USE_LEVELS if druid_level >= level)
+    if base == 0:
+        return 0
+    return base + 2 * _extra_wild_shape_feats(feats)
+
+
+def elemental_shape_uses_per_day(druid_level: int, feats: Iterable[str] = ()) -> int:
+    """Return the daily elemental Wild Shape uses (PHB p37: 16th, 18th, 20th).
+
+    Each Extra Wild Shape feat adds one elemental use once the druid has any.
+    """
+    base = sum(1 for level in _ELEMENTAL_USE_LEVELS if druid_level >= level)
+    if base == 0:
+        return 0
+    return base + _extra_wild_shape_feats(feats)
+
+
 # Minimum Druid level at which Wild Shape unlocks each size of a form type
 # (PHB p37 Druid table; workbook ``'Class Abilities'!H33:J41``
 # ``TblWildshapeSizes`` and ``M33:N46`` ``TblWildshapeForms``).  Plant forms

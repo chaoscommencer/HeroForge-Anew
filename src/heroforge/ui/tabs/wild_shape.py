@@ -40,6 +40,8 @@ from heroforge.logic.wild_shape import (
     COMPANION_TYPE,
     available_forms,
     druid_wild_shape_level,
+    elemental_shape_uses_per_day,
+    wild_shape_uses_per_day,
 )
 from heroforge.ui.tabs._tab_helper import pick_from_catalog
 
@@ -66,6 +68,8 @@ class WildShapeTab(QWidget):
             model.character_loaded.connect(lambda _id: self._sync_from_model())
             # Re-evaluate availability when class levels (Druid level) change.
             model.class_levels_changed.connect(self._refresh_availability)
+            # Extra Wild Shape feats add daily uses.
+            model.feat_added.connect(lambda _feat: self._refresh_availability())
             self._sync_from_model()
 
     # ------------------------------------------------------------------
@@ -85,6 +89,8 @@ class WildShapeTab(QWidget):
         select_form = QFormLayout(select_box)
         self._level_label = QLabel("0")
         select_form.addRow("Druid level:", self._level_label)
+        self._uses_label = QLabel("—")
+        select_form.addRow("Uses:", self._uses_label)
 
         self._form_edit = QLineEdit()
         self._form_edit.setReadOnly(True)
@@ -167,6 +173,7 @@ class WildShapeTab(QWidget):
         """
         level = self._druid_level()
         self._level_label.setText(str(level))
+        self._uses_label.setText(self._uses_text(level))
         self._select_btn.setEnabled(level >= 5)
         form_available = self._form is not None and bool(
             available_forms(level, [self._form])
@@ -177,6 +184,19 @@ class WildShapeTab(QWidget):
         if lost and self._active_check.isChecked() and not self._loading:
             self._active_check.setChecked(False)
         self._active_check.setEnabled(form_available)
+
+    def _uses_text(self, level: int) -> str:
+        """Return the daily uses and duration readout (PHB p36-37)."""
+        feats = self._model.character.feats if self._model is not None else []
+        uses = wild_shape_uses_per_day(level, feats)
+        if not uses:
+            return "—"
+        text = f"{uses}/day"
+        elemental = elemental_shape_uses_per_day(level, feats)
+        if elemental:
+            text += f" (elemental {elemental}/day)"
+        # Each use lasts one hour per druid level (workbook WildShapeDuration).
+        return f"{text}, {level} hour{'s' if level != 1 else ''} each"
 
     def _select_form(self) -> None:
         forms = self._available_forms()

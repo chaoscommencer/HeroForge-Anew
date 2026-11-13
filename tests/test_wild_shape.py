@@ -786,3 +786,46 @@ class TestFormHitPoints:
         assert shaped.effective_ability_scores["CON"] == 23
         # ... and on the druid's own Constitution for hit points.
         assert shaped.hit_points == before.hit_points
+
+
+class TestUsesPerDay:
+    """Wild Shape uses per day (PHB p36 Table 3-8; workbook WildShapeAmount)."""
+
+    @pytest.mark.parametrize(
+        ("level", "uses"),
+        [(4, 0), (5, 1), (6, 2), (7, 3), (9, 3), (10, 4), (14, 5), (18, 6), (20, 6)],
+    )
+    def test_uses_by_druid_level(self, level: int, uses: int) -> None:
+        from heroforge.logic.wild_shape import wild_shape_uses_per_day
+
+        assert wild_shape_uses_per_day(level) == uses
+
+    @pytest.mark.parametrize(
+        ("level", "uses"), [(15, 0), (16, 1), (17, 1), (18, 2), (20, 3)]
+    )
+    def test_elemental_uses(self, level: int, uses: int) -> None:
+        from heroforge.logic.wild_shape import elemental_shape_uses_per_day
+
+        assert elemental_shape_uses_per_day(level) == uses
+
+    def test_extra_wild_shape_feats(self) -> None:
+        from heroforge.logic.wild_shape import (
+            elemental_shape_uses_per_day,
+            wild_shape_uses_per_day,
+        )
+
+        feats = ["Extra Wild Shape", "Extra Wild Shape x2", "Alertness"]
+        assert wild_shape_uses_per_day(6, feats) == 6
+        assert elemental_shape_uses_per_day(16, feats) == 3
+        # The feat adds nothing before the druid can wild shape at all.
+        assert wild_shape_uses_per_day(4, feats) == 0
+
+    def test_tab_shows_uses_and_duration(self, model: object) -> None:
+        from heroforge.ui.tabs.wild_shape import WildShapeTab
+
+        model.character.classes = [("Druid", 16)]
+        tab = WildShapeTab(model=model)
+        assert tab._uses_label.text() == "5/day (elemental 1/day), 16 hours each"
+        model.character.classes = [("Druid", 7)]
+        model.class_levels_changed.emit()
+        assert tab._uses_label.text() == "3/day, 7 hours each"
