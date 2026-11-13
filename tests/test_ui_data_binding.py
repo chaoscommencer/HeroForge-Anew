@@ -788,6 +788,37 @@ class TestCharacterSheetTabRealData:
         labels = {b.text() for b in tab.findChildren(QPushButton)}
         assert "Export to PDF…" in labels
 
+    def test_race_without_land_speed_falls_back_to_30_ft(self, model: object) -> None:
+        """Seeded races store no land speed (NULL); the sheet must not show 0."""
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+
+        model.character.race = "Human"
+        tab = CharacterSheetTab(model=model)
+
+        text = tab._text_edit.toPlainText()
+        assert "Speed: 30 ft." in text
+        assert "Speed: 0 ft." not in text
+        assert tab._data["speed"] == 30
+
+    def test_race_land_speed_is_shown(self, qapp: object, seeded_db: Path) -> None:
+        import sqlite3
+
+        from heroforge.db.data_access import GameDataRepository
+        from heroforge.ui.main_window import CharacterModel
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+
+        with sqlite3.connect(seeded_db) as conn:
+            conn.execute(
+                "INSERT INTO races (name, size, base_land_speed, source) "
+                "VALUES ('Halfling', 'Small', 20, 'PHB')"
+            )
+        model = CharacterModel(game_data=GameDataRepository(str(seeded_db)))
+        model.character.race = "Halfling"
+        tab = CharacterSheetTab(model=model)
+
+        assert "Speed: 20 ft." in tab._text_edit.toPlainText()
+        assert tab._data["speed"] == 20
+
     def test_loaded_signal_refreshes_from_loaded_character(
         self, empty_model: object
     ) -> None:

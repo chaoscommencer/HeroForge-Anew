@@ -21,6 +21,9 @@ from heroforge.logic.export import (
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
+#: Base land speed (feet) used when the race supplies none (PHB p14).
+DEFAULT_LAND_SPEED = 30
+
 
 class CharacterSheetTab(QWidget):
     """Read-only plain-text character sheet summary with export."""
@@ -60,22 +63,22 @@ class CharacterSheetTab(QWidget):
         layout.addWidget(self._text_edit)
         self._refresh()
 
-    def _base_speed(self) -> int | None:
+    def _base_speed(self) -> int:
         """Return the active character's base land speed (feet) from its race.
 
-        Returns ``None`` when no race is selected or the game database is
-        unavailable, in which case the exporter falls back to its 30 ft.
-        default.
+        Falls back to the standard 30 ft. when no race is selected, the game
+        database is unavailable, or the race has no recorded land speed.  The
+        seeded races store no speed, which the repository reports as ``0``;
+        that is "unknown", not a speed of 0 ft.
         """
-        if self._model is None:
-            return None
-        repo = self._model.game_data()
-        race_name = self._model.character.race
-        if repo.available and race_name:
-            race = repo.get_race(race_name)
-            if race is not None:
-                return race.base_land_speed
-        return None
+        if self._model is not None:
+            repo = self._model.game_data()
+            race_name = self._model.character.race
+            if repo.available and race_name:
+                race = repo.get_race(race_name)
+                if race is not None and race.base_land_speed > 0:
+                    return race.base_land_speed
+        return DEFAULT_LAND_SPEED
 
     def _refresh(self) -> None:
         data: dict = {}  # type: ignore[type-arg]
