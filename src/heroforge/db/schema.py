@@ -86,6 +86,9 @@ _COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
             "ADD COLUMN binds INTEGER NOT NULL DEFAULT 0"
         ),
     },
+    "vestiges": {
+        "vestige_level": "ALTER TABLE vestiges ADD COLUMN vestige_level INTEGER",
+    },
 }
 
 

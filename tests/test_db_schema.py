@@ -311,6 +311,46 @@ class TestInitializeDatabase:
         finally:
             conn2.close()
 
+    def test_existing_vestiges_gain_vestige_level_column(self, tmp_path: Path) -> None:
+        # A database built before vestiges.vestige_level existed, with every
+        # other table already present, must keep its vestige catalogue and
+        # accept a re-seed that writes the new column.
+        from heroforge.db import seed
+        from heroforge.db.data_access import GameDataRepository
+
+        old_schema = GAME_SCHEMA_SQL.replace("    vestige_level       INTEGER,\n", "")
+        assert old_schema != GAME_SCHEMA_SQL
+        db_path = tmp_path / "old-vestiges.db"
+        conn = sqlite3.connect(db_path)
+        conn.executescript(old_schema)
+        conn.execute("INSERT INTO vestiges (name, level) VALUES ('Amon', 20)")
+        conn.commit()
+        conn.close()
+
+        conn2 = initialize_database(db_path)
+        conn2.close()
+        vestiges = GameDataRepository(db_path).list_vestiges()
+        assert [(v.name, v.level, v.vestige_level) for v in vestiges] == [
+            ("Amon", 20, None)
+        ]
+
+        real = next(t for t in seed._WORKBOOK_TABLES if t.table == "vestiges")
+        spec = seed._WorkbookTable(
+            real.table,
+            real.sheet,
+            real.columns,
+            lambda _wb: [("Amon", 20, 1, "", "", "", "")],
+            unique_by=real.unique_by,
+        )
+        conn3 = initialize_database(db_path)
+        try:
+            seed._seed_workbook_table(conn3, None, spec)
+            conn3.commit()
+        finally:
+            conn3.close()
+        vestiges = GameDataRepository(db_path).list_vestiges()
+        assert [(v.name, v.vestige_level) for v in vestiges] == [("Amon", 1)]
+
 
 class TestAllTablesExist:
     @pytest.fixture(autouse=True)
