@@ -4,7 +4,7 @@ Surfaces the prestige classes from the seeded game database (plus any homebrew
 prestige classes saved on the character), shows which ones the character
 currently qualifies for, and lets the user add prestige-class levels.  Met /
 unmet prerequisite status is evaluated against the live character state via
-:func:`heroforge.logic.prestige.check_prestige_prerequisites` and refreshed in
+:func:`heroforge.logic.prestige.evaluate_prestige_prerequisite` and refreshed in
 real time as ability scores, BAB, skills, feats, and class levels change.
 
 Base-class levels (managed by :class:`~heroforge.ui.tabs.classes.ClassesTab`)
@@ -34,7 +34,8 @@ from PyQt6.QtWidgets import (
 )
 
 from heroforge.logic.prestige import (
-    check_prestige_prerequisites,
+    PrereqStatus,
+    evaluate_prestige_prerequisite,
     list_custom_prestige_classes,
 )
 
@@ -44,6 +45,13 @@ if TYPE_CHECKING:
 # Maximum level selectable for a single prestige-class entry (most prestige
 # classes cap at 10 levels; allow headroom for higher-level supplements).
 _MAX_PRESTIGE_LEVEL = 20
+
+# Tooltip markers for each prerequisite's evaluation outcome.
+_STATUS_MARKERS: dict[PrereqStatus, str] = {
+    PrereqStatus.MET: "[X]",
+    PrereqStatus.UNMET: "[ ]",
+    PrereqStatus.UNVERIFIED: "[?]",
+}
 
 
 class PrestigeClassesTab(QWidget):
@@ -173,10 +181,13 @@ class PrestigeClassesTab(QWidget):
     def _apply_prereq_status(self) -> None:
         """Enable / disable available classes by prerequisite satisfaction.
 
-        Prestige classes whose prerequisites are not met are shown disabled with
-        an explanatory tooltip, recomputed in real time as the character changes.
-        Validation uses
-        :func:`heroforge.logic.prestige.check_prestige_prerequisites`.
+        Each prerequisite is evaluated individually with
+        :func:`heroforge.logic.prestige.evaluate_prestige_prerequisite` and
+        listed in the item's tooltip as ``[X]`` (met), ``[ ]`` (unmet) or
+        ``[?]`` (cannot be checked automatically, e.g. spellcasting ability).
+        A class with any unmet prerequisite is disabled; one whose only open
+        prerequisites are unverifiable stays selectable but is shown in italics
+        so the user knows to verify it manually.
         """
         if self._model is None:
             return
@@ -189,14 +200,16 @@ class PrestigeClassesTab(QWidget):
                 continue
             prereqs = self._prereq_map.get(item.text(), [])
 
-            # Evaluate each prerequisite individually for the tooltip
-            met_list: list[str] = []
-            unmet_list: list[str] = []
-
+            lines: list[str] = []
+            unmet = unverified = 0
             for p in prereqs:
-                # We use a helper that checks a single prereq string
-                is_met = check_prestige_prerequisites(
-                    [p],
+                if not p.strip():
+                    continue
+                # The character model does not track castable spell levels yet,
+                # so spellcasting is passed as unknown (None): CAST: tags come
+                # back as UNVERIFIED rather than failing outright.
+                status = evaluate_prestige_prerequisite(
+                    p,
                     stats.base_attack_bonus,
                     char.ability_scores,
                     char.skills,
@@ -205,25 +218,32 @@ class PrestigeClassesTab(QWidget):
                     classes,
                     character_alignment=char.alignment,
                     character_race=char.race,
-                    # TODO: Simplified for now, should be derived.
-                    character_spellcasting={},
+                    character_spellcasting=None,
                 )
-                if is_met:
-                    met_list.append(f"[X] {p}")
-                else:
-                    unmet_list.append(f"[ ] {p}")
+                lines.append(f"{_STATUS_MARKERS[status]} {p}")
+                if status is PrereqStatus.UNMET:
+                    unmet += 1
+                elif status is PrereqStatus.UNVERIFIED:
+                    unverified += 1
 
-            all_met = len(unmet_list) == 0
             flags = item.flags()
-            if all_met:
+            font = item.font()
+            if unmet:
+                item.setFlags(flags & ~Qt.ItemFlag.ItemIsEnabled)
+                item.setToolTip("Prerequisites not met:\n" + "\n".join(lines))
+                font.setItalic(False)
+            elif unverified:
+                item.setFlags(flags | Qt.ItemFlag.ItemIsEnabled)
+                item.setToolTip(
+                    "Some prerequisites cannot be checked automatically "
+                    "- verify manually:\n" + "\n".join(lines)
+                )
+                font.setItalic(True)
+            else:
                 item.setFlags(flags | Qt.ItemFlag.ItemIsEnabled)
                 item.setToolTip("")
-            else:
-                item.setFlags(flags & ~Qt.ItemFlag.ItemIsEnabled)
-                tooltip_text = "Prerequisites not met:\n" + "\n".join(
-                    met_list + unmet_list
-                )
-                item.setToolTip(tooltip_text)
+                font.setItalic(False)
+            item.setFont(font)
         self._show_prerequisites(self._selected_avail_name() or "")
 
     def _selected_avail_name(self) -> str | None:

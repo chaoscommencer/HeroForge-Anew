@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Mapping
+from enum import Enum
 
 from heroforge.logic.feats import check_prerequisites
 from heroforge.models.class_ import Class
@@ -343,6 +344,63 @@ def check_prestige_prerequisites(
             return False
 
     return True
+
+
+class PrereqStatus(Enum):
+    """Outcome of evaluating a single prestige-class prerequisite."""
+
+    MET = "met"
+    UNMET = "unmet"
+    UNVERIFIED = "unverified"
+    """The prerequisite is well formed but the character state needed to check
+    it is not tracked (e.g. spellcasting ability), so it must be verified
+    manually."""
+
+
+_CAST_TAG_RE = re.compile(r"^CAST:\s*[^:]+?\s*:\s*\d+\s*$")
+
+
+def evaluate_prestige_prerequisite(
+    prereq: str,
+    character_bab: int,
+    character_ability_scores: dict[str, int],
+    character_skills: dict[str, float],
+    character_feats: list[str],
+    character_level: int,
+    character_classes: dict[str, int],
+    character_alignment: str = "",
+    character_race: str = "",
+    character_spellcasting: dict[str, int] | None = None,
+) -> PrereqStatus:
+    """Evaluate one prerequisite string as met, unmet or unverified.
+
+    Behaves like :func:`check_prestige_prerequisites` for a single string,
+    except that a well-formed ``CAST:<type>:<level>`` tag evaluated without
+    *character_spellcasting* data (``None``) is reported as
+    :attr:`PrereqStatus.UNVERIFIED` rather than unmet, because the character
+    model does not yet track which spell levels a character can cast.
+    Malformed ``CAST:`` tags are still :attr:`PrereqStatus.UNMET`.
+    """
+    text = prereq.strip()
+    if (
+        character_spellcasting is None
+        and text.startswith("CAST:")
+        and _CAST_TAG_RE.match(text)
+    ):
+        return PrereqStatus.UNVERIFIED
+    met = check_prestige_prerequisites(
+        [text],
+        character_bab,
+        character_ability_scores,
+        character_skills,
+        character_feats,
+        character_level,
+        character_classes,
+        character_alignment=character_alignment,
+        character_race=character_race,
+        character_spellcasting=character_spellcasting,
+    )
+    return PrereqStatus.MET if met else PrereqStatus.UNMET
 
 
 def available_prestige_classes(

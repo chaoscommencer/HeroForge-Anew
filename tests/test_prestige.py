@@ -14,10 +14,12 @@ import json
 from heroforge.logic.prestige import (
     CUSTOM_CLASS_CONTENT_TYPE,
     STANDARD_PRESTIGE_PREREQUISITES,
+    PrereqStatus,
     available_prestige_classes,
     check_prestige_prerequisites,
     custom_class_from_content,
     custom_class_to_content,
+    evaluate_prestige_prerequisite,
     list_custom_classes,
     list_custom_prestige_classes,
 )
@@ -127,7 +129,6 @@ class TestCheckPrestigePrerequisites:
         )
 
 
-
 class TestCastPrerequisiteTag:
     """``CAST:<type>:<level>`` -- ability to cast spells of a given level."""
 
@@ -192,6 +193,44 @@ class TestCastPrerequisiteTag:
             )
             is False
         )
+
+
+class TestEvaluatePrestigePrerequisite:
+    """Tri-state evaluation used by the Prestige Classes tab."""
+
+    @staticmethod
+    def _evaluate(prereq: str, **kwargs: object) -> PrereqStatus:
+        return evaluate_prestige_prerequisite(
+            prereq,
+            kwargs.pop("bab", 0),
+            {},
+            {},
+            [],
+            1,
+            {},
+            **kwargs,
+        )
+
+    def test_cast_without_spellcasting_data_is_unverified(self) -> None:
+        assert self._evaluate("CAST:Arcane:3") is PrereqStatus.UNVERIFIED
+
+    def test_cast_with_spellcasting_data_is_evaluated(self) -> None:
+        assert (
+            self._evaluate("CAST:Arcane:3", character_spellcasting={"Arcane": 3})
+            is PrereqStatus.MET
+        )
+        assert (
+            self._evaluate("CAST:Arcane:3", character_spellcasting={"Divine": 9})
+            is PrereqStatus.UNMET
+        )
+
+    def test_malformed_cast_is_unmet_not_unverified(self) -> None:
+        assert self._evaluate("CAST:Arcane:3rd") is PrereqStatus.UNMET
+        assert self._evaluate("CAST:Arcane") is PrereqStatus.UNMET
+
+    def test_other_prerequisites_are_met_or_unmet(self) -> None:
+        assert self._evaluate("+6 BAB", bab=6) is PrereqStatus.MET
+        assert self._evaluate("+6 BAB", bab=5) is PrereqStatus.UNMET
 
 
 def _check_alignment(required: str, alignment: str) -> bool:
@@ -265,6 +304,7 @@ class TestRacePrerequisiteTag:
             )
             is False
         )
+
 
 class TestAvailablePrestigeClasses:
     def test_returns_only_qualifying_classes_sorted(self) -> None:

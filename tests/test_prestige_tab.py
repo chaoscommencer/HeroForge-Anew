@@ -148,3 +148,52 @@ class TestMalformedCustomPrerequisites:
         item = _item(tab, "Homebrew Mage")
         assert not _enabled(item)
         assert "[ ] CAST:Arcane:3rd" in item.toolTip()
+
+
+class TestUnverifiablePrerequisites:
+    def test_cast_tag_is_shown_as_unverified_not_unmet(self, model: object) -> None:
+        from heroforge.logic.prestige import custom_class_to_content
+        from heroforge.models.class_ import Class
+        from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+
+        tab = PrestigeClassesTab(model=model)
+        model.character.custom_content.append(
+            custom_class_to_content(
+                Class(
+                    name="Homebrew Mage",
+                    is_prestige=True,
+                    prerequisites=["CAST:Arcane:3"],
+                )
+            )
+        )
+        tab._load_available()
+
+        item = _item(tab, "Homebrew Mage")
+        assert _enabled(item)
+        assert "[?] CAST:Arcane:3" in item.toolTip()
+        assert "verify" in item.toolTip().lower()
+        assert item.font().italic()
+
+    def test_unmet_prerequisite_still_disables_alongside_cast(
+        self, model: object
+    ) -> None:
+        from heroforge.logic.prestige import custom_class_to_content
+        from heroforge.models.class_ import Class
+        from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+
+        tab = PrestigeClassesTab(model=model)
+        model.character.custom_content.append(
+            custom_class_to_content(
+                Class(
+                    name="Homebrew Mage",
+                    is_prestige=True,
+                    prerequisites=["CAST:Arcane:3", "+6 BAB"],
+                )
+            )
+        )
+        tab._load_available()
+
+        item = _item(tab, "Homebrew Mage")
+        assert not _enabled(item)
+        assert "[?] CAST:Arcane:3" in item.toolTip()
+        assert "[ ] +6 BAB" in item.toolTip()
