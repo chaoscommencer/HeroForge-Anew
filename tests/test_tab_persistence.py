@@ -566,6 +566,53 @@ class TestMagicEquipmentIntegration:
         assert stats.armor_class == 12
 
 
+@pytest.fixture()
+def slot_catalog_model(qapp: object, catalog_db: Path) -> object:
+    """A model whose catalogue holds one item per seeded workbook slot."""
+    import sqlite3
+
+    from heroforge.db.data_access import GameDataRepository
+    from heroforge.db.seed import _MAGIC_EQUIPMENT_SLOTS
+    from heroforge.ui.main_window import CharacterModel
+
+    conn = sqlite3.connect(catalog_db)
+    try:
+        conn.execute("DELETE FROM magic_equipment")
+        conn.executemany(
+            "INSERT INTO magic_equipment (name, slot, weight) VALUES (?, ?, ?)",
+            [(f"{slot} item", slot, 1.0) for slot, *_columns in _MAGIC_EQUIPMENT_SLOTS],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return CharacterModel(game_data=GameDataRepository(str(catalog_db)))
+
+
+class TestMagicEquipmentSlotCatalogue:
+    @pytest.mark.parametrize(
+        ("tab_slot", "expected"),
+        [
+            ("Head", {"Head item"}),
+            ("Face/Eyes", {"Face item"}),
+            ("Throat/Neck", {"Neck item"}),
+            ("Shoulders", {"Shoulders item"}),
+            ("Body", {"Body item"}),
+            ("Torso", {"Torso item"}),
+            ("Arms/Wrists", {"Arm item"}),
+            ("Hands/Rings (x2)", {"Hand item", "Ring item"}),
+            ("Waist", {"Waist item"}),
+            ("Feet", {"Feet item"}),
+        ],
+    )
+    def test_slot_picker_lists_only_that_slots_items(
+        self, slot_catalog_model: object, tab_slot: str, expected: set[str]
+    ) -> None:
+        from heroforge.ui.tabs.magic_equipment import MagicEquipmentTab
+
+        tab = MagicEquipmentTab(model=slot_catalog_model)
+        assert set(tab._merged_item_catalog(tab_slot)) == expected
+
+
 # ---------------------------------------------------------------------------
 # Attacks (weapon catalogue)
 # ---------------------------------------------------------------------------

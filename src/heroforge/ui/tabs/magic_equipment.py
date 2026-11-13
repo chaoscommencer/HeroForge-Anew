@@ -48,6 +48,14 @@ _SLOTS = [
 _WONDROUS = "Wondrous"
 # Slots owned by this tab (everything except the Armor tab's slots).
 _OWNED_SLOTS = set(_SLOTS) | {_WONDROUS}
+# The seeded catalogue uses the workbook's slot names; map the tab's labels that
+# differ onto them so each slot picker lists only that slot's items.
+_CATALOG_SLOTS: dict[str, frozenset[str]] = {
+    "Face/Eyes": frozenset({"Face"}),
+    "Throat/Neck": frozenset({"Neck"}),
+    "Arms/Wrists": frozenset({"Arm"}),
+    "Hands/Rings (x2)": frozenset({"Hand", "Ring"}),
+}
 
 
 class MagicEquipmentTab(QWidget):
@@ -201,7 +209,8 @@ class MagicEquipmentTab(QWidget):
         )
         all_names = [m.name for m in game_items]
         if slot:
-            slot_names = [m.name for m in game_items if not m.slot or m.slot == slot]
+            wanted = _CATALOG_SLOTS.get(slot, frozenset({slot}))
+            slot_names = [m.name for m in game_items if not m.slot or m.slot in wanted]
             # Fall back to all game items when nothing matches the requested slot.
             filtered = slot_names if slot_names else all_names
         else:
