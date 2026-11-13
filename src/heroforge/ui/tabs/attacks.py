@@ -10,10 +10,14 @@ A weapon row can be marked as wielded in the off hand.  With at least one
 primary and one off-hand weapon the tab applies the two-weapon-fighting
 penalties (PHB p160), lists the off-hand attacks granted by the Two-Weapon
 Fighting feat chain, and gives off-hand damage half the Strength bonus.
+
+While a Wild Shape form is active, a read-only "Natural Attacks" table lists
+the form's natural attacks with their attack bonus and damage (MM p312).
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
@@ -45,6 +49,7 @@ from heroforge.ui.tabs._tab_helper import pick_from_catalog
 
 if TYPE_CHECKING:
     from heroforge.db.data_access import WeaponItem
+    from heroforge.logic.natural_attacks import NaturalAttackLine
     from heroforge.ui.main_window import CharacterModel
 
 
@@ -137,6 +142,23 @@ class AttacksTab(QWidget):
         weapons_layout.addLayout(btn_row)
         inner_layout.addWidget(weapons_box)
 
+        # Natural attacks of an active Wild Shape form, from the derived stats.
+        self._natural_box = QGroupBox("Natural Attacks")
+        natural_layout = QVBoxLayout(self._natural_box)
+        self._natural_table = QTableWidget(0, 3)
+        self._natural_table.setHorizontalHeaderLabels(
+            ["Attack", "Attack Bonus", "Damage"]
+        )
+        self._natural_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        natural_header = self._natural_table.horizontalHeader()
+        assert natural_header is not None
+        natural_header.setStretchLastSection(True)
+        natural_layout.addWidget(self._natural_table)
+        self._natural_box.setHidden(True)
+        inner_layout.addWidget(self._natural_box)
+
         inner_layout.addStretch()
         scroll.setWidget(inner)
         layout.addWidget(scroll)
@@ -154,7 +176,19 @@ class AttacksTab(QWidget):
         self._melee_lbl.setText(_signed(stats.melee_attack))
         self._ranged_lbl.setText(_signed(stats.ranged_attack))
         self._grapple_lbl.setText(_signed(stats.grapple))
+        self._refresh_natural_attacks(stats.natural_attacks)
         self._recompute_attack_bonuses()
+
+    def _refresh_natural_attacks(self, lines: Sequence[NaturalAttackLine]) -> None:
+        """Fill the read-only natural-attacks table; hide it when empty."""
+        self._natural_table.setRowCount(0)
+        for line in lines:
+            row = self._natural_table.rowCount()
+            self._natural_table.insertRow(row)
+            values = (line.label, line.attack_text, line.damage or "—")
+            for col, text in enumerate(values):
+                self._natural_table.setItem(row, col, QTableWidgetItem(text))
+        self._natural_box.setHidden(not lines)
 
     def _attack_bonus_for(
         self, ranged: bool, *, twf_penalty: int = 0, off_hand: bool = False

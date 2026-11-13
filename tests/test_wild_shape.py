@@ -549,3 +549,199 @@ class TestFormMovement:
         _activate(model, "Wolf")
         data = character_sheet_data(model.character, model.derived_stats())
         assert data["speed"] == 50
+
+
+class TestNaturalAttackParsing:
+    """The CreatureInfo "Natural Attacks" encoding (workbook AQ8:BK20)."""
+
+    def test_parses_count_row_offset_and_strength(self) -> None:
+        from heroforge.logic.natural_attacks import NaturalAttack, parse_natural_attacks
+
+        assert parse_natural_attacks("2 Claws+15+0+1,Bite+7+0+0") == [
+            NaturalAttack("Claws", 2, 15, 0, 1),
+            NaturalAttack("Bite", 1, 7, 0, 0),
+        ]
+        assert parse_natural_attacks("2 Slams+16-1+1") == [
+            NaturalAttack("Slams", 2, 16, -1, 1)
+        ]
+
+    def test_entries_without_codes_keep_their_name(self) -> None:
+        from heroforge.logic.natural_attacks import parse_natural_attacks
+
+        attacks = parse_natural_attacks("Bite;2 Claws;")
+        assert [(a.name, a.count, a.damage_row) for a in attacks] == [
+            ("Bite", 1, None),
+            ("Claws", 2, None),
+        ]
+        assert parse_natural_attacks("") == []
+
+    def test_dice_follow_the_form_size(self) -> None:
+        from heroforge.logic.natural_attacks import (
+            natural_attack_dice,
+            parse_natural_attacks,
+        )
+
+        claws, bite = parse_natural_attacks("2 Claws+15+0+1,Bite+7+0+0")
+        # MM p63 dire bear (Large): claw 2d4, bite 2d8.
+        assert natural_attack_dice(claws, "Large") == "2d4"
+        assert natural_attack_dice(bite, "Large") == "2d8"
+        # A one-size offset: a Large earth elemental's slam is 2d8 (MM p97).
+        (slam,) = parse_natural_attacks("2 Slams+16-1+1")
+        assert natural_attack_dice(slam, "Large") == "2d8"
+
+    def test_lines_apply_strength_share_and_secondary_penalty(self) -> None:
+        from heroforge.logic.natural_attacks import (
+            natural_attack_lines,
+            parse_natural_attacks,
+        )
+
+        attacks = parse_natural_attacks("2 Claws+15+0+1,Bite+7+0+0")
+        claws, bite = natural_attack_lines(
+            attacks, size="Large", melee_attack=19, str_mod=10
+        )
+        assert (claws.label, claws.attack_bonus, claws.damage) == ("2 Claws", 19, "2d4+10")
+        assert (bite.label, bite.attack_bonus, bite.damage) == ("Bite", 14, "2d8+5")
+        _, bite = natural_attack_lines(
+            attacks,
+            size="Large",
+            melee_attack=19,
+            str_mod=10,
+            feats=["Multiattack"],
+        )
+        assert bite.attack_bonus == 17
+
+    def test_sole_attack_adds_one_and_a_half_strength(self) -> None:
+        from heroforge.logic.natural_attacks import (
+            natural_attack_lines,
+            parse_natural_attacks,
+        )
+
+        # MM p283 wolf: bite 1d6+1 with Str 13.
+        (bite,) = natural_attack_lines(
+            parse_natural_attacks("Bite+5+0+2"),
+            size="Medium",
+            melee_attack=3,
+            str_mod=1,
+        )
+        assert bite.damage == "1d6+1"
+
+
+def _set_natural_attacks(db_path: Path, rows: dict[str, str]) -> None:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executemany(
+            "UPDATE creatures SET natural_attacks = ? WHERE name = ?",
+            [(text, name) for name, text in rows.items()],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+class TestNaturalAttackData:
+    def test_seed_imports_natural_attacks(self, tmp_path: Path) -> None:
+        from heroforge.db.data_access import GameDataRepository
+        from heroforge.db.seed import seed_creatures
+
+        db_path = tmp_path / "seeded.db"
+        conn = initialize_database(db_path)
+        try:
+            seed_creatures(conn, Path(__file__).resolve().parents[1] / "data")
+            conn.commit()
+        finally:
+            conn.close()
+        wolf = GameDataRepository(str(db_path)).get_creature("Wolf")
+        assert wolf is not None
+        assert wolf.natural_attacks == "Bite+5+0+2"
+
+    def test_existing_creatures_table_gains_column(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "old-creatures.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE creatures (id INTEGER PRIMARY KEY, name TEXT UNIQUE "
+            "NOT NULL, size TEXT, type TEXT, subtype TEXT, hit_dice TEXT, "
+            "str_score INTEGER, dex_score INTEGER, con_score INTEGER, "
+            "int_score INTEGER, wis_score INTEGER, cha_score INTEGER, bab TEXT, "
+            "grapple_mod INTEGER, natural_armor INTEGER, speed TEXT, source TEXT)"
+        )
+        conn.execute("INSERT INTO creatures (name, size) VALUES ('Wolf', 'Medium')")
+        conn.commit()
+        conn.close()
+
+        conn2 = initialize_database(db_path)
+        try:
+            columns = {
+                row[1]
+                for row in conn2.execute("PRAGMA table_info(creatures)").fetchall()
+            }
+            assert "natural_attacks" in columns
+        finally:
+            conn2.close()
+
+
+class TestFormNaturalAttacks:
+    """An active form's natural attacks reach derived stats and the Attacks tab."""
+
+    @pytest.fixture()
+    def attack_model(self, qapp: object, catalog_db: Path) -> object:
+        from heroforge.db.data_access import GameDataRepository
+        from heroforge.ui.main_window import CharacterModel
+
+        _set_natural_attacks(
+            catalog_db,
+            {"Wolf": "Bite+5+0+2", "Dire Bear": "2 Claws+15+0+1,Bite+7+0+0"},
+        )
+        return CharacterModel(game_data=GameDataRepository(str(catalog_db)))
+
+    def test_derived_stats_list_form_attacks(self, attack_model: object) -> None:
+        model = attack_model
+        assert model.derived_stats().natural_attacks == ()
+        _activate(model, "Dire Bear")
+        ds = model.derived_stats()
+        claws, bite = ds.natural_attacks
+        str_mod = ds.ability_modifiers["STR"]
+        assert str_mod == 10
+        assert claws.label == "2 Claws"
+        assert claws.attack_bonus == ds.melee_attack
+        assert claws.damage == "2d4+10"
+        assert bite.attack_bonus == ds.melee_attack - 5
+        assert bite.damage == "2d8+5"
+
+    def test_reverting_clears_attacks(self, attack_model: object) -> None:
+        model = attack_model
+        _activate(model, "Wolf")
+        assert [a.label for a in model.derived_stats().natural_attacks] == ["Bite"]
+        model.character.companions[0]["notes"] = json.dumps({"active": False})
+        assert model.derived_stats().natural_attacks == ()
+
+    def test_attacks_tab_shows_form_attacks(self, attack_model: object) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model = attack_model
+        tab = AttacksTab(model=model)
+        assert tab._natural_box.isHidden()
+        _activate(model, "Dire Bear")
+        model.derived_stats_changed.emit()
+        assert not tab._natural_box.isHidden()
+        table = tab._natural_table
+        rows = [
+            tuple(table.item(r, c).text() for c in range(3))
+            for r in range(table.rowCount())
+        ]
+        melee = model.derived_stats().melee_attack
+        assert rows == [
+            ("2 Claws", f"+{melee}", "2d4+10"),
+            ("Bite", f"+{melee - 5}", "2d8+5"),
+        ]
+        model.character.companions[0]["notes"] = json.dumps({"active": False})
+        model.derived_stats_changed.emit()
+        assert tab._natural_box.isHidden()
+        assert table.rowCount() == 0
+
+    def test_wild_shape_tab_lists_attacks(self, attack_model: object) -> None:
+        from heroforge.ui.tabs.wild_shape import WildShapeTab
+
+        model = attack_model
+        _activate(model, "Dire Bear")
+        tab = WildShapeTab(model=model)
+        assert tab._attacks_label.text() == "2 Claws, Bite"

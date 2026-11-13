@@ -447,6 +447,7 @@ class CharacterModel(QObject):
             base_speed=base_speed,
             armor_type=armor_type,
             speed_ignores_encumbrance=speed_ignores_encumbrance(self._character.race),
+            natural_attacks=shape.natural_attacks if shape is not None else (),
         )
 
     def _weight_catalog(self) -> dict[str, float]:

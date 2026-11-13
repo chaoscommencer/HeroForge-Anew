@@ -441,7 +441,8 @@ CREATE TABLE IF NOT EXISTS creatures (
     grapple_mod INTEGER,
     natural_armor INTEGER,
     speed       TEXT,
-    source      TEXT
+    source      TEXT,
+    natural_attacks TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tables (

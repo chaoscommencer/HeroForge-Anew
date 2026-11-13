@@ -32,6 +32,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from heroforge.logic.natural_attacks import (
+    format_natural_attacks,
+    parse_natural_attacks,
+)
 from heroforge.logic.wild_shape import (
     COMPANION_TYPE,
     available_forms,
@@ -109,6 +113,8 @@ class WildShapeTab(QWidget):
         self._con_label = QLabel("—")
         self._natural_armor_label = QLabel("—")
         self._speed_label = QLabel("—")
+        self._attacks_label = QLabel("—")
+        self._attacks_label.setWordWrap(True)
         self._hd_label = QLabel("—")
         form_layout.addRow("Size:", self._size_label)
         form_layout.addRow("Type:", self._type_label)
@@ -117,13 +123,15 @@ class WildShapeTab(QWidget):
         form_layout.addRow("Constitution:", self._con_label)
         form_layout.addRow("Natural Armor:", self._natural_armor_label)
         form_layout.addRow("Speed:", self._speed_label)
+        form_layout.addRow("Natural Attacks:", self._attacks_label)
         form_layout.addRow("Hit Dice:", self._hd_label)
         inner_layout.addWidget(form_box)
 
         self._help_label = QLabel(
             "While Wild Shape is active the form's size, Strength, Dexterity, "
-            "Constitution, natural armor and land speed replace your own; your "
-            "mental scores (Int, Wis, Cha) are retained (PHB p37)."
+            "Constitution, natural armor, land speed and natural attacks "
+            "replace your own; your mental scores (Int, Wis, Cha) are retained "
+            "(PHB p37).  The form's attacks appear on the Attacks tab."
         )
         self._help_label.setWordWrap(True)
         inner_layout.addWidget(self._help_label)
@@ -204,6 +212,7 @@ class WildShapeTab(QWidget):
                 self._con_label,
                 self._natural_armor_label,
                 self._speed_label,
+                self._attacks_label,
                 self._hd_label,
             ):
                 label.setText("—")
@@ -220,6 +229,10 @@ class WildShapeTab(QWidget):
         speed = form.speed.strip()
         # The seeded catalogue stores the bare land speed in feet ("50").
         self._speed_label.setText(f"{speed} ft." if speed.isdigit() else speed or "—")
+        attacks = format_natural_attacks(
+            parse_natural_attacks(form.natural_attacks)
+        )
+        self._attacks_label.setText(attacks or "—")
         self._hd_label.setText(form.hit_dice or "—")
 
     # ------------------------------------------------------------------

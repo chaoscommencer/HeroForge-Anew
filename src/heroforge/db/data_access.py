@@ -227,6 +227,9 @@ class Creature:
     """Creature subtype (e.g. an elemental's element), ``""`` when unrecorded."""
     speed: str = ""
     """Movement modes as recorded in the source (e.g. ``"40 ft., swim 20 ft."``)."""
+    natural_attacks: str = ""
+    """Encoded natural attacks (``"2 Claws+15+0+1,Bite+7+0+0"``), see
+    :mod:`heroforge.logic.natural_attacks`."""
 
 
 @dataclass(frozen=True)
@@ -332,6 +335,7 @@ class GameDataRepository:
 
     def __init__(self, db_path: str | Path | None) -> None:
         self._db_path: Path | None = Path(db_path) if db_path else None
+        self._creatures_have_attacks: bool | None = None
 
     # ------------------------------------------------------------------
     # Connection plumbing
@@ -1248,8 +1252,7 @@ class GameDataRepository:
         fragment, params = self._source_filter("source", sources)
         where = f"WHERE {fragment}" if fragment else ""
         rows = self._query(
-            "SELECT name, size, type, subtype, hit_dice, str_score, dex_score, "
-            "con_score, int_score, wis_score, cha_score, natural_armor, speed "
+            f"SELECT {self._creature_columns()} "
             f"FROM creatures {where} ORDER BY name",
             params,
         )
@@ -1265,12 +1268,33 @@ class GameDataRepository:
         if not name:
             return None
         rows = self._query(
-            "SELECT name, size, type, subtype, hit_dice, str_score, dex_score, "
-            "con_score, int_score, wis_score, cha_score, natural_armor, speed "
+            f"SELECT {self._creature_columns()} "
             "FROM creatures WHERE name = ? COLLATE NOCASE LIMIT 1",
             (name,),
         )
         return self._creature_from_row(rows[0]) if rows else None
+
+    def _creature_columns(self) -> str:
+        """Return the ``creatures`` columns to select for a :class:`Creature`.
+
+        ``natural_attacks`` is left out for a game database seeded before the
+        column existed (the app does not migrate an existing database on
+        start-up), so creatures, companions and familiars still load from it.
+        The check runs once per repository.
+        """
+        columns = (
+            "name, size, type, subtype, hit_dice, str_score, dex_score, "
+            "con_score, int_score, wis_score, cha_score, natural_armor, speed"
+        )
+        has_attacks = self._creatures_have_attacks
+        if has_attacks is None:
+            existing = {
+                r["name"] for r in self._query("PRAGMA table_info(creatures)")
+            }
+            has_attacks = "natural_attacks" in existing
+            if existing:
+                self._creatures_have_attacks = has_attacks
+        return columns + ", natural_attacks" if has_attacks else columns
 
     @staticmethod
     def _creature_from_row(r: sqlite3.Row) -> Creature:
@@ -1292,6 +1316,9 @@ class GameDataRepository:
             natural_armor=int(r["natural_armor"] or 0),
             subtype=(r["subtype"] or "") if "subtype" in columns else "",
             speed=(r["speed"] or "") if "speed" in columns else "",
+            natural_attacks=(
+                (r["natural_attacks"] or "") if "natural_attacks" in columns else ""
+            ),
         )
 
     def get_familiar_bonus_records(self) -> list[FamiliarBonus]:

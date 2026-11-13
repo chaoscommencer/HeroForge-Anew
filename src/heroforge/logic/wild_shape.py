@@ -18,6 +18,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from heroforge.logic.natural_attacks import NaturalAttack, parse_natural_attacks
+
 if TYPE_CHECKING:  # pragma: no cover - typing-only
     from heroforge.db.data_access import Creature
 
@@ -289,6 +291,10 @@ class FormEffects:
     """The form's natural armor bonus, replacing the race's."""
     land_speed: int
     """The form's land speed in feet (0 when the form has none)."""
+    natural_attacks: tuple[NaturalAttack, ...] = ()
+    """The form's natural attacks, replacing the race's (workbook
+    ``'Class Weapons & Armor'!BK20`` swaps ``RaceAttacks`` for
+    ``WildShapeAttacks``)."""
 
 
 def creature_land_speed(creature: Creature | Mapping[str, Any]) -> int:
@@ -319,15 +325,18 @@ def form_effects(
     if isinstance(creature, Mapping):
         name = str(creature.get("name", ""))
         natural_armor = creature.get("natural_armor", 0)
+        attacks = creature.get("natural_attacks", "")
     else:
         name = str(getattr(creature, "name", ""))
         natural_armor = getattr(creature, "natural_armor", 0)
+        attacks = getattr(creature, "natural_attacks", "")
     return FormEffects(
         form=name,
         size=_creature_size(creature) or "Medium",
         ability_adjustments=wild_shape_ability_adjustments(base_scores, creature),
         natural_armor=int(natural_armor or 0),
         land_speed=creature_land_speed(creature),
+        natural_attacks=tuple(parse_natural_attacks(str(attacks or ""))),
     )
 
 
