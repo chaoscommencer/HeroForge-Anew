@@ -804,22 +804,81 @@ class TestIncarnumPsionicsManeuvers:
         from heroforge.ui.tabs.soulmelds import SoulmeldsTab
 
         tab = SoulmeldsTab(model=model)
-        # Incarnate 2 has a single chakra bind (TblClassBinds).
-        model.character.classes = [("Incarnate", 2)]
+        # Incarnate 4 opens Crown, Feet and Hands but has a single chakra bind
+        # (TblClassBinds).
+        model.character.classes = [("Incarnate", 4)]
         model.derived_stats_changed.emit()
         assert tab._summary.chakra_binds_available == 1
 
         tab._add_row("Meld A", "Crown", 0)
-        tab._add_row("Meld B", "Crown", 0)
+        tab._add_row("Meld B", "Feet", 0)
         first = tab._bound_checkbox(0)
         second = tab._bound_checkbox(1)
         assert first is not None and second is not None
 
-        first.setChecked(True)  # within the single-chakra limit
+        first.setChecked(True)  # within the single-bind limit
         assert tab._bound_count() == 1
         second.setChecked(True)  # exceeds the limit -> refused
         assert second.isChecked() is False
         assert tab._bound_count() == 1
+
+    def test_bind_to_locked_chakra_refused(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 2 has one bind but only the Crown chakra is open; an
+        # Incarnate cannot bind to the Feet chakra until 4th level.
+        model.character.classes = [("Incarnate", 2)]
+        model.derived_stats_changed.emit()
+        assert tab._summary.unlocked_chakras == frozenset({"Crown"})
+
+        assert tab.shape_soulmeld("Airstep Sandals", "Feet") is True
+        feet = tab._bound_checkbox(0)
+        assert feet is not None
+        feet.setChecked(True)
+        assert feet.isChecked() is False
+        assert model.character.soulmelds[0]["chakra_bound"] == ""
+
+    def test_second_bind_to_same_chakra_refused(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 6 has two binds; each open chakra holds one bound soulmeld.
+        model.character.classes = [("Incarnate", 6)]
+        model.derived_stats_changed.emit()
+        assert tab._summary.chakra_binds_available == 2
+
+        tab._add_row("Meld A", "Crown", 0)
+        tab._add_row("Meld B", "Crown", 0)
+        tab._add_row("Meld C", "Hands", 0)
+        first, second, third = (tab._bound_checkbox(r) for r in range(3))
+        assert first is not None and second is not None and third is not None
+
+        first.setChecked(True)
+        second.setChecked(True)  # Crown already holds a bound soulmeld
+        assert second.isChecked() is False
+        third.setChecked(True)  # Hands is open and a bind remains
+        assert third.isChecked() is True
+        assert tab._bound_count() == 2
+
+    def test_bind_without_known_chakra_only_checks_count(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # The seeded soulmeld catalogue does not record a chakra yet; such rows
+        # are limited by the bind count alone.
+        model.character.classes = [("Incarnate", 2)]
+        model.derived_stats_changed.emit()
+
+        tab._add_row("Meld A", "", 0)
+        tab._add_row("Meld B", "", 0)
+        first = tab._bound_checkbox(0)
+        second = tab._bound_checkbox(1)
+        assert first is not None and second is not None
+        first.setChecked(True)
+        assert first.isChecked() is True
+        second.setChecked(True)
+        assert second.isChecked() is False
 
     def test_psionic_power_and_pp_persist(self, model: object) -> None:
         from heroforge.ui.tabs.psionics import PsionicsTab

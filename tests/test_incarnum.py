@@ -137,6 +137,9 @@ class TestComputeIncarnum:
         assert summary.essentia_pool == 9
         assert summary.soulmeld_capacity == 2
         assert summary.chakra_binds_available == 2
+        assert summary.unlocked_chakras == frozenset(
+            {"Crown", "Feet", "Hands", "Arms", "Brow", "Shoulders"}
+        )
 
     def test_capped_character_summary(self) -> None:
         summary = compute_incarnum([("Incarnate", 20)], character_level=20)

@@ -53,6 +53,8 @@ class IncarnumSummary:
         soulmeld_capacity:      Maximum essentia investable in one soulmeld.
         soulmelds_shapeable:    Number of soulmelds that can be shaped.
         chakra_binds_available: Number of soulmelds that may be bound at once.
+        unlocked_chakras:       Chakras a soulmeld may be bound to; each holds
+            one bound soulmeld.
     """
 
     meldshaper_level: int
@@ -60,6 +62,7 @@ class IncarnumSummary:
     soulmeld_capacity: int
     soulmelds_shapeable: int
     chakra_binds_available: int
+    unlocked_chakras: frozenset[str] = frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -551,4 +554,5 @@ def compute_incarnum(
         soulmeld_capacity=soulmeld_capacity(character_level),
         soulmelds_shapeable=soulmelds_shapeable(levels, tables),
         chakra_binds_available=chakra_binds_available(levels, tables),
+        unlocked_chakras=frozenset(unlocked_chakras(levels, tables)),
     )

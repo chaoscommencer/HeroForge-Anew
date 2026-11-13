@@ -12,7 +12,9 @@ meldshaping class levels via :func:`heroforge.logic.incarnum.compute_incarnum`.
 The total essentia pool is stored as the ``essentia_pool`` build option, with
 ``essentia_pool_auto`` recording whether the auto-calculated value is in use.
 Chakra-bind limits are enforced in the UI: at most
-:attr:`IncarnumSummary.chakra_binds_available` soulmelds may be bound at once.
+:attr:`IncarnumSummary.chakra_binds_available` soulmelds may be bound at once,
+and a soulmeld whose chakra is known may only be bound to a chakra in
+:attr:`IncarnumSummary.unlocked_chakras` that no other bound soulmeld uses.
 """
 
 from __future__ import annotations
@@ -320,16 +322,44 @@ class SoulmeldsTab(QWidget):
         spin.valueChanged.connect(self._on_essentia_changed)
         self._melds_table.setCellWidget(row, _COL_ESSENTIA, spin)
 
+    def _row_chakra(self, row: int) -> str:
+        item = self._melds_table.item(row, _COL_CHAKRA)
+        return item.text().strip() if item is not None else ""
+
+    def _row_of_checkbox(self, checkbox: object) -> int:
+        for row in range(self._row_count()):
+            if self._bound_checkbox(row) is checkbox:
+                return row
+        return -1
+
+    def _bind_allowed(self, row: int) -> bool:
+        """Return whether the checked soulmeld in *row* may stay bound.
+
+        The bind count may not exceed the class allowance.  When the row's
+        chakra is known it must be open, and no other bound soulmeld may
+        already occupy it (each chakra holds one bound soulmeld; the workbook
+        offers one meld slot per chakra).
+        Rows without a recorded chakra are limited by the count alone.
+        """
+        if self._bound_count() > self._summary.chakra_binds_available:
+            return False
+        chakra = self._row_chakra(row)
+        if not chakra:
+            return True
+        if chakra not in self._summary.unlocked_chakras:
+            return False
+        return not any(
+            other != row and self._is_bound(other) and self._row_chakra(other) == chakra
+            for other in range(self._row_count())
+        )
+
     def _on_bound_toggled(self, checked: bool) -> None:
-        # Enforce the chakra-bind limit: refuse to bind more soulmelds than the
-        # character's meldshaping classes allow.
-        if (
-            checked
-            and not self._loading
-            and self._bound_count() > self._summary.chakra_binds_available
-        ):
-            sender = self.sender()
-            if isinstance(sender, QCheckBox):
+        # Enforce the chakra-bind rules: refuse a bind beyond the class
+        # allowance, to a locked chakra, or to an occupied chakra.
+        sender = self.sender()
+        if checked and not self._loading and isinstance(sender, QCheckBox):
+            row = self._row_of_checkbox(sender)
+            if row < 0 or not self._bind_allowed(row):
                 sender.blockSignals(True)
                 sender.setChecked(False)
                 sender.blockSignals(False)
