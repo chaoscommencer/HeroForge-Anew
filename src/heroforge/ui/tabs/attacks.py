@@ -134,6 +134,8 @@ class AttacksTab(QWidget):
         """
         base = weapon_base_dice(dice)
         if not base:
+            # No NdM dice (e.g. "ref:UnarmedStrikeDamage" or a flat "2"):
+            # nothing to recombine, so leave the text exactly as it is.
             return dice
         if ranged or self._model is None:
             return base

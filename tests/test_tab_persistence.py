@@ -518,6 +518,34 @@ class TestAttacksTab:
         # Longsword 1d8 + STR damage (+4).
         assert damage_cell.text() == "1d8+4"
 
+    @pytest.mark.parametrize("damage", ["ref:UnarmedStrikeDamage", "2"])
+    def test_damage_without_dice_is_stable_across_refreshes(
+        self, model: object, damage: str
+    ) -> None:
+        from heroforge.db.data_access import WeaponItem
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        tab.add_weapon(
+            WeaponItem(
+                name="Unarmed Strike",
+                category="S",
+                damage=damage,
+                critical="×2",
+                range_increment=0,
+                damage_type="B",
+                source="",
+            )
+        )
+        model.derived_stats_changed.emit()
+        model.derived_stats_changed.emit()
+
+        damage_cell = tab._weapons_table.item(0, 2)
+        assert damage_cell is not None
+        assert damage_cell.text() == damage
+        assert model.character.attacks[0]["damage"] == damage
+
 
 # ---------------------------------------------------------------------------
 # Soulmelds / Psionics / Maneuvers

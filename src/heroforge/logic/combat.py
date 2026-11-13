@@ -550,13 +550,13 @@ def weapon_base_dice(damage: str) -> str:
         damage: A weapon damage string such as ``"1d8"`` or ``"1d8+3"``.
 
     Returns:
-        The normalised dice expression, or the trimmed input if no dice are
-        found.
+        The normalised dice expression, or ``""`` if *damage* contains no
+        ``NdM`` dice (e.g. a ``ref:`` placeholder or a flat number).
     """
     match = _WEAPON_DICE_RE.search(damage or "")
     if match:
         return match.group(0).replace(" ", "").lower()
-    return (damage or "").strip()
+    return ""
 
 
 def weapon_damage(dice: str, damage_modifier: int = 0) -> str:
@@ -570,9 +570,13 @@ def weapon_damage(dice: str, damage_modifier: int = 0) -> str:
             enhancement bonus, etc.).  May be negative.
 
     Returns:
-        A display string such as ``"1d8+3"``, ``"1d8-1"`` or ``"1d8"``.
+        A display string such as ``"1d8+3"``, ``"1d8-1"`` or ``"1d8"``.  Text
+        without ``NdM`` dice cannot be recombined and is returned unchanged
+        (stripped), so repeated calls never stack the modifier.
     """
     base = weapon_base_dice(dice)
+    if not base:
+        return (dice or "").strip()
     if damage_modifier > 0:
         return f"{base}+{damage_modifier}"
     if damage_modifier < 0:

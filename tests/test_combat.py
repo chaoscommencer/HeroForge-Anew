@@ -318,6 +318,18 @@ class TestWeaponDamage:
         # An already-modified string is normalised back to dice + new bonus.
         assert weapon_damage("1d8+2", 4) == "1d8+4"
 
+    def test_base_dice_without_dice_is_empty(self) -> None:
+        assert weapon_base_dice("ref:UnarmedStrikeDamage") == ""
+        assert weapon_base_dice("2") == ""
+        assert weapon_base_dice("") == ""
+
+    def test_damage_without_dice_is_unchanged(self) -> None:
+        # Text with no NdM dice cannot be recombined, so it is left as-is
+        # rather than gaining another modifier on every refresh.
+        assert weapon_damage("ref:GrappleDamage", 4) == "ref:GrappleDamage"
+        assert weapon_damage("2", 4) == "2"
+        assert weapon_damage(weapon_damage("2", 4), 4) == "2"
+
     def test_two_handed_str_damage(self) -> None:
         # 1.5x STR damage applied via damage_bonus then formatted.
         assert weapon_damage("2d6", damage_bonus(4, two_handed=True)) == "2d6+6"
