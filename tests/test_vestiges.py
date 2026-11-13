@@ -9,6 +9,7 @@ import pytest
 
 from heroforge.db.schema import initialize_database
 from heroforge.logic import vestiges
+from heroforge.logic.combat import NATURAL_ARMOR_ENHANCEMENT
 from heroforge.logic.derived_stats import compute_derived_stats
 from heroforge.models.character import Character
 
@@ -168,7 +169,7 @@ class TestVestigeBonusSpecs:
         specs = vestiges.vestige_bonus_specs(_bound("Eligor", "Paimon"))
         assert {(s["target"], s["bonus_type"], s["value"]) for s in specs} == {
             ("STR", "untyped", 4),
-            ("AC", "natural", 3),
+            ("AC", NATURAL_ARMOR_ENHANCEMENT, 3),
             ("DEX", "untyped", 4),
         }
         assert {s["source"] for s in specs} == {"Eligor", "Paimon"}
@@ -218,6 +219,40 @@ class TestEffectsFeedDerivedStats:
         )
         assert with_vestige.armor_class == without.armor_class + 3
         assert with_vestige.touch_ac == without.touch_ac
+
+
+class TestEligorNaturalArmor:
+    """Eligor's Resiliance: an enhancement bonus to natural armor (Armor!T27)."""
+
+    def test_adds_to_racial_natural_armor(self) -> None:
+        # Racial natural armor +5 (e.g. a lizardfolk) plus Eligor's +3
+        # enhancement is +8 natural armor (Armor!T29 = SUM(T25:T28)).
+        racial = [("natural", 5)]
+        without = compute_derived_stats(_bound(), ac_bonuses=racial)
+        with_vestige = compute_derived_stats(_bound("Eligor"), ac_bonuses=racial)
+        assert with_vestige.armor_class == without.armor_class + 3
+        assert with_vestige.flat_footed_ac == without.flat_footed_ac + 3
+        assert with_vestige.touch_ac == without.touch_ac
+
+    @pytest.mark.parametrize(
+        ("binder", "expected"), [(15, 3), (16, 4), (19, 4), (20, 5)]
+    )
+    def test_scales_with_binder_level(self, binder: int, expected: int) -> None:
+        specs = vestiges.vestige_bonus_specs(_bound("Eligor", binder=binder))
+        assert [s["value"] for s in specs if s["target"] == "AC"] == [expected]
+
+    def test_does_not_stack_with_other_natural_armor_enhancement(self) -> None:
+        # An amulet of natural armor +2 is the same bonus type, so only the
+        # larger of the two enhancements applies (PHB p176).
+        amulet = {
+            "name": "Amulet of Natural Armor +2",
+            "target": "AC",
+            "bonus_type": NATURAL_ARMOR_ENHANCEMENT,
+            "value": 2,
+        }
+        alone = compute_derived_stats(_bound("Eligor"))
+        both = compute_derived_stats(_bound("Eligor", equipment=[amulet]))
+        assert both.armor_class == alone.armor_class
 
 
 class TestVestigeLevelFallback:

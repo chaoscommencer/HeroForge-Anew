@@ -34,6 +34,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from heroforge.logic.combat import NATURAL_ARMOR_ENHANCEMENT
+
 if TYPE_CHECKING:
     from heroforge.models.character import Character
 
@@ -47,15 +49,28 @@ class VestigeEffect:
         target:       The affected stat, in the vocabulary of a buff's
                       ``target_stat``: an ability key (``"STR"`` …) or ``"AC"``.
         bonus_type:   The PHB p176 bonus type (e.g. ``"untyped"``,
-                      ``"natural"``), which decides how the bonus stacks with
-                      buffs, magic items and stances.
+                      :data:`NATURAL_ARMOR_ENHANCEMENT`), which decides how the
+                      bonus stacks with buffs, magic items and stances.
         value:        Numeric size of the bonus (e.g. ``4``).
+        level_steps:  ``(binder level, value)`` pairs, in ascending level
+                      order, for a bonus that grows with binder level: the
+                      value of the last step the binder level reaches replaces
+                      *value*.
     """
 
     vestige_name: str
     target: str
     bonus_type: str
     value: int
+    level_steps: tuple[tuple[int, int], ...] = ()
+
+    def value_at(self, level: int) -> int:
+        """Return the bonus at effective binder level *level*."""
+        value = self.value
+        for min_level, step_value in self.level_steps:
+            if level >= min_level:
+                value = step_value
+        return value
 
 
 # The canonical always-on vestige bonuses that feed the derived-stats pipeline,
@@ -63,16 +78,19 @@ class VestigeEffect:
 # ``Class Abilities`` sheet:
 #
 #   * Eligor's Strength   (E4587): "+4 bonus to strength".
-#   * Eligor's Resiliance [sic] (E4588): "+3 enhancement bonus to natural armor".
+#   * Eligor's Resiliance [sic] (E4588): "+3 enhancement bonus to natural
+#     armor", +4 from binder level 16 and +5 from 20 (also ``Armor!T27``).
 #   * Paimon's Dexterity  (E4665): "+4 bonus to Dexterity".
 #
 # Only constant, unconditional bonuses to an ability score or AC appear here;
-# situational, activated, or level-scaled abilities are excluded because they
-# are not always applied.  The ability bonuses carry no type in the source text,
-# so they are untyped and stack with everything (PHB p176).
+# situational or activated abilities are excluded because they are not always
+# applied.  The ability bonuses carry no type in the source text, so they are
+# untyped and stack with everything (PHB p176).
 STANDARD_VESTIGE_EFFECTS: tuple[VestigeEffect, ...] = (
     VestigeEffect("Eligor", "STR", "untyped", 4),
-    VestigeEffect("Eligor", "AC", "natural", 3),
+    VestigeEffect(
+        "Eligor", "AC", NATURAL_ARMOR_ENHANCEMENT, 3, level_steps=((16, 4), (20, 5))
+    ),
     VestigeEffect("Paimon", "DEX", "untyped", 4),
 )
 
@@ -254,15 +272,17 @@ def vestige_bonus_specs(
             :data:`STANDARD_VESTIGE_EFFECTS`).
 
     Returns:
-        One spec per effect of every bound vestige.
+        One spec per effect of every bound vestige, sized for the character's
+        binder level.
     """
     bound = {name.lower() for name in bound_vestige_names(character)}
+    level = binder_level(character)
     return [
         {
             "source": effect.vestige_name,
             "target": effect.target,
             "bonus_type": effect.bonus_type,
-            "value": effect.value,
+            "value": effect.value_at(level),
         }
         for effect in effects
         if effect.vestige_name.lower() in bound

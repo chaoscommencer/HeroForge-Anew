@@ -198,10 +198,19 @@ class ArmorClassResult:
     flat_footed: int
 
 
+# AC bonus type of an enhancement bonus to natural armor (e.g. barkskin, an
+# amulet of natural armor, Eligor's Resiliance).  It raises the existing natural
+# armor bonus instead of competing with it, so it is aggregated as its own type:
+# it adds to racial natural armor but not to another such enhancement (MM p314;
+# workbook ``Armor!T27`` is a MAX of these, summed with racial natural armor in
+# ``Armor!T29``).
+NATURAL_ARMOR_ENHANCEMENT = "natural armor enhancement"
+
 # AC bonus types ignored when computing Touch AC (PHB p137): armor, shield and
-# natural-armor bonuses do not apply against touch attacks.
+# natural-armor bonuses (including enhancements to natural armor) do not apply
+# against touch attacks.
 _TOUCH_EXCLUDED_AC_TYPES: frozenset[str] = frozenset(
-    {"armor", "shield", "natural", "natural armor"}
+    {"armor", "shield", "natural", "natural armor", NATURAL_ARMOR_ENHANCEMENT}
 )
 
 # AC bonus types that stack with themselves (PHB p150–151).  Every other named
