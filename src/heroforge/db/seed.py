@@ -2294,6 +2294,7 @@ def _group_companion_levels(
 
 def _read_companion_progression(
     workbook_path: str | Path,
+    workbook: openpyxl.Workbook | None = None,
 ) -> tuple[CompanionProgression, ...]:
     """Return the companion progression parsed from the workbook.
 
@@ -2302,16 +2303,22 @@ def _read_companion_progression(
     :func:`_group_companion_levels`.  Falls back to the in-code
     :data:`STANDARD_COMPANION_PROGRESSION` transcription when the workbook is
     missing, the sheet is absent, or the table cannot be located.
-    """
-    workbook_path = Path(workbook_path)
-    if not workbook_path.exists():
-        logger.warning(
-            "Workbook not found at %s – using in-code companion progression",
-            workbook_path,
-        )
-        return STANDARD_COMPANION_PROGRESSION
 
-    wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
+    When *workbook* is given (a values-mode workbook already opened by
+    :func:`seed_all`), it is read instead of reopening *workbook_path*, and it is
+    left open for the caller to close.
+    """
+    wb = workbook
+    owns_workbook = wb is None
+    if wb is None:
+        workbook_path = Path(workbook_path)
+        if not workbook_path.exists():
+            logger.warning(
+                "Workbook not found at %s – using in-code companion progression",
+                workbook_path,
+            )
+            return STANDARD_COMPANION_PROGRESSION
+        wb = openpyxl.load_workbook(str(workbook_path), read_only=True, data_only=True)
     try:
         if _COMPANION_SHEET not in wb.sheetnames:
             logger.warning(
@@ -2351,7 +2358,8 @@ def _read_companion_progression(
                 )
             )
     finally:
-        wb.close()
+        if owns_workbook:
+            wb.close()
 
     tiers = _group_companion_levels(levels)
     if not tiers:
@@ -2384,7 +2392,9 @@ def _find_companion_header(row: tuple[object, ...]) -> int | None:
 
 
 def seed_companion_progression(
-    conn: sqlite3.Connection, workbook_path: str | Path = _DEFAULT_WORKBOOK
+    conn: sqlite3.Connection,
+    workbook_path: str | Path = _DEFAULT_WORKBOOK,
+    workbook: openpyxl.Workbook | None = None,
 ) -> None:
     """Insert the standard animal-companion progression into the game database.
 
@@ -2400,8 +2410,11 @@ def seed_companion_progression(
     :data:`heroforge.logic.animal_companion.COMPANION_PROGRESSION_LABELS`.  Both
     the ``companion_progression`` and ``companion_progression_labels`` tables are
     upserted so repeated calls are idempotent.
+
+    *workbook* is an optional values-mode workbook already opened by the caller
+    (see :func:`seed_all`); when given, the file is not reopened.
     """
-    progression = _read_companion_progression(workbook_path)
+    progression = _read_companion_progression(workbook_path, workbook=workbook)
 
     tiers = 0
     for order, tier in enumerate(progression):
@@ -2651,7 +2664,7 @@ def seed_all(
         seed_creatures(conn, data_dir)
         seed_tables(conn, data_dir)
         seed_familiar_bonuses(conn)
-        seed_companion_progression(conn, workbook_path)
+        seed_companion_progression(conn, workbook_path, workbook=wb_values)
         seed_classes(conn, data_dir)
         seed_class_spellcasting_info(conn, workbook_path, workbook=wb_values)
         seed_workbook(conn, workbook_path, workbook=wb_values)
