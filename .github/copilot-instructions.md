@@ -71,9 +71,10 @@ Type `/graphify` in Copilot Chat to build or update the graph, or, preferably, u
 
 This repository can be mapped into a queryable **knowledge graph** by
 [graphify](https://github.com/safishamsi/graphify) (PyPI package `graphifyy`,
-CLI `graphify`). `graphifyy` is pinned in the hash-locked `requirements-dev.txt`
-(and `requirements-graphifyy.txt`), so the coding agent's setup
-(`.github/workflows/copilot-setup-steps.yml`) installs those requirements with
+CLI `graphify`). `graphifyy` is pinned only in its own hash-locked
+`requirements-graphifyy.txt` (it is deliberately not part of the `dev` extra or
+`requirements-dev.txt`), and the coding agent's setup
+(`.github/workflows/copilot-setup-steps.yml`) installs that file with
 `pip --user`, putting the `graphify` CLI on its `PATH`. Locally, the CLI is
 intentionally NOT installed into the dev container's environment — it runs inside
 an isolated container instead (see below). Code is extracted locally with
