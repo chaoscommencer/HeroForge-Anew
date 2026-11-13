@@ -72,6 +72,11 @@ _COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
     "character_attacks": {
         "hand": "ALTER TABLE character_attacks ADD COLUMN hand TEXT",
     },
+    "character_buffs": {
+        "bonus_type": "ALTER TABLE character_buffs ADD COLUMN bonus_type TEXT",
+        "target_stat": "ALTER TABLE character_buffs ADD COLUMN target_stat TEXT",
+        "amount": "ALTER TABLE character_buffs ADD COLUMN amount INTEGER DEFAULT 0",
+    },
     "incarnum_progression": {
         "binds": (
             "ALTER TABLE incarnum_progression "

@@ -682,12 +682,22 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
         ).fetchall()
     ]
 
+    # Files saved before the typed-bonus columns existed load their buffs as
+    # plain tracking entries (no bonus type, target or amount).
+    buff_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(character_buffs)").fetchall()
+    }
+    buff_bonus_columns = ", ".join(
+        column if column in buff_columns else f"NULL AS {column}"
+        for column in ("bonus_type", "target_stat", "amount")
+    )
     character.buffs = []
     for br in conn.execute(
         # id is a UUID (TEXT), not sequential, so ORDER BY rowid preserves
         # the original insertion order.  rowid is always available on
         # standard SQLite tables (this table is not WITHOUT ROWID).
-        "SELECT id, buff_name, bonus_type, target_stat, amount "
+        f"SELECT id, buff_name, {buff_bonus_columns} "
         "FROM character_buffs WHERE character_id = ? ORDER BY rowid",
         (character_id,),
     ).fetchall():

@@ -387,6 +387,44 @@ class TestHfcFile:
         assert [a["weapon_name"] for a in loaded.attacks] == ["Longsword"]
         assert loaded.attacks[0]["hand"] == ""
 
+    def test_file_saved_before_buff_bonus_columns_loads(self, tmp_path: Path) -> None:
+        char = _sample_character()
+        path = tmp_path / "old-buffs.hfc"
+        save_character_to_file(char, path)
+        conn = sqlite3.connect(path)
+        for column in ("bonus_type", "target_stat", "amount"):
+            conn.execute(f"ALTER TABLE character_buffs DROP COLUMN {column}")
+        conn.commit()
+        conn.close()
+
+        loaded = load_character_from_file(path)
+        assert loaded.buffs == char.buffs
+
+    def test_old_buff_table_upgraded_then_saves(self, tmp_path: Path) -> None:
+        path = tmp_path / "old-buffs.hfc"
+        conn = initialize_character_database(path)
+        for column in ("bonus_type", "target_stat", "amount"):
+            conn.execute(f"ALTER TABLE character_buffs DROP COLUMN {column}")
+        conn.commit()
+        conn.close()
+
+        conn = initialize_character_database(path)
+        try:
+            char = _sample_character()
+            char.buffs = [
+                {
+                    "id": str(uuid.uuid4()),
+                    "name": "Bless",
+                    "bonus_type": "morale",
+                    "target_stat": "attack",
+                    "amount": 1,
+                }
+            ]
+            cid = save_character(conn, char)
+            assert load_character(conn, cid).buffs == char.buffs
+        finally:
+            conn.close()
+
     def test_save_and_load_file(self, tmp_path: Path) -> None:
         char = _sample_character()
         path = tmp_path / "hero.hfc"
