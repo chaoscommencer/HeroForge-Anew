@@ -95,6 +95,14 @@ class BinderVestigesTab(QWidget):
             return 0
         return vestiges.binder_level(self._model.character)
 
+    def _max_vestige_level(self) -> int:
+        """Highest bindable vestige level, counting Improved Binding."""
+        if self._model is None:
+            return 0
+        return vestiges.max_vestige_level(
+            vestiges.improved_binder_level(self._model.character)
+        )
+
     def _make_item(self, name: str, level: int | None, bound: bool) -> QListWidgetItem:
         label = name if level is None else f"{name}  (level {level})"
         item = QListWidgetItem(label)
@@ -141,7 +149,7 @@ class BinderVestigesTab(QWidget):
             return
         self._limit_label.setText(
             f"Binder level {level}: may bind vestiges up to level "
-            f"{vestiges.max_vestige_level(level)}, "
+            f"{self._max_vestige_level()}, "
             f"up to {vestiges.max_vestiges_bound(level)} at once "
             f"({self._bound_count()} currently bound)."
         )
@@ -187,10 +195,11 @@ class BinderVestigesTab(QWidget):
             for v in self._model.game_data().list_vestiges()
         }
         existing = self._names()
+        bind_level = vestiges.improved_binder_level(self._model.character)
         options = [
             name
             for name, vestige_level in levels.items()
-            if name not in existing and vestiges.can_bind(vestige_level, level)
+            if name not in existing and vestiges.can_bind(vestige_level, bind_level)
         ]
         name = pick_from_catalog(self, "Bind Vestige", "Vestige:", options)
         if name:

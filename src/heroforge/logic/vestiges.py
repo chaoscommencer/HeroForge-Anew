@@ -179,6 +179,12 @@ _BINDING_CLASS_NAMES: frozenset[str] = frozenset({"binder"})
 _BIND_VESTIGE_FEAT = "bind vestige"
 _IMPROVED_BIND_VESTIGE_FEAT = "improved bind vestige"
 
+# Feat that raises the effective binder level by 2 "for the purposes of
+# determining how powerful a vestige you can bind" (workbook
+# ``FtImprovedBinding``, ``Feats!AR1604``; ``ImprovedBinder``,
+# ``Class Abilities!E4544``).
+_IMPROVED_BINDING_FEAT = "improved binding"
+
 # Effective-binder-level thresholds at which the maximum bindable vestige level
 # increases by one (Tome of Magic p25; reference workbook ``VestigeMaxLevel``,
 # ``Class Abilities!E4539``).
@@ -206,13 +212,31 @@ def binder_level(character: Character) -> int:
     return 0
 
 
+def improved_binder_level(character: Character) -> int:
+    """Return the binder level used for the highest vestige level it may bind.
+
+    Ports ``ImprovedBinder`` (``Class Abilities!E4544`` =
+    ``effBinLvl + 2*FtImprovedBinding``): :func:`binder_level`, plus 2 with the
+    *Improved Binding* feat.  Pass it to :func:`max_vestige_level` and
+    :func:`can_bind`; :func:`max_vestiges_bound` and level-scaled effects keep
+    using :func:`binder_level`.  A character with no binder level gets ``0``.
+    """
+    level = binder_level(character)
+    if level < 1:
+        return 0
+    feats = {str(f).strip().lower() for f in character.feats}
+    return level + (2 if _IMPROVED_BINDING_FEAT in feats else 0)
+
+
 def max_vestige_level(level: int) -> int:
     """Return the highest vestige level a binder of effective level *level* may bind.
 
     Ports ``VestigeMaxLevel`` (``Class Abilities!E4539``): the count of the
     thresholds in :data:`_MAX_VESTIGE_LEVEL_THRESHOLDS` that *level* meets, so a
     1st-level binder may bind 1st-level vestiges, a 3rd-level binder 2nd-level
-    vestiges, and so on up to 8th-level vestiges at binder level 17.
+    vestiges, and so on up to 8th-level vestiges at binder level 17.  The
+    workbook counts against ``ImprovedBinder``, so pass
+    :func:`improved_binder_level`.
     """
     return sum(1 for threshold in _MAX_VESTIGE_LEVEL_THRESHOLDS if level >= threshold)
 
@@ -259,14 +283,15 @@ def active_vestige_names(character: Character) -> list[str]:
     The reference workbook gates every vestige effect on ``BinLvl>=1``
     (e.g. ``Class Abilities!B4587``, ``Armor!T27``), and a binder can only hold
     vestiges within the binder level limits.  So this keeps, in order, the bound
-    vestiges whose level (:func:`vestige_level_for`) passes :func:`can_bind`, up
-    to :func:`max_vestiges_bound`; a character with no binder level gets none.
-    The limits also hold for saves edited by hand or classes removed after
-    binding.
+    vestiges whose level (:func:`vestige_level_for`) passes :func:`can_bind` at
+    the :func:`improved_binder_level`, up to :func:`max_vestiges_bound`; a
+    character with no binder level gets none.  The limits also hold for saves
+    edited by hand or classes removed after binding.
     """
     level = binder_level(character)
     if level < 1:
         return []
+    bind_level = improved_binder_level(character)
     names: list[str] = []
     for entry in character.vestiges:
         if not entry.get("bound", True):
@@ -278,7 +303,7 @@ def active_vestige_names(character: Character) -> list[str]:
         entry_level = vestige_level_for(
             name, raw_level if isinstance(raw_level, int) else None
         )
-        if can_bind(entry_level, level):
+        if can_bind(entry_level, bind_level):
             names.append(name)
     return names[: max_vestiges_bound(level)]
 

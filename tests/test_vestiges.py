@@ -259,6 +259,52 @@ class TestActiveVestiges:
         assert vestiges.active_vestige_names(char) == ["Eligor", "Paimon"]
 
 
+class TestImprovedBinding:
+    """Improved Binding: +2 binder level for the vestige-level limit (E4544)."""
+
+    def test_feat_adds_two_for_max_vestige_level(self) -> None:
+        plain = Character(classes=[("Binder", 9)])
+        feat = Character(classes=[("Binder", 9)], feats=["Improved Binding"])
+        assert vestiges.improved_binder_level(plain) == 9
+        assert vestiges.improved_binder_level(feat) == 11
+        assert vestiges.max_vestige_level(vestiges.improved_binder_level(feat)) == 5
+
+    def test_feat_is_case_insensitive(self) -> None:
+        char = Character(classes=[("Binder", 9)], feats=["improved binding"])
+        assert vestiges.improved_binder_level(char) == 11
+
+    def test_feat_does_nothing_without_binder_level(self) -> None:
+        char = Character(classes=[("Fighter", 9)], feats=["Improved Binding"])
+        assert vestiges.improved_binder_level(char) == 0
+
+    def test_feat_does_not_raise_vestige_count(self) -> None:
+        # The feat raises the vestige level a Binder 7 may bind (4 to 5) but not
+        # how many vestiges it may hold at once (still one).
+        char = _bound("Amon", "Leraje", binder=7, feats=["Improved Binding"])
+        assert vestiges.active_vestige_names(char) == ["Amon"]
+
+    def test_feat_activates_higher_level_vestige(self) -> None:
+        # Acererak is a 5th-level vestige: Binder 9 alone may bind up to 4th.
+        assert vestiges.active_vestige_names(_bound("Acererak", binder=9)) == []
+        char = _bound("Acererak", binder=9, feats=["Improved Binding"])
+        assert vestiges.active_vestige_names(char) == ["Acererak"]
+
+    def test_picker_offers_higher_level_vestiges(
+        self, model: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        # A Binder 3 may bind up to 2nd-level vestiges; Improved Binding counts
+        # it as 5 for this, which allows Paimon (3rd) but not Eligor (7th).
+        model.character.classes = [("Binder", 3)]
+        model.character.feats = ["Improved Binding"]
+        tab = BinderVestigesTab(model)
+        offered = _capture_picker(monkeypatch, None)
+        tab._add()
+        assert "Paimon" in offered
+        assert "Eligor" not in offered
+
+
 class TestEligorNaturalArmor:
     """Eligor's Resiliance: an enhancement bonus to natural armor (Armor!T27)."""
 
