@@ -243,3 +243,53 @@ class TestStandardPrerequisiteSkillNames:
                 m = re.match(r"^(.+?)\s+\d+\s*ranks?$", prereq)
                 if m:
                     assert m.group(1) in skills_tab_names, (cls, prereq)
+
+
+class TestCustomClassNameClash:
+    @staticmethod
+    def _add_custom(model: object, name: str, prereqs: list[str]) -> None:
+        from heroforge.logic.prestige import custom_class_to_content
+        from heroforge.models.class_ import Class
+
+        model.character.custom_content.append(
+            custom_class_to_content(
+                Class(name=name, is_prestige=True, prerequisites=prereqs)
+            )
+        )
+
+    def test_custom_class_overrides_db_class_case_insensitively(
+        self, model: object, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+
+        tab = PrestigeClassesTab(model=model)
+        self._add_custom(model, "mystic theurge", ["+1 BAB"])
+        with caplog.at_level(logging.WARNING):
+            tab._load_available()
+
+        names = [tab._avail_list.item(i).text() for i in range(tab._avail_list.count())]
+        assert [n for n in names if n.casefold() == "mystic theurge"] == [
+            "mystic theurge"
+        ]
+        assert tab._prereq_map["mystic theurge"] == ["+1 BAB"]
+        assert "Mystic Theurge" not in tab._prereq_map
+        assert any(
+            "mystic theurge" in r.getMessage().lower() and r.levelno == logging.WARNING
+            for r in caplog.records
+        )
+
+    def test_custom_class_without_prereqs_fully_overrides_db_prereqs(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+
+        tab = PrestigeClassesTab(model=model)
+        self._add_custom(model, "Mystic Theurge", [])
+        tab._load_available()
+
+        item = _item(tab, "Mystic Theurge")
+        assert tab._prereq_map["Mystic Theurge"] == []
+        assert _enabled(item)
+        assert item.toolTip() == ""

@@ -16,6 +16,7 @@ Reference: DMG Chapter 2 (Prestige Classes); ``docs/conversion-plan.md`` §7.2.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
@@ -41,6 +42,8 @@ from heroforge.logic.prestige import (
 
 if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
+
+logger = logging.getLogger(__name__)
 
 # Maximum level selectable for a single prestige-class entry (most prestige
 # classes cap at 10 levels; allow headroom for higher-level supplements).
@@ -155,13 +158,28 @@ class PrestigeClassesTab(QWidget):
         repo = self._model.game_data()
         self._prereq_map = repo.prestige_class_prerequisites()
         names: list[str] = [info.name for info in repo.list_prestige_classes()]
+        db_names = set(names)
 
-        # Homebrew prestige classes saved on the character.
+        # Homebrew prestige classes saved on the character.  Custom content
+        # takes priority: a name clash with a database class (compared
+        # case-insensitively) replaces the database entry and its
+        # prerequisites, and is logged in case the clash was unintentional.
+        by_cf = {n.casefold(): n for n in names}
         for cls in list_custom_prestige_classes(self._model.character.custom_content):
-            if cls.name not in names:
-                names.append(cls.name)
-            if cls.prerequisites:
-                self._prereq_map[cls.name] = list(cls.prerequisites)
+            existing = by_cf.get(cls.name.casefold())
+            if existing is not None:
+                if existing in db_names:
+                    logger.warning(
+                        "Custom prestige class %r overrides database prestige "
+                        "class %r with the same name",
+                        cls.name,
+                        existing,
+                    )
+                names.remove(existing)
+                self._prereq_map.pop(existing, None)
+            names.append(cls.name)
+            by_cf[cls.name.casefold()] = cls.name
+            self._prereq_map[cls.name] = list(cls.prerequisites)
 
         self._managed_names = set(names)
         for name in sorted(names):
