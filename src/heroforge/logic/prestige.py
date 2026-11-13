@@ -5,7 +5,294 @@ Reference: PHB Chapter 3 (prestige class descriptions), DMG Chapter 2.
 
 from __future__ import annotations
 
+import json
+import re
+from collections.abc import Iterable, Mapping
+from enum import Enum
+
 from heroforge.logic.feats import check_prerequisites
+from heroforge.models.class_ import Class
+
+# ---------------------------------------------------------------------------
+# Reference prerequisite data (single structured source of truth)
+# ---------------------------------------------------------------------------
+
+# Prestige-class prerequisites for the core DMG prestige classes, expressed in
+# the grammar understood by :func:`check_prestige_prerequisites`: ability
+# scores, base attack bonus, skill ranks, feat names, class/character levels,
+# and the ``ALIGN:`` / ``RACE:`` / ``CAST:<Arcane|Divine>:<spell level>`` tags.
+# Skill names use the Skills tab's spelling (``Knowledge (Arcana)``); matching
+# is case-insensitive either way.  The original workbook encodes each
+# prerequisite as a per-cell spreadsheet formula evaluated against the live
+# character sheet rather than as textual data, so there is no source file to
+# seed from; this mapping is the single structured source of truth the
+# application owns (mirroring
+# :data:`heroforge.logic.familiar.STANDARD_FAMILIAR_BONUSES`).
+#
+# Only requirements the grammar can express are listed.  Choice-based ones
+# ("any two Knowledge skills", "Spell Focus in two schools", "any metamagic
+# feat", "elf or half-elf", "know seven divination spells") and special
+# requirements (e.g. "must have killed someone") are noted in comments and
+# left for the player to verify.  Loremaster has no expressible requirement
+# and is therefore omitted, so the tab shows it as "not recorded".  CAST: tags
+# are shown as unverified until the model tracks castable spell levels.
+#
+# Reference: DMG p176-203 (Prestige Classes).
+STANDARD_PRESTIGE_PREREQUISITES: dict[str, tuple[str, ...]] = {
+    # Also: race elf or half-elf.
+    "Arcane Archer": ("+6 BAB", "Point Blank Shot", "Precise Shot", "CAST:Arcane:1"),
+    # Also: able to cast mage hand; sneak attack +2d6.
+    "Arcane Trickster": (
+        "ALIGN:Nonlawful",
+        "Decipher Script 7 ranks",
+        "Disable Device 7 ranks",
+        "Escape Artist 7 ranks",
+        "Knowledge (Arcana) 4 ranks",
+        "CAST:Arcane:3",
+    ),
+    # Also: Spell Focus in two schools; know 5th-level spells of five schools.
+    "Archmage": (
+        "Knowledge (Arcana) 15 ranks",
+        "Spellcraft 15 ranks",
+        "Skill Focus (Spellcraft)",
+        "CAST:Arcane:7",
+    ),
+    # Also: must kill someone for no other reason than to join.
+    "Assassin": (
+        "ALIGN:Evil",
+        "Disguise 4 ranks",
+        "Hide 8 ranks",
+        "Move Silently 8 ranks",
+    ),
+    # Also: peaceful contact with an evil outsider.
+    "Blackguard": (
+        "ALIGN:Evil",
+        "+6 BAB",
+        "Cleave",
+        "Improved Sunder",
+        "Power Attack",
+        "Hide 5 ranks",
+        "Knowledge (Religion) 2 ranks",
+    ),
+    # Also: any nondragon race; speak Draconic; cast arcane spells without
+    # preparation.
+    "Dragon Disciple": ("Knowledge (Arcana) 8 ranks",),
+    "Duelist": (
+        "+6 BAB",
+        "Dodge",
+        "Mobility",
+        "Weapon Finesse",
+        "Perform 3 ranks",
+        "Tumble 5 ranks",
+    ),
+    "Dwarven Defender": (
+        "RACE:Dwarf",
+        "ALIGN:Lawful",
+        "+7 BAB",
+        "Dodge",
+        "Endurance",
+        "Toughness",
+    ),
+    # Also: proficiency with all martial weapons.
+    "Eldritch Knight": ("CAST:Arcane:3",),
+    # Also: any metamagic feat.
+    "Hierophant": ("Knowledge (Religion) 15 ranks", "CAST:Divine:7"),
+    "Horizon Walker": ("Endurance", "Knowledge (Geography) 8 ranks"),
+    "Mystic Theurge": (
+        "Knowledge (Arcana) 6 ranks",
+        "Knowledge (Religion) 6 ranks",
+        "CAST:Arcane:2",
+        "CAST:Divine:2",
+    ),
+    # Also: any three metamagic or item creation feats; homeland Thay; no
+    # existing membership in another wizard school.
+    "Red Wizard": (
+        "RACE:Human",
+        "ALIGN:Nonlawful",
+        "Spellcraft 8 ranks",
+        "Tattoo Focus",
+        "CAST:Arcane:3",
+    ),
+    "Shadowdancer": (
+        "Combat Reflexes",
+        "Dodge",
+        "Mobility",
+        "Hide 10 ranks",
+        "Move Silently 8 ranks",
+        # DMG: Perform (dance) 5 ranks; the Skills tab has a single "Perform".
+        "Perform 5 ranks",
+    ),
+    # Also: able to cast lesser planar ally.
+    "Thaumaturgist": ("Spell Focus (Conjuration)", "CAST:Divine:4"),
+}
+
+
+# ---------------------------------------------------------------------------
+# Custom (homebrew) prestige-class persistence
+# ---------------------------------------------------------------------------
+
+# The ``content_type`` used for homebrew classes stored on a character's
+# ``custom_content`` list (see :class:`heroforge.models.character.Character`).
+# Mirrors the workbook's *Custom Class* sheet.
+CUSTOM_CLASS_CONTENT_TYPE = "class"
+
+
+def custom_class_to_content(cls: Class) -> dict[str, object]:
+    """Serialise *cls* to a ``character.custom_content`` entry.
+
+    Returns a ``{content_type, name, definition}`` mapping whose ``definition``
+    is a JSON string capturing the remaining class fields so the homebrew class
+    round-trips through save/load.
+    """
+    return {
+        "content_type": CUSTOM_CLASS_CONTENT_TYPE,
+        "name": cls.name,
+        "definition": json.dumps(
+            {
+                "is_prestige": bool(cls.is_prestige),
+                "hit_die": int(cls.hit_die),
+                "bab_progression": cls.bab_progression,
+                "fort_progression": cls.fort_progression,
+                "ref_progression": cls.ref_progression,
+                "will_progression": cls.will_progression,
+                "skill_points_per_level": int(cls.skill_points_per_level),
+                "prerequisites": list(cls.prerequisites),
+            }
+        ),
+    }
+
+
+def custom_class_from_content(entry: Mapping[str, object]) -> Class | None:
+    """Reconstruct a :class:`Class` from a ``custom_content`` entry.
+
+    Returns the decoded class, or ``None`` when *entry* is not a named custom
+    class definition.
+    """
+    if entry.get("content_type") != CUSTOM_CLASS_CONTENT_TYPE:
+        return None
+    name = str(entry.get("name", "")).strip()
+    if not name:
+        return None
+    data: dict[str, object] = {}
+    raw = entry.get("definition")
+    if isinstance(raw, str) and raw:
+        try:
+            loaded = json.loads(raw)
+        except (TypeError, ValueError):
+            loaded = None
+        if isinstance(loaded, dict):
+            data = loaded
+
+    def _int_field(value: object, default: int) -> int:
+        # bool is a subclass of int; treat stray booleans as missing rather
+        # than coercing True/False to 1/0.
+        if isinstance(value, bool):
+            return default
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(value.strip())
+            except ValueError:
+                return default
+        return default
+
+    def _str_field(value: object, default: str) -> str:
+        return value.strip() if isinstance(value, str) and value.strip() else default
+
+    prereqs_raw = data.get("prerequisites")
+    prerequisites = (
+        [str(p) for p in prereqs_raw if str(p).strip()]
+        if isinstance(prereqs_raw, list)
+        else []
+    )
+
+    return Class(
+        name=name,
+        is_prestige=bool(data.get("is_prestige", False)),
+        hit_die=_int_field(data.get("hit_die"), 8),
+        bab_progression=_str_field(data.get("bab_progression"), "medium"),
+        fort_progression=_str_field(data.get("fort_progression"), "poor"),
+        ref_progression=_str_field(data.get("ref_progression"), "poor"),
+        will_progression=_str_field(data.get("will_progression"), "poor"),
+        skill_points_per_level=_int_field(data.get("skill_points_per_level"), 2),
+        prerequisites=prerequisites,
+    )
+
+
+def list_custom_classes(
+    custom_content: Iterable[Mapping[str, object]],
+) -> list[Class]:
+    """Return every custom class stored on a character's ``custom_content``."""
+    result: list[Class] = []
+    for entry in custom_content:
+        cls = custom_class_from_content(entry)
+        if cls is not None:
+            result.append(cls)
+    return result
+
+
+def list_custom_prestige_classes(
+    custom_content: Iterable[Mapping[str, object]],
+) -> list[Class]:
+    """Return only the custom *prestige* classes from ``custom_content``."""
+    return [cls for cls in list_custom_classes(custom_content) if cls.is_prestige]
+
+
+# Two-letter (and one-letter) alignment abbreviations -> full words.
+_ALIGNMENT_ABBREVIATIONS: dict[str, str] = {
+    "lg": "lawful good",
+    "ng": "neutral good",
+    "cg": "chaotic good",
+    "ln": "lawful neutral",
+    "n": "neutral",
+    "tn": "neutral",
+    "cn": "chaotic neutral",
+    "le": "lawful evil",
+    "ne": "neutral evil",
+    "ce": "chaotic evil",
+}
+_ALIGNMENT_AXES = frozenset({"lawful", "chaotic", "good", "evil", "neutral"})
+
+
+def _alignment_tokens(text: str) -> list[str]:
+    """Split *text* into lowercase alignment words, expanding abbreviations.
+
+    ``"Non-lawful"`` / ``"non lawful"`` collapse to ``"nonlawful"``; filler
+    words such as ``"any"`` and ``"true"`` (as in *True Neutral*) are dropped.
+    """
+    lowered = re.sub(r"\bnon[\s-]+", "non", text.lower())
+    tokens: list[str] = []
+    for word in re.findall(r"[a-z]+", lowered):
+        tokens.extend(_ALIGNMENT_ABBREVIATIONS.get(word, word).split())
+    return [t for t in tokens if t not in {"any", "true", "alignment"}]
+
+
+def alignment_satisfies(required: str, alignment: str) -> bool:
+    """Return whether *alignment* satisfies the ``ALIGN:`` requirement *required*.
+
+    Matching is by alignment component rather than whole string, so
+    ``"Evil"`` is satisfied by Lawful/Neutral/Chaotic Evil, ``"Lawful Evil"``
+    only by Lawful Evil, and ``"Nonlawful"`` by any alignment without the
+    lawful component.  Abbreviations (``LG``, ``NE``, ``N`` ...) are accepted
+    on either side.  An empty or unrecognised requirement fails closed.
+
+    Reference: PHB p104 (alignment); DMG p176 ("Any evil" style prereqs).
+    """
+    required_tokens = _alignment_tokens(required)
+    if not required_tokens:
+        return False
+    have = set(_alignment_tokens(alignment))
+    for token in required_tokens:
+        if token.startswith("non") and token[3:] in _ALIGNMENT_AXES:
+            if token[3:] in have or not have & _ALIGNMENT_AXES:
+                return False
+        elif token in _ALIGNMENT_AXES:
+            if token not in have:
+                return False
+        else:
+            return False
+    return True
 
 
 def check_prestige_prerequisites(
@@ -16,11 +303,17 @@ def check_prestige_prerequisites(
     character_feats: list[str],
     character_level: int,
     character_classes: dict[str, int],
+    character_alignment: str = "",
+    character_race: str = "",
+    character_spellcasting: dict[str, int] | None = None,
 ) -> bool:
     """Determine whether a character meets all prerequisites for a prestige class.
 
     Extends the generic feat prerequisite checker with support for
-    class-level prerequisites (e.g. ``'Spellcaster level 3'``).
+    class-level prerequisites (e.g. ``'Spellcaster level 3'``) and narrative
+    tags (e.g. ``'ALIGN:Evil'``, ``'RACE:Human'``, ``'CAST:Arcane:3'``).
+    ``ALIGN:`` matches by alignment component (see :func:`alignment_satisfies`)
+    and ``RACE:`` by case-insensitive race name.
 
     Reference: PHB p168 (Prestige Class descriptions).
 
@@ -28,19 +321,53 @@ def check_prestige_prerequisites(
         prerequisites:           List of prerequisite strings.
         character_bab:           Current base attack bonus.
         character_ability_scores: Ability score mapping.
-        character_skills:        Skill ranks mapping.
+        character_skills:         Skill ranks mapping.
         character_feats:         Feats already taken.
         character_level:         Total character level.
         character_classes:       Mapping of class name → levels taken.
+        character_alignment:     Current character alignment.
+        character_race:           Current character race.
+        character_spellcasting:  Mapping of casting type (e.g. 'Arcane') → max level.
 
     Returns:
         ``True`` if all prerequisites are satisfied.
     """
-    import re
+    if character_spellcasting is None:
+        character_spellcasting = {}
 
     for prereq in prerequisites:
         prereq = prereq.strip()
         if not prereq:
+            continue
+
+        # Check narrative tags: ALIGN:..., RACE:..., CAST:...
+        if prereq.startswith("ALIGN:"):
+            if not alignment_satisfies(prereq[6:], character_alignment):
+                return False
+            continue
+
+        if prereq.startswith("RACE:"):
+            required_race = prereq[5:].strip()
+            if not required_race:
+                return False
+            if character_race.strip().casefold() != required_race.casefold():
+                return False
+            continue
+
+        if prereq.startswith("CAST:"):
+            # Format: CAST:Type:Level (e.g. CAST:Arcane:3)
+            parts = prereq[5:].split(":")
+            if len(parts) != 2:
+                return False
+            cast_type = parts[0].strip()
+            try:
+                min_lvl = int(parts[1].strip())
+            except ValueError:
+                # Malformed free text (e.g. "CAST:Arcane:3rd") fails closed
+                # rather than raising out of a Qt slot.
+                return False
+            if character_spellcasting.get(cast_type, 0) < min_lvl:
+                return False
             continue
 
         # Check class-level prerequisites: "Wizard 5", "Fighter 2", …
@@ -74,8 +401,65 @@ def check_prestige_prerequisites(
     return True
 
 
+class PrereqStatus(Enum):
+    """Outcome of evaluating a single prestige-class prerequisite."""
+
+    MET = "met"
+    UNMET = "unmet"
+    UNVERIFIED = "unverified"
+    """The prerequisite is well formed but the character state needed to check
+    it is not tracked (e.g. spellcasting ability), so it must be verified
+    manually."""
+
+
+_CAST_TAG_RE = re.compile(r"^CAST:\s*[^:]+?\s*:\s*\d+\s*$")
+
+
+def evaluate_prestige_prerequisite(
+    prereq: str,
+    character_bab: int,
+    character_ability_scores: dict[str, int],
+    character_skills: dict[str, float],
+    character_feats: list[str],
+    character_level: int,
+    character_classes: dict[str, int],
+    character_alignment: str = "",
+    character_race: str = "",
+    character_spellcasting: dict[str, int] | None = None,
+) -> PrereqStatus:
+    """Evaluate one prerequisite string as met, unmet or unverified.
+
+    Behaves like :func:`check_prestige_prerequisites` for a single string,
+    except that a well-formed ``CAST:<type>:<level>`` tag evaluated without
+    *character_spellcasting* data (``None``) is reported as
+    :attr:`PrereqStatus.UNVERIFIED` rather than unmet, because the character
+    model does not yet track which spell levels a character can cast.
+    Malformed ``CAST:`` tags are still :attr:`PrereqStatus.UNMET`.
+    """
+    text = prereq.strip()
+    if (
+        character_spellcasting is None
+        and text.startswith("CAST:")
+        and _CAST_TAG_RE.match(text)
+    ):
+        return PrereqStatus.UNVERIFIED
+    met = check_prestige_prerequisites(
+        [text],
+        character_bab,
+        character_ability_scores,
+        character_skills,
+        character_feats,
+        character_level,
+        character_classes,
+        character_alignment=character_alignment,
+        character_race=character_race,
+        character_spellcasting=character_spellcasting,
+    )
+    return PrereqStatus.MET if met else PrereqStatus.UNMET
+
+
 def available_prestige_classes(
-    all_prestige_classes: list[dict],  # type: ignore[type-arg]
+    all_prestige_classes: list[dict[str, str]],
     prereq_map: dict[str, list[str]],
     character_bab: int,
     character_ability_scores: dict[str, int],
@@ -83,6 +467,9 @@ def available_prestige_classes(
     character_feats: list[str],
     character_level: int,
     character_classes: dict[str, int],
+    character_alignment: str = "",
+    character_race: str = "",
+    character_spellcasting: dict[str, int] | None = None,
 ) -> list[str]:
     """Return prestige class names that the character currently qualifies for.
 
@@ -96,13 +483,16 @@ def available_prestige_classes(
         character_feats:      Feats taken.
         character_level:      Total character level.
         character_classes:    Class levels taken.
+        character_alignment:   Current character alignment.
+        character_race:       Current character race.
+        character_spellcasting: Mapping of casting type (e.g. 'Arcane') → max level.
 
     Returns:
         Sorted list of available prestige class names.
     """
-    result = []
+    result: list[str] = []
     for pc in all_prestige_classes:
-        name = pc.get("name", "")
+        name: str = pc.get("name", "")
         if not name:
             continue
         prereqs = prereq_map.get(name, [])
@@ -114,6 +504,9 @@ def available_prestige_classes(
             character_feats,
             character_level,
             character_classes,
+            character_alignment=character_alignment,
+            character_race=character_race,
+            character_spellcasting=character_spellcasting,
         ):
             result.append(name)
     return sorted(result)

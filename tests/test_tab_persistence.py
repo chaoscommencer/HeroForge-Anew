@@ -173,6 +173,15 @@ def catalog_db(tmp_path: Path) -> Path:
                 ("Hawk", "Tiny", "Animal", "1d8", 6, 17, 10, 2, 14, 6, 17, "MM"),
             ],
         )
+        conn.executemany(
+            "INSERT INTO classes (name, is_prestige, hit_die, bab_progression, "
+            "fort_progression, ref_progression, will_progression, "
+            "skill_points_per_level, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("Fighter", 0, 10, "fast", "good", "poor", "poor", 2, "PHB"),
+                ("Arcane Archer", 1, 8, "fast", "poor", "good", "poor", 4, "DMG"),
+            ],
+        )
         conn.commit()
     finally:
         conn.close()
@@ -1073,11 +1082,13 @@ class TestCharacterBackedTabRestore:
         model.character.classes = [("Fighter", 4), ("Arcane Archer", 2)]
         model.character_loaded.emit(0)
 
-        assert tab._taken_table.rowCount() == 2
-        assert tab._taken_table.item(0, 0).text() == "Fighter"
-        assert tab._taken_table.cellWidget(0, 1).value() == 4
-        assert tab._taken_table.item(1, 0).text() == "Arcane Archer"
-        assert tab._taken_table.cellWidget(1, 1).value() == 2
+        # Only prestige classes are shown here; the base-class level (Fighter)
+        # is displayed by the Classes tab and left untouched in the character.
+        assert tab._taken_table.rowCount() == 1
+        assert tab._taken_table.item(0, 0).text() == "Arcane Archer"
+        assert tab._taken_table.cellWidget(0, 1).value() == 2
+        # The full class list (including the base class) is preserved.
+        assert model.character.classes == [("Fighter", 4), ("Arcane Archer", 2)]
 
     def test_skills_restore_on_load(self, model: object) -> None:
         from heroforge.ui.tabs.skills import SkillsTab
