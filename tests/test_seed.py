@@ -355,6 +355,13 @@ class TestSeedAllWorkbookLoading:
                 "psionic", workbook
             ),
         )
+        monkeypatch.setattr(
+            seed,
+            "seed_companion_progression",
+            lambda _conn, _path, workbook=None: workbook_args.setdefault(
+                "companion", workbook
+            ),
+        )
 
         seed.seed_all(db_path=db_path, data_dir=data_dir, workbook_path=workbook_path)
 
@@ -369,6 +376,7 @@ class TestSeedAllWorkbookLoading:
         assert values_wb is not None
         assert workbook_args["spellcasting"] is values_wb
         assert workbook_args["workbook"] is values_wb
+        assert workbook_args["companion"] is values_wb
         # Formula-based seeders share the same formula-mode workbook object,
         # distinct from the value-only one.
         formulas_wb = workbook_args["synergies"]
