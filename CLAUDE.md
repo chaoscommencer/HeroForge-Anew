@@ -34,8 +34,11 @@ Rules:
   query/path/explain don't surface enough.
 - Read source files only to modify or debug specific code the graph pointed at, or when the graph
   lacks the detail.
-- Rebuild the graph (`scripts/build-graph.sh --keep-image`) when it is missing, after checking out
-  a different branch or pull request, and after significant code changes.
+- Git hooks installed by `scripts/install-graph-hooks.sh` rebuild the graph in the background
+  after every commit and branch checkout, including in `git worktree` checkouts; the last run's
+  log is `graphify-out/.hook.log`. If the hooks are missing (a fresh clone or a rebuilt
+  Codespace), run that script once. Rebuild by hand (`scripts/build-graph.sh --keep-image`) when
+  the graph is missing or you need it current before your next commit.
 
 ## Ownership
 
