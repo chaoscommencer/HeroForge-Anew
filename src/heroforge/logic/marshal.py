@@ -62,6 +62,8 @@ TARGET_RANGED = "ranged"
 TARGET_INITIATIVE = "initiative"
 TARGET_NONE = ""
 
+_SAVE_TARGETS = (TARGET_FORT, TARGET_REF, TARGET_WILL)
+
 
 @dataclass(frozen=True)
 class MarshalAura:
@@ -442,25 +444,36 @@ def aura_bonus_specs(
             minor auras.
         catalog:           The aura catalogue to resolve names against.
 
+    Projected auras that affect the same stat do not add up: like the
+    workbook's *Circumstance* row (``Enhancements!3``, e.g. Fortitude
+    ``=MAX(DemandFortMod,ResilientTroopsMod)``), only the largest aura bonus per
+    stat is kept.  :data:`TARGET_SAVES` is expanded to the three saves first,
+    so Resilient Troops competes with each single-save aura.  The surviving
+    aura bonus still stacks with circumstance bonuses from other sources.
+
     Returns:
-        One spec per projected aura (:func:`projected_auras`) whose effect the
-        derived stats model.  Unmodelled effects (:data:`TARGET_NONE`) and zero
-        values are skipped.
+        At most one spec per target stat, carrying the largest bonus of the
+        projected auras (:func:`projected_auras`) that affect it.  Unmodelled
+        effects (:data:`TARGET_NONE`) and zero values are skipped.
     """
     level = marshal_level(character)
-    specs: list[dict[str, object]] = []
+    best: dict[str, tuple[int, MarshalAura]] = {}
     for aura in projected_auras(character, catalog):
         if not aura.affects_derived_stats:
             continue
         value = aura_value(aura, charisma_modifier, level)
         if value == 0:
             continue
-        specs.append(
-            {
-                "source": aura.name,
-                "target": aura.target,
-                "bonus_type": aura.bonus_type,
-                "value": value,
-            }
-        )
-    return specs
+        targets = _SAVE_TARGETS if aura.target == TARGET_SAVES else (aura.target,)
+        for target in targets:
+            if target not in best or value > best[target][0]:
+                best[target] = (value, aura)
+    return [
+        {
+            "source": aura.name,
+            "target": target,
+            "bonus_type": aura.bonus_type,
+            "value": value,
+        }
+        for target, (value, aura) in best.items()
+    ]

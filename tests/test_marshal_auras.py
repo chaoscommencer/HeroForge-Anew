@@ -250,6 +250,49 @@ class TestAurasFeedDerivedStats:
         stats = compute_derived_stats(character, ability_adjustments={"CHA": 2})
         assert stats.reflex - base == 2
 
+    def test_overlapping_aura_bonuses_take_the_largest(self) -> None:
+        # Enhancements!O3: Fortitude =MAX(DemandFortMod,ResilientTroopsMod).
+        base = compute_derived_stats(_marshal(level=6, cha=16))
+        character = _marshal(
+            level=6, cha=16, auras=("Demand Fortitude", "Resilient Troops")
+        )
+        stats = compute_derived_stats(character)
+        assert stats.fortitude - base.fortitude == 3  # max(+3, +1), not +4
+        assert stats.reflex - base.reflex == 1
+        assert stats.will - base.will == 1
+
+    def test_larger_major_aura_wins_on_its_saves(self) -> None:
+        # Marshal 20: Resilient Troops +4 beats Watchful Eye's Cha +1.
+        base = compute_derived_stats(_marshal(level=20, cha=12))
+        character = _marshal(
+            level=20, cha=12, auras=("Watchful Eye", "Resilient Troops")
+        )
+        stats = compute_derived_stats(character)
+        assert stats.reflex - base.reflex == 4
+        assert stats.fortitude - base.fortitude == 4
+
+    def test_initiative_auras_take_the_largest(self) -> None:
+        # Motivate Dexterity (Cha +2) and Senses (+3 at Marshal 14).
+        base = compute_derived_stats(_marshal(level=14, cha=14))
+        character = _marshal(
+            level=14, cha=14, auras=("Motivate Dexterity", "Senses (Draconic)")
+        )
+        assert compute_derived_stats(character).initiative - base.initiative == 3
+
+    def test_aura_stacks_with_other_circumstance_bonuses(self) -> None:
+        character = _marshal(level=6, cha=16, auras=("Demand Fortitude",))
+        base = compute_derived_stats(_marshal(level=6, cha=16)).fortitude
+        character.buffs = [
+            {
+                "id": "c",
+                "name": "Circumstance",
+                "bonus_type": "circumstance",
+                "target_stat": "fortitude",
+                "amount": 2,
+            }
+        ]
+        assert compute_derived_stats(character).fortitude - base == 5
+
     def test_stamina_raises_fortitude(self) -> None:
         # Tables!O352: "+X on Constitution checks and Fortitude saves."
         before = compute_derived_stats(_marshal(level=7))
@@ -441,8 +484,9 @@ class TestMarshalAurasTab:
         _project(tab._major.projecting, "Resilient Troops")
 
         after = model.derived_stats()
-        # Demand Fortitude (minor, Cha +3) and Resilient Troops (major, +1).
-        assert after.fortitude - before.fortitude == 4
+        # Demand Fortitude (minor, Cha +3) and Resilient Troops (major, +1):
+        # Fortitude takes the larger aura bonus, as the workbook does.
+        assert after.fortitude - before.fortitude == 3
         assert after.reflex - before.reflex == 1
         assert after.will - before.will == 1
 
