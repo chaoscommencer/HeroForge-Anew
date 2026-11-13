@@ -465,3 +465,33 @@ class TestFormLossOfLevels:
         )
         assert json.loads(entry["notes"])["active"] is False
         assert entry["creature"] == "Dire Bear"
+
+
+class TestMalformedNotes:
+    @pytest.mark.parametrize("notes", ["[1]", "true", "5", '"active"', "null"])
+    def test_non_object_notes_do_not_break_sync(
+        self, model: object, notes: str
+    ) -> None:
+        from heroforge.ui.tabs.wild_shape import WildShapeTab
+
+        model.character.classes = [("Druid", 12)]
+        model.character.companions = [
+            {
+                "companion_type": "wild_shape",
+                "name": "",
+                "creature": "Wolf",
+                "notes": notes,
+            }
+        ]
+        tab = WildShapeTab(model=model)
+        assert tab._form_edit.text() == "Wolf"
+        assert tab._active_check.isChecked() is False
+        assert tab._loading is False
+        # The tab still persists later edits.
+        tab._active_check.setChecked(True)
+        entry = next(
+            c
+            for c in model.character.companions
+            if c["companion_type"] == "wild_shape"
+        )
+        assert json.loads(entry["notes"])["active"] is True

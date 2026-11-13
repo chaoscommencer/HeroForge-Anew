@@ -258,25 +258,31 @@ class WildShapeTab(QWidget):
 
     def _sync_from_model(self) -> None:
         self._loading = True
-        self._form = None
-        self._form_edit.clear()
-        self._active_check.setChecked(False)
-        if self._model is not None:
-            for entry in self._model.character.companions:
-                if entry.get("companion_type") != COMPANION_TYPE:
-                    continue
-                form_name = entry.get("creature", "")
-                self._form_edit.setText(form_name)
-                notes = entry.get("notes", "")
-                try:
-                    data = json.loads(notes) if notes else {}
-                except (TypeError, ValueError):
-                    data = {}
-                self._active_check.setChecked(bool(data.get("active", False)))
-                if form_name and self._model.game_data().available:
-                    self._form = self._model.game_data().get_creature(form_name)
-                break
-        self._loading = False
+        try:
+            self._form = None
+            self._form_edit.clear()
+            self._active_check.setChecked(False)
+            if self._model is not None:
+                for entry in self._model.character.companions:
+                    if entry.get("companion_type") != COMPANION_TYPE:
+                        continue
+                    form_name = str(entry.get("creature") or "").strip()
+                    self._form_edit.setText(form_name)
+                    notes = entry.get("notes", "")
+                    try:
+                        data = json.loads(notes) if notes else {}
+                    except (TypeError, ValueError):
+                        data = {}
+                    # A save file is untrusted: anything but a JSON object
+                    # (e.g. "[1]" or "true") means no active flag.
+                    if not isinstance(data, dict):
+                        data = {}
+                    self._active_check.setChecked(bool(data.get("active", False)))
+                    if form_name and self._model.game_data().available:
+                        self._form = self._model.game_data().get_creature(form_name)
+                    break
+        finally:
+            self._loading = False
         self._refresh_form_labels()
         self._refresh_availability()
 
