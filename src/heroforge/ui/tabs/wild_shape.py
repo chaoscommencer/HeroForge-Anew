@@ -122,8 +122,8 @@ class WildShapeTab(QWidget):
 
         self._help_label = QLabel(
             "While Wild Shape is active the form's size, Strength, Dexterity, "
-            "Constitution and natural armor replace your own; your mental scores "
-            "(Int, Wis, Cha) are retained (PHB p37)."
+            "Constitution, natural armor and land speed replace your own; your "
+            "mental scores (Int, Wis, Cha) are retained (PHB p37)."
         )
         self._help_label.setWordWrap(True)
         inner_layout.addWidget(self._help_label)
@@ -217,7 +217,9 @@ class WildShapeTab(QWidget):
         self._dex_label.setText(str(form.ability_scores.get("DEX", "—")))
         self._con_label.setText(str(form.ability_scores.get("CON", "—")))
         self._natural_armor_label.setText(f"+{form.natural_armor}")
-        self._speed_label.setText(form.speed or "—")
+        speed = form.speed.strip()
+        # The seeded catalogue stores the bare land speed in feet ("50").
+        self._speed_label.setText(f"{speed} ft." if speed.isdigit() else speed or "—")
         self._hd_label.setText(form.hit_dice or "—")
 
     # ------------------------------------------------------------------

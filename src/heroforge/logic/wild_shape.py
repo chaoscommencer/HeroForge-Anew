@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing-only
@@ -263,6 +264,71 @@ def wild_shape_ability_adjustments(
 def revert_wild_shape(original_scores: Mapping[str, int]) -> dict[str, int]:
     """Return a copy of *original_scores* (Wild Shape ended, PHB p37)."""
     return dict(original_scores)
+
+
+@dataclass(frozen=True)
+class FormEffects:
+    """What an active Wild Shape form replaces on the druid (PHB p37).
+
+    These are *replacements*, not typed bonuses: the form's size, physical
+    ability scores (as deltas over the base scores, see
+    :func:`wild_shape_ability_adjustments`), natural armor and land speed take
+    the place of the character's own.  Bonuses that still apply in the new form
+    (enhancement bonuses from buffs, items, stances, vestiges, auras, a
+    natural-armor enhancement and so on) keep flowing through the typed
+    stacking path in :mod:`heroforge.logic.derived_stats`.
+    """
+
+    form: str
+    """Name of the creature whose form is assumed."""
+    size: str
+    """Size category of the form."""
+    ability_adjustments: Mapping[str, int]
+    """STR/DEX/CON deltas that make the effective scores equal the form's."""
+    natural_armor: int
+    """The form's natural armor bonus, replacing the race's."""
+    land_speed: int
+    """The form's land speed in feet (0 when the form has none)."""
+
+
+def creature_land_speed(creature: Creature | Mapping[str, Any]) -> int:
+    """Return *creature*'s land speed in feet, ``0`` when none is recorded.
+
+    Reads the leading integer of the ``speed`` text: the seeded ``Land`` value
+    (``"50"``) or a stat-block style string (``"10 ft., fly 60 ft."``).  A form
+    with no land speed (an air elemental only flies) has a land speed of 0.
+    """
+    if isinstance(creature, Mapping):
+        text = str(creature.get("speed", "") or "")
+    else:
+        text = str(getattr(creature, "speed", "") or "")
+    match = _LEADING_INT.match(text)
+    return int(match.group(1)) if match else 0
+
+
+def form_effects(
+    base_scores: Mapping[str, int],
+    creature: Creature | Mapping[str, Any],
+) -> FormEffects:
+    """Return the :class:`FormEffects` of assuming *creature*'s form.
+
+    Args:
+        base_scores: The character's pre-transformation ability scores.
+        creature:    The form being assumed.
+    """
+    if isinstance(creature, Mapping):
+        name = str(creature.get("name", ""))
+        natural_armor = creature.get("natural_armor", 0)
+    else:
+        name = str(getattr(creature, "name", ""))
+        natural_armor = getattr(creature, "natural_armor", 0)
+    return FormEffects(
+        form=name,
+        size=_creature_size(creature) or "Medium",
+        ability_adjustments=wild_shape_ability_adjustments(base_scores, creature),
+        natural_armor=int(natural_armor or 0),
+        land_speed=creature_land_speed(creature),
+    )
 
 
 # ---------------------------------------------------------------------------

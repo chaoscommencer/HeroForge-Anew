@@ -495,3 +495,57 @@ class TestMalformedNotes:
             if c["companion_type"] == "wild_shape"
         )
         assert json.loads(entry["notes"])["active"] is True
+
+
+def _activate(model: object, form_name: str, level: int = 12) -> None:
+    """Persist *form_name* as the active Wild Shape form for a druid."""
+    model.character.classes = [("Druid", level)]
+    model.character.companions = [
+        {
+            "companion_type": "wild_shape",
+            "name": "",
+            "creature": form_name,
+            "notes": json.dumps({"active": True}),
+        }
+    ]
+
+
+class TestFormMovement:
+    """The form's land speed replaces the character's (PHB p37, issue #78)."""
+
+    def test_land_speed_parses_leading_integer(self) -> None:
+        from heroforge.logic.wild_shape import creature_land_speed
+
+        assert creature_land_speed({"speed": "50"}) == 50
+        assert creature_land_speed({"speed": "10 ft., fly 60 ft."}) == 10
+        # No land speed recorded (e.g. an air elemental, which only flies).
+        assert creature_land_speed({"speed": ""}) == 0
+
+    def test_active_form_sets_speed(self, model: object) -> None:
+        assert model.derived_stats().speed == 30
+        _activate(model, "Wolf")
+        assert model.derived_stats().speed == 50
+
+    def test_flying_form_uses_its_land_speed(self, model: object) -> None:
+        _activate(model, "Hawk")
+        assert model.derived_stats().speed == 10
+
+    def test_reverting_restores_speed(self, model: object) -> None:
+        _activate(model, "Wolf")
+        model.character.companions[0]["notes"] = json.dumps({"active": False})
+        assert model.derived_stats().speed == 30
+
+    def test_form_speed_still_slowed_by_load(self, model: object) -> None:
+        # The derived pipeline keeps applying armor and load to the new speed.
+        _activate(model, "Wolf")
+        model.character.equipment = [
+            {"item_name": "Anvil", "slot": "", "weight": 1000.0, "quantity": 1}
+        ]
+        assert model.derived_stats().speed < 50
+
+    def test_export_reports_form_speed(self, model: object) -> None:
+        from heroforge.logic.export import character_sheet_data
+
+        _activate(model, "Wolf")
+        data = character_sheet_data(model.character, model.derived_stats())
+        assert data["speed"] == 50

@@ -422,6 +422,7 @@ Each VBA function or macro is converted to a standalone, pure Python function in
 | `available_forms(druid_level, creatures)` | Creatures the druid can wild shape into | PHB p37 |
 | `apply_wild_shape(base_scores, creature)` | Replace physical ability scores with the form's | PHB p37 |
 | `wild_shape_ability_adjustments(base_scores, creature)` | Replacement STR/DEX/CON deltas for derived stats | PHB p37 |
+| `form_effects(base_scores, creature)` | Size, physical-score deltas, natural armor and land speed the form replaces | PHB p37 |
 | `revert_wild_shape(original_scores)` | Restore original ability scores | PHB p37 |
 | `active_form_name(companions)` | Name of the active form persisted on the character | PHB p37 |
 

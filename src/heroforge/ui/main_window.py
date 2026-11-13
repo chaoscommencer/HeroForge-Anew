@@ -47,7 +47,9 @@ from heroforge.logic.wild_shape import (
 )
 from heroforge.logic.wild_shape import (
     druid_wild_shape_level,
-    wild_shape_ability_adjustments,
+)
+from heroforge.logic.wild_shape import (
+    form_effects as wild_shape_form_effects,
 )
 from heroforge.models.character import Character
 from heroforge.models.options import point_buy_budget as _options_point_buy_budget
@@ -393,17 +395,21 @@ class CharacterModel(QObject):
         size = race.size if race is not None else "Medium"
         natural_armor = race.natural_armor if race is not None else 0
         # Wild Shape (PHB p37): while a form is active the druid gains the new
-        # form's size, physical ability scores and natural armor, retaining
-        # their own mental scores.  The form's physical scores are applied as
-        # additive deltas on top of the base scores so they *replace* the
-        # character's STR/DEX/CON in the derived stats.
+        # form's size, physical ability scores, natural armor and land speed,
+        # retaining their own mental scores.  The form's physical scores are
+        # applied as additive deltas on top of the base scores so they
+        # *replace* the character's STR/DEX/CON (and the race's adjustments to
+        # them) in the derived stats; typed bonuses still stack on top.
         form = self._wild_shape_form()
-        if form is not None:
-            size = form.size or size
-            natural_armor = int(form.natural_armor)
-            adjustments.update(
-                wild_shape_ability_adjustments(self._character.ability_scores, form)
-            )
+        shape = (
+            wild_shape_form_effects(self._character.ability_scores, form)
+            if form is not None
+            else None
+        )
+        if shape is not None:
+            size = shape.size
+            natural_armor = shape.natural_armor
+            adjustments.update(shape.ability_adjustments)
         worn_armor = self._worn_armor()
         ac_bonuses, max_dex = self._armor_class_sources(natural_armor, worn_armor)
         # Medium/heavy body armor slows the wearer (PHB p122); the seeded races
@@ -416,6 +422,10 @@ class CharacterModel(QObject):
             if race is not None and race.base_land_speed > 0
             else DEFAULT_LAND_SPEED
         )
+        if shape is not None:
+            # The form's movement replaces the race's; worn armor and load
+            # still slow it below.
+            base_speed = shape.land_speed
         hp_flat, hp_per_level = self._hit_point_bonuses()
         # Magic-item bonus specs on character.equipment, the effects of the
         # active Tome of Battle stances on character.maneuvers and the always-on
