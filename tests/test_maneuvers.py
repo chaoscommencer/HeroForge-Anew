@@ -206,3 +206,49 @@ def test_stance_bonus_stacks_with_magic_item_by_type(custom_catalogue) -> None: 
     stanced = compute_derived_stats(character)
     assert stanced.fortitude == worn.fortitude + 2  # max(3, 1), not 3 + 1
     assert stanced.reflex == worn.reflex
+
+
+_RAT_FAMILIAR = {"companion_type": "familiar", "name": "Scratch", "creature": "Rat"}
+
+
+def test_model_derived_stats_apply_active_stance(qapp: object) -> None:
+    """CharacterModel.derived_stats() applies a stance alongside a familiar."""
+    from heroforge.ui.main_window import CharacterModel
+
+    model = CharacterModel()
+    model.character.classes = [("Warblade", 5)]
+    model.character.companions = [dict(_RAT_FAMILIAR)]
+    before = model.derived_stats()
+
+    model.character.maneuvers = [_maneuver("Punishing Stance", True)]
+    after = model.derived_stats()
+
+    assert after.armor_class == before.armor_class - 2
+    assert after.touch_ac == before.touch_ac - 2
+    assert after.flat_footed_ac == before.flat_footed_ac - 2
+    # The Rat familiar's +2 Fortitude is kept; Punishing Stance has no save
+    # penalty, so every save is unchanged.
+    assert after.fortitude == before.fortitude
+    assert after.reflex == before.reflex
+    assert after.will == before.will
+
+    model.character.maneuvers = [_maneuver("Punishing Stance", False)]
+    assert model.derived_stats() == before
+
+
+def test_model_stance_save_bonus_combines_with_familiar(
+    qapp: object, custom_catalogue  # type: ignore[no-untyped-def]
+) -> None:
+    """An untyped stance save bonus adds to the familiar's untyped bonus."""
+    from heroforge.ui.main_window import CharacterModel
+
+    custom_catalogue(StanceEffect("Test Stance", 1, KIND_SAVE, "Fortitude"))
+    model = CharacterModel()
+    model.character.companions = [dict(_RAT_FAMILIAR)]
+    familiar_only = model.derived_stats().fortitude
+    model.character.companions = []
+    assert model.derived_stats().fortitude == familiar_only - 2
+
+    model.character.companions = [dict(_RAT_FAMILIAR)]
+    model.character.maneuvers = [_maneuver("Test Stance", True)]
+    assert model.derived_stats().fortitude == familiar_only + 1
