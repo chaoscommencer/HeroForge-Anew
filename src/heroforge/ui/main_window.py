@@ -206,6 +206,14 @@ class CharacterModel(QObject):
     the :class:`~heroforge.ui.dialogs.options.OptionsDialog`.
     """
 
+    alignment_changed = pyqtSignal(str)
+    """Emitted after the user edits the character's alignment. Args: (alignment,).
+
+    Alignment does not affect any derived combat value, so it is not part of
+    :attr:`derived_stats_changed`; listeners whose output depends on it (such
+    as the Prestige Classes tab's ``ALIGN:`` prerequisites) connect here.
+    """
+
     custom_content_changed = pyqtSignal()
     """Emitted when homebrew content (custom classes, etc.) is added or edited.
 

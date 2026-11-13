@@ -74,12 +74,21 @@ class PrestigeClassesTab(QWidget):
         self._managed_names: set[str] = set()
         # Prestige class name -> list of prerequisite strings.
         self._prereq_map: dict[str, list[str]] = {}
+        # Snapshot of the prerequisite-relevant character state the list was
+        # last evaluated against (see :meth:`_prereq_state_key`).
+        self._evaluated_state: tuple[object, ...] | None = None
         self._build_ui()
         self._load_available()
         if model:
             model.character_reset.connect(self._reset)
             model.character_loaded.connect(lambda _id: self._on_character_loaded())
-            model.derived_stats_changed.connect(self._apply_prereq_status)
+            # derived_stats_changed fires for every stat change (buffs, armor,
+            # familiar ...); _on_prereq_inputs_changed re-evaluates only when
+            # something a prerequisite can depend on actually changed.
+            model.derived_stats_changed.connect(self._on_prereq_inputs_changed)
+            model.alignment_changed.connect(
+                lambda _alignment: self._on_prereq_inputs_changed()
+            )
             model.custom_content_changed.connect(self._load_available)
             self._sync_from_model()
 
@@ -200,6 +209,30 @@ class PrestigeClassesTab(QWidget):
             levels[name] = levels.get(name, 0) + int(level)
         return levels
 
+    def _prereq_state_key(self, bab: int) -> tuple[object, ...]:
+        """Return a hashable snapshot of every input a prerequisite can read."""
+        assert self._model is not None
+        char = self._model.character
+        return (
+            bab,
+            tuple(sorted(char.ability_scores.items())),
+            tuple(sorted(char.skills.items())),
+            tuple(sorted(f.casefold() for f in char.feats)),
+            char.total_level,
+            tuple(sorted(self._character_classes().items())),
+            char.alignment,
+            char.race,
+        )
+
+    def _on_prereq_inputs_changed(self) -> None:
+        """Re-evaluate prerequisite status only if a relevant input changed."""
+        if self._model is None:
+            return
+        bab = self._model.derived_stats().base_attack_bonus
+        if self._prereq_state_key(bab) == self._evaluated_state:
+            return
+        self._apply_prereq_status()
+
     def _apply_prereq_status(self) -> None:
         """Enable / disable available classes by prerequisite satisfaction.
 
@@ -273,6 +306,7 @@ class PrestigeClassesTab(QWidget):
                 item.setToolTip("")
                 font.setItalic(False)
             item.setFont(font)
+        self._evaluated_state = self._prereq_state_key(stats.base_attack_bonus)
         self._show_prerequisites(self._selected_avail_name() or "")
 
     def _selected_avail_name(self) -> str | None:

@@ -293,3 +293,54 @@ class TestCustomClassNameClash:
         assert tab._prereq_map["Mystic Theurge"] == []
         assert _enabled(item)
         assert item.toolTip() == ""
+
+
+class TestRelevantChangeReevaluation:
+    def test_alignment_edit_on_stats_tab_refreshes_status(self, model: object) -> None:
+        from heroforge.logic.prestige import custom_class_to_content
+        from heroforge.models.class_ import Class
+        from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        model.character.custom_content.append(
+            custom_class_to_content(
+                Class(name="Evil Order", is_prestige=True, prerequisites=["ALIGN:Evil"])
+            )
+        )
+        stats = StatsAndCharacterDetailsTab(model=model)
+        tab = PrestigeClassesTab(model=model)
+        item = _item(tab, "Evil Order")
+        assert not _enabled(item)
+
+        # Simulate the user typing an alignment into the Stats tab.
+        stats._alignment_edit.setText("Neutral Evil")
+        stats._alignment_edit.textEdited.emit("Neutral Evil")
+
+        assert model.character.alignment == "Neutral Evil"
+        assert _enabled(item)
+
+    def test_irrelevant_derived_stat_changes_skip_reevaluation(
+        self, model: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from heroforge.ui.tabs import prestige_classes
+
+        tab = prestige_classes.PrestigeClassesTab(model=model)
+        calls: list[str] = []
+        real = prestige_classes.evaluate_prestige_prerequisite
+
+        def counting(prereq: str, *args: object, **kwargs: object) -> object:
+            calls.append(prereq)
+            return real(prereq, *args, **kwargs)
+
+        monkeypatch.setattr(
+            prestige_classes, "evaluate_prestige_prerequisite", counting
+        )
+
+        # e.g. a buff toggled: derived stats change, prereq inputs do not.
+        model.derived_stats_changed.emit()
+        assert calls == []
+
+        model.skill_ranks_changed.emit(_skills_tab_name("Knowledge (Arc"), 4.0)
+        assert calls, "a skill-rank change must trigger re-evaluation"

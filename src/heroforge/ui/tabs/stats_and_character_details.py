@@ -82,6 +82,9 @@ class StatsAndCharacterDetailsTab(QWidget):
         self._player_edit.textEdited.connect(self._sync_to_model)
         self._campaign_edit.textEdited.connect(self._sync_to_model)
         self._alignment_edit.textEdited.connect(self._sync_to_model)
+        # Connected after _sync_to_model so listeners see the stored value.
+        if self._model is not None:
+            self._alignment_edit.textEdited.connect(self._model.alignment_changed)
         self._deity_edit.textEdited.connect(self._sync_to_model)
         self._homeland_edit.textEdited.connect(self._sync_to_model)
         self._gender_edit.textEdited.connect(self._sync_to_model)
