@@ -203,6 +203,7 @@ class SoulmeldsTab(QWidget):
             self._set_total_auto(self._summary.essentia_pool)
         self._refresh_pool()
         self._refresh_binds()
+        self._enforce_bind_limits()
 
     def _set_total_auto(self, value: int) -> None:
         """Set the total-essentia spin box from a computed value, keeping auto."""
@@ -353,6 +354,40 @@ class SoulmeldsTab(QWidget):
             for other in range(self._row_count())
         )
 
+    def _enforce_bind_limits(self) -> None:
+        """Release binds the character can no longer hold.
+
+        Walks the rows in order and keeps a bind only while the class
+        allowance has room and, for a row with a known chakra, that chakra is
+        open and not already held by an earlier kept bind.  Runs after class
+        levels change and after a character loads, so a lowered level or a
+        hand-edited save cannot leave more binds than the rules allow.
+        """
+        allowance = self._summary.chakra_binds_available
+        kept = 0
+        taken: set[str] = set()
+        changed = False
+        for row in range(self._row_count()):
+            checkbox = self._bound_checkbox(row)
+            if checkbox is None or not checkbox.isChecked():
+                continue
+            chakra = self._row_chakra(row)
+            if kept < allowance and (
+                not chakra
+                or (chakra in self._summary.unlocked_chakras and chakra not in taken)
+            ):
+                kept += 1
+                if chakra:
+                    taken.add(chakra)
+                continue
+            checkbox.blockSignals(True)
+            checkbox.setChecked(False)
+            checkbox.blockSignals(False)
+            changed = True
+        if changed:
+            self._refresh_binds()
+            self._sync_to_model()
+
     def _on_bound_toggled(self, checked: bool) -> None:
         # Enforce the chakra-bind rules: refuse a bind beyond the class
         # allowance, to a locked chakra, or to an occupied chakra.
@@ -489,3 +524,4 @@ class SoulmeldsTab(QWidget):
         self._apply_essentia_capacity()
         self._refresh_pool()
         self._refresh_binds()
+        self._enforce_bind_limits()

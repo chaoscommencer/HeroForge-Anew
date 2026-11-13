@@ -861,6 +861,50 @@ class TestIncarnumPsionicsManeuvers:
         assert third.isChecked() is True
         assert tab._bound_count() == 2
 
+    def test_binds_dropped_when_class_level_falls(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        model.character.classes = [("Incarnate", 9)]
+        model.derived_stats_changed.emit()
+        tab._add_row("Meld A", "Crown", 0)
+        tab._add_row("Airstep Sandals", "Feet", 0)
+        for row in range(2):
+            checkbox = tab._bound_checkbox(row)
+            assert checkbox is not None
+            checkbox.setChecked(True)
+        assert tab._bound_count() == 2
+
+        # Incarnate 2 has one bind and only the Crown chakra open: the Feet
+        # bind no longer holds and is released.
+        model.character.classes = [("Incarnate", 2)]
+        model.derived_stats_changed.emit()
+        assert tab._is_bound(0) is True
+        assert tab._is_bound(1) is False
+        assert tab._binds_lbl.text() == "1 / 1"
+        assert [m["chakra_bound"] for m in model.character.soulmelds] == ["Crown", ""]
+
+    def test_loaded_binds_over_the_limit_are_released(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # A hand-edited save: Incarnate 2 (one bind, Crown open) with a Feet
+        # bind and two soulmelds bound to Crown.
+        model.character.classes = [("Incarnate", 2)]
+        model.character.soulmelds = [
+            {"soulmeld_name": "Airstep Sandals", "chakra_bound": "Feet"},
+            {"soulmeld_name": "Meld A", "chakra_bound": "Crown"},
+            {"soulmeld_name": "Meld B", "chakra_bound": "Crown"},
+        ]
+        model.character_loaded.emit(0)
+
+        assert [tab._is_bound(r) for r in range(3)] == [False, True, False]
+        assert [m["chakra_bound"] for m in model.character.soulmelds] == [
+            "",
+            "Crown",
+            "",
+        ]
+
     def test_bind_without_known_chakra_only_checks_count(self, model: object) -> None:
         from heroforge.ui.tabs.soulmelds import SoulmeldsTab
 
