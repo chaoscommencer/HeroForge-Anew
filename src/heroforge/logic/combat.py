@@ -405,6 +405,11 @@ def damage_bonus(
 # ---------------------------------------------------------------------------
 
 
+#: Highest base attack bonus that still grants iterative attacks; the epic
+#: attack bonus beyond +20 adds to the attack roll but grants no extra attacks.
+MAX_ITERATIVE_BAB = 20
+
+
 def iterative_attack_count(bab: int) -> int:
     """Return the number of attacks granted by a Base Attack Bonus.
 
@@ -412,15 +417,19 @@ def iterative_attack_count(bab: int) -> int:
     gains one extra attack for every 5 points of base attack bonus above the
     first, so BAB +6 grants 2 attacks, +11 grants 3, and +16 grants 4.
 
+    Under the epic rules (ELH p21 / SRD "Epic Attack Bonus"), base attack bonus
+    above +20 does not grant further iterative attacks, so the count never
+    exceeds 4.
+
     Args:
         bab: Base attack bonus.
 
     Returns:
-        Number of melee/ranged attacks available on a full attack (minimum 1).
+        Number of melee/ranged attacks available on a full attack (1 to 4).
     """
     if bab <= 1:
         return 1
-    return 1 + (bab - 1) // 5
+    return 1 + (min(bab, MAX_ITERATIVE_BAB) - 1) // 5
 
 
 def iterative_attacks(attack_bonus: int, bab: int) -> list[int]:

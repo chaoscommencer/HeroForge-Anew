@@ -248,6 +248,12 @@ class TestIterativeAttacks:
         assert iterative_attack_count(16) == 4
         assert iterative_attack_count(20) == 4
 
+    def test_count_capped_at_epic_bab(self) -> None:
+        # Epic attack bonus (BAB above +20) grants no extra iterative attacks.
+        assert iterative_attack_count(21) == 4
+        assert iterative_attack_count(26) == 4
+        assert iterative_attacks(25, 21) == [25, 20, 15, 10]
+
     def test_progression_single_attack(self) -> None:
         assert iterative_attacks(7, 5) == [7]
 
