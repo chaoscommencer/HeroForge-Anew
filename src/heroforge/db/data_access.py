@@ -917,21 +917,23 @@ class GameDataRepository:
 
         Builds a :class:`IncarnumProgression` per class from the
         ``incarnum_progression`` and ``incarnum_chakra`` tables (seeded from the
-        workbook's "Soulmelds" sheet), with ``essentia``/``soulmelds`` indexed
-        by class level and ``chakra_unlocks`` mapping each chakra to its minimum
-        binding level.  Feeds
+        workbook's "Soulmelds" sheet), with ``essentia``/``soulmelds``/``binds``
+        indexed by class level and ``chakra_unlocks`` mapping each chakra to its
+        minimum binding level.  Feeds
         :func:`heroforge.logic.incarnum.compute_incarnum`.
         """
         prog_rows = self._query(
-            "SELECT class_name, class_level, essentia, soulmelds "
+            "SELECT class_name, class_level, essentia, soulmelds, binds "
             "FROM incarnum_progression ORDER BY class_name, class_level"
         )
         essentia_by_level: dict[str, dict[int, int]] = {}
         soulmelds_by_level: dict[str, dict[int, int]] = {}
+        binds_by_level: dict[str, dict[int, int]] = {}
         for r in prog_rows:
             cls = r["class_name"]
             essentia_by_level.setdefault(cls, {})[r["class_level"]] = r["essentia"]
             soulmelds_by_level.setdefault(cls, {})[r["class_level"]] = r["soulmelds"]
+            binds_by_level.setdefault(cls, {})[r["class_level"]] = r["binds"]
 
         chakra_rows = self._query(
             "SELECT class_name, chakra, min_level FROM incarnum_chakra "
@@ -949,10 +951,13 @@ class GameDataRepository:
             essentia = tuple(levels.get(i, 0) for i in range(max_level + 1))
             melds = soulmelds_by_level.get(cls, {})
             soulmelds = tuple(melds.get(i, 0) for i in range(max_level + 1))
+            bind_levels = binds_by_level.get(cls, {})
+            binds = tuple(bind_levels.get(i, 0) for i in range(max_level + 1))
             result[cls] = IncarnumProgression(
                 essentia=essentia,
                 soulmelds=soulmelds,
                 chakra_unlocks=chakra_by_class.get(cls, {}),
+                binds=binds,
             )
         return result
 

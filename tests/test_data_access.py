@@ -77,14 +77,15 @@ def seeded_repo(tmp_path: Path) -> GameDataRepository:
         )
         conn.executemany(
             "INSERT INTO incarnum_progression "
-            "(class_name, class_level, essentia, soulmelds) VALUES (?, ?, ?, ?)",
+            "(class_name, class_level, essentia, soulmelds, binds) "
+            "VALUES (?, ?, ?, ?, ?)",
             [
-                ("Incarnate", 0, 0, 0),
-                ("Incarnate", 1, 1, 2),
-                ("Incarnate", 2, 2, 3),
-                ("Totemist", 0, 0, 0),
-                ("Totemist", 1, 1, 2),
-                ("Totemist", 2, 2, 3),
+                ("Incarnate", 0, 0, 0, 0),
+                ("Incarnate", 1, 1, 2, 0),
+                ("Incarnate", 2, 2, 3, 1),
+                ("Totemist", 0, 0, 0, 0),
+                ("Totemist", 1, 1, 2, 0),
+                ("Totemist", 2, 2, 3, 1),
             ],
         )
         conn.executemany(
@@ -308,6 +309,10 @@ class TestIncarnumProgressions:
         # Levels 0-2 seeded as essentia 0/1/2 and soulmelds 0/2/3.
         assert incarnate.essentia == (0, 1, 2)
         assert incarnate.soulmelds == (0, 2, 3)
+
+    def test_binds_indexed_by_level(self, seeded_repo: GameDataRepository) -> None:
+        # Levels 0-2 seeded as binds 0/0/1 (TblClassBinds).
+        assert seeded_repo.incarnum_progressions()["Incarnate"].binds == (0, 0, 1)
 
     def test_chakra_unlocks_mapped(self, seeded_repo: GameDataRepository) -> None:
         progressions = seeded_repo.incarnum_progressions()

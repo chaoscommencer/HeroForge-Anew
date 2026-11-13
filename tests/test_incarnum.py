@@ -92,20 +92,39 @@ class TestMeldshaperLevel:
 
 class TestChakraBinds:
     def test_incarnate_level_9_unlocks(self) -> None:
-        # Crown(2), Feet(4), Hands(4), Arms(9), Brow(9), Shoulders(9) = 6.
+        # Crown(2), Feet(4), Hands(4), Arms(9), Brow(9), Shoulders(9) are open,
+        # but an Incarnate 9 may only have 2 soulmelds bound (TblClassBinds).
         chakras = unlocked_chakras({"Incarnate": 9})
         assert chakras == {"Crown", "Feet", "Hands", "Arms", "Brow", "Shoulders"}
-        assert chakra_binds_available({"Incarnate": 9}) == 6
+        assert chakra_binds_available({"Incarnate": 9}) == 2
 
-    def test_incarnate_level_20_unlocks_all_ten(self) -> None:
-        assert chakra_binds_available({"Incarnate": 20}) == 10
+    def test_incarnate_level_20_has_five_binds(self) -> None:
+        # All ten chakras are open at 20th level, but the bind allowance is 5.
+        assert len(unlocked_chakras({"Incarnate": 20})) == 10
+        assert chakra_binds_available({"Incarnate": 20}) == 5
+
+    def test_incarnate_bind_progression(self) -> None:
+        # TblClassBinds: 1 at 2nd, 2 at 6th, 3 at 10th, 4 at 14th, 5 at 18th.
+        expected = {1: 0, 2: 1, 5: 1, 6: 2, 10: 3, 14: 4, 18: 5}
+        for level, binds in expected.items():
+            assert chakra_binds_available({"Incarnate": level}) == binds
+
+    def test_soulborn_bind_progression(self) -> None:
+        # TblClassBinds: Soulborn 1 at 8th, 2 at 14th, 3 at 18th.
+        expected = {7: 0, 8: 1, 13: 1, 14: 2, 18: 3, 20: 3}
+        for level, binds in expected.items():
+            assert chakra_binds_available({"Soulborn": level}) == binds
 
     def test_totemist_totem_chakra_at_level_2(self) -> None:
         assert "Totem" in unlocked_chakras({"Totemist": 2})
 
     def test_multiclass_union(self) -> None:
         # Incarnate 9 (6 chakras) union Totemist 9 (Totem + 5 shared) = 7.
-        assert chakra_binds_available({"Incarnate": 9, "Totemist": 9}) == 7
+        assert len(unlocked_chakras({"Incarnate": 9, "Totemist": 9})) == 7
+
+    def test_multiclass_binds_add(self) -> None:
+        # Each class's bind allowance stacks: Incarnate 9 (2) + Totemist 9 (2).
+        assert chakra_binds_available({"Incarnate": 9, "Totemist": 9}) == 4
 
     def test_no_binds_below_threshold(self) -> None:
         assert chakra_binds_available({"Incarnate": 1}) == 0
@@ -117,13 +136,13 @@ class TestComputeIncarnum:
         assert summary.meldshaper_level == 9
         assert summary.essentia_pool == 9
         assert summary.soulmeld_capacity == 2
-        assert summary.chakra_binds_available == 6
+        assert summary.chakra_binds_available == 2
 
     def test_capped_character_summary(self) -> None:
         summary = compute_incarnum([("Incarnate", 20)], character_level=20)
         assert summary.essentia_pool == 26
         assert summary.soulmeld_capacity == 4
-        assert summary.chakra_binds_available == 10
+        assert summary.chakra_binds_available == 5
 
     def test_non_meldshaper_yields_zero(self) -> None:
         summary = compute_incarnum([("Fighter", 20)], character_level=20)
@@ -137,6 +156,7 @@ class TestComputeIncarnum:
                 essentia=(0, 5, 10),
                 soulmelds=(0, 1, 2),
                 chakra_unlocks={"Crown": 1, "Feet": 2},
+                binds=(0, 1, 2),
             )
         }
         summary = compute_incarnum(

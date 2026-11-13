@@ -282,6 +282,35 @@ class TestInitializeDatabase:
         finally:
             conn2.close()
 
+    def test_existing_incarnum_progression_gains_binds_column(
+        self, tmp_path: Path
+    ) -> None:
+        db_path = tmp_path / "old-incarnum.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE incarnum_progression ("
+            "id INTEGER PRIMARY KEY, class_name TEXT NOT NULL, "
+            "class_level INTEGER NOT NULL, essentia INTEGER NOT NULL DEFAULT 0, "
+            "soulmelds INTEGER NOT NULL DEFAULT 0, "
+            "UNIQUE(class_name, class_level))"
+        )
+        conn.execute(
+            "INSERT INTO incarnum_progression "
+            "(class_name, class_level, essentia, soulmelds) "
+            "VALUES ('Incarnate', 2, 2, 3)"
+        )
+        conn.commit()
+        conn.close()
+
+        conn2 = initialize_database(db_path)
+        try:
+            row = conn2.execute(
+                "SELECT class_name, essentia, binds FROM incarnum_progression"
+            ).fetchone()
+            assert tuple(row) == ("Incarnate", 2, 0)
+        finally:
+            conn2.close()
+
 
 class TestAllTablesExist:
     @pytest.fixture(autouse=True)

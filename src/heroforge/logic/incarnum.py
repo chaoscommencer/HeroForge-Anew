@@ -1,9 +1,10 @@
 """Incarnum (Magic of Incarnum) calculations for HeroForge-Anew.
 
-Reference: Magic of Incarnum (MoI) Chapters 2-3.  The per-class essentia and
-soulmeld progressions and the chakra-bind unlock levels are seeded from the
-workbook's "Soulmelds" sheet (Excel tab 8) into the ``incarnum_progression``
-and ``incarnum_chakra`` tables and supplied to the functions here as an
+Reference: Magic of Incarnum (MoI) Chapters 2-3.  The per-class essentia,
+soulmeld and chakra-bind progressions and the chakra unlock levels are seeded
+from the workbook's "Soulmelds" sheet (Excel tab 8) into the
+``incarnum_progression`` and ``incarnum_chakra`` tables and supplied to the
+functions here as an
 :class:`IncarnumProgression` mapping (see
 :meth:`heroforge.db.data_access.GameDataRepository.incarnum_progressions`), so
 the Python build matches the spreadsheet exactly without hard-coding the data.
@@ -31,11 +32,15 @@ class IncarnumProgression:
         soulmelds: Number of soulmelds shapeable, indexed the same way.
         chakra_unlocks: Mapping of chakra name -> minimum class level at which a
             soulmeld may be bound to that chakra.
+        binds: Number of soulmelds the class may have bound at once, indexed
+            by class level (workbook ``TblClassBinds``).  Empty when the class
+            grants no chakra binds.
     """
 
     essentia: tuple[int, ...]
     soulmelds: tuple[int, ...]
     chakra_unlocks: dict[str, int]
+    binds: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -47,7 +52,7 @@ class IncarnumSummary:
         essentia_pool:          Total essentia available to invest.
         soulmeld_capacity:      Maximum essentia investable in one soulmeld.
         soulmelds_shapeable:    Number of soulmelds that can be shaped.
-        chakra_binds_available: Number of chakras that can hold a bound soulmeld.
+        chakra_binds_available: Number of soulmelds that may be bound at once.
     """
 
     meldshaper_level: int
@@ -248,6 +253,14 @@ _FALLBACK_CHAKRA_UNLOCKS: dict[str, dict[str, int]] = {
 }
 
 
+#: Chakra binds per class level (workbook ``TblClassBinds``, MoI p22/p30/p38).
+_FALLBACK_BINDS: dict[str, tuple[int, ...]] = {
+    "Incarnate": (0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5),
+    "Soulborn": (0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3),
+    "Totemist": (0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5),
+}
+
+
 def _fallback_progressions() -> dict[str, IncarnumProgression]:
     """Return the in-code progression catalogue used when unseeded."""
     return {
@@ -255,6 +268,7 @@ def _fallback_progressions() -> dict[str, IncarnumProgression]:
             essentia=_FALLBACK_ESSENTIA[cls],
             soulmelds=_FALLBACK_SOULMELDS[cls],
             chakra_unlocks=dict(_FALLBACK_CHAKRA_UNLOCKS[cls]),
+            binds=_FALLBACK_BINDS[cls],
         )
         for cls in _FALLBACK_ESSENTIA
     }
@@ -397,21 +411,31 @@ def chakra_binds_available(
     class_levels: Mapping[str, int],
     progressions: Mapping[str, IncarnumProgression] | None = None,
 ) -> int:
-    """Return the number of chakras available to bind soulmelds to.
+    """Return the number of soulmelds the character may have bound at once.
 
-    Each open chakra can hold a single bound soulmeld, so this count is the
-    maximum number of soulmelds the character may have bound at once.
+    Each meldshaping class grants a fixed number of chakra binds per class
+    level (Incarnate 1 at 2nd, 2 at 6th, ... 5 at 18th); multiclass allowances
+    add together.  This is the workbook's ``TblClassBinds`` lookup summed over
+    the "Soulmelds" sheet's per-class "Total binds" cells (``BP11:BP14``).  The
+    open chakras from :func:`unlocked_chakras` only decide *where* a soulmeld
+    may be bound, not how many may be.
 
-    Reference: MoI p22/p30/p38 (chakra bind class features).
+    Reference: MoI p22/p30/p38 (Chakra Binds column of each class table).
 
     Args:
         class_levels: Mapping of class name -> levels in that class.
         progressions: Override mapping of class -> :class:`IncarnumProgression`.
 
     Returns:
-        Number of bindable chakras.
+        Total chakra binds available.
     """
-    return len(unlocked_chakras(class_levels, progressions))
+    tables = progressions if progressions is not None else _fallback_progressions()
+    total = 0
+    for cls, lvl in class_levels.items():
+        prog = tables.get(cls)
+        if prog is not None and lvl > 0:
+            total += _table_lookup(prog.binds, lvl)
+    return total
 
 
 def meldshaping_class_levels(

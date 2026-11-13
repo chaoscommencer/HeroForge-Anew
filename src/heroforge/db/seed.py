@@ -1001,12 +1001,14 @@ def _extract_psionic_progression(wb: object) -> list[tuple[object, ...]]:
 
 _INCARNUM_SHEET = "Soulmelds"
 
-#: ``TblClassEssentia`` (essentia per class level) and ``TblClassMelds``
-#: (soulmelds shapeable per class level) on the "Soulmelds" sheet.  Both are
-#: laid out with a class name in the header row and one value per level (0-20)
-#: in the rows beneath.  See the workbook's defined names of the same names.
+#: ``TblClassEssentia`` (essentia per class level), ``TblClassMelds``
+#: (soulmelds shapeable per class level) and ``TblClassBinds`` (chakra binds
+#: per class level) on the "Soulmelds" sheet.  All three are laid out with a
+#: class name in the header row and one value per level (0-20) in the rows
+#: beneath.  See the workbook's defined names of the same names.
 _INCARNUM_ESSENTIA_RANGE = "AN1:AS22"
 _INCARNUM_MELDS_RANGE = "AT1:AW22"
+_INCARNUM_BINDS_RANGE = "AX1:BA22"
 
 #: Chakra-unlock formulas live in columns Z (Incarnate), AA (Soulborn) and
 #: AB (Totemist), rows 30-39, each of the form
@@ -1027,20 +1029,23 @@ _INCARNUM_TOTEM_CLASS = "Totemist"
 
 
 def _extract_incarnum_progression(wb: object) -> list[tuple[object, ...]]:
-    """Extract per-class essentia / soulmeld progressions from the workbook.
+    """Extract per-class essentia / soulmeld / bind progressions from the workbook.
 
-    Reads ``TblClassEssentia`` and ``TblClassMelds`` on the "Soulmelds" sheet
-    (Excel tab 8).  Returns ``(class_name, class_level, essentia, soulmelds)``
-    tuples for levels 0-20, transcribed directly from those tables so the
-    Python build matches the spreadsheet (Magic of Incarnum class tables).
+    Reads ``TblClassEssentia``, ``TblClassMelds`` and ``TblClassBinds`` on the
+    "Soulmelds" sheet (Excel tab 8).  Returns ``(class_name, class_level,
+    essentia, soulmelds, binds)`` tuples for levels 0-20, transcribed directly
+    from those tables so the Python build matches the spreadsheet (Magic of
+    Incarnum class tables).
     """
     ws = wb[_INCARNUM_SHEET]  # type: ignore[index]
     essentia = _read_incarnum_class_table(ws, _INCARNUM_ESSENTIA_RANGE)
     melds = _read_incarnum_class_table(ws, _INCARNUM_MELDS_RANGE)
+    binds = _read_incarnum_class_table(ws, _INCARNUM_BINDS_RANGE)
 
     rows: list[tuple[object, ...]] = []
     for class_name, values in essentia.items():
         meld_values = melds.get(class_name, {})
+        bind_values = binds.get(class_name, {})
         for level, essentia_value in values.items():
             rows.append(
                 (
@@ -1048,6 +1053,7 @@ def _extract_incarnum_progression(wb: object) -> list[tuple[object, ...]]:
                     level,
                     essentia_value,
                     meld_values.get(level, 0),
+                    bind_values.get(level, 0),
                 )
             )
     return rows
@@ -1688,7 +1694,8 @@ def seed_incarnum_progression(
     """Seed the *incarnum_progression* and *incarnum_chakra* tables.
 
     Replaces both tables in full with the per-class essentia / soulmeld
-    progressions (``TblClassEssentia`` / ``TblClassMelds``) and the per-class
+    progressions (``TblClassEssentia`` / ``TblClassMelds`` / ``TblClassBinds``)
+    and the per-class
     chakra-bind unlock levels transcribed from the workbook's "Soulmelds" sheet
     (Excel tab 8, Magic of Incarnum).  The workbook is loaded in formula mode so
     the chakra-unlock formulas are readable; callers may pass an already-open
@@ -1735,8 +1742,8 @@ def seed_incarnum_progression(
         try:
             conn.execute(
                 "INSERT INTO incarnum_progression "
-                "(class_name, class_level, essentia, soulmelds) "
-                "VALUES (?, ?, ?, ?)",
+                "(class_name, class_level, essentia, soulmelds, binds) "
+                "VALUES (?, ?, ?, ?, ?)",
                 values,
             )
             inserted += 1

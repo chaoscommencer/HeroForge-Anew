@@ -244,14 +244,16 @@ CREATE TABLE IF NOT EXISTS incarnum_abilities (
     description TEXT
 );
 
--- Per-class essentia and soulmeld progression (Magic of Incarnum), seeded
--- from the workbook's "Soulmelds" sheet (TblClassEssentia / TblClassMelds).
+-- Per-class essentia, soulmeld and chakra-bind progression (Magic of
+-- Incarnum), seeded from the workbook's "Soulmelds" sheet (TblClassEssentia /
+-- TblClassMelds / TblClassBinds).
 CREATE TABLE IF NOT EXISTS incarnum_progression (
     id              INTEGER PRIMARY KEY,
     class_name      TEXT NOT NULL,
     class_level     INTEGER NOT NULL,
     essentia        INTEGER NOT NULL DEFAULT 0,
     soulmelds       INTEGER NOT NULL DEFAULT 0,
+    binds           INTEGER NOT NULL DEFAULT 0,
     UNIQUE(class_name, class_level)
 );
 

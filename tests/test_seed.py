@@ -804,6 +804,31 @@ class TestIncarnumProgressionSeed:
         assert rows[("Incarnate", 20)] == 26
 
     @requires_workbook
+    def test_binds_match_workbook(self, incarnum_db: Path) -> None:
+        conn = get_connection(incarnum_db)
+        try:
+            rows = {
+                (r["class_name"], r["class_level"]): r["binds"]
+                for r in conn.execute(
+                    "SELECT class_name, class_level, binds FROM incarnum_progression"
+                )
+            }
+        finally:
+            conn.close()
+        # TblClassBinds: Incarnate 1 at 2nd, 2 at 9th, 5 at 20th; Soulborn 1 at
+        # 8th, 3 at 18th; Spinemeld Warrior 1 at 7th.
+        assert rows[("Incarnate", 1)] == 0
+        assert rows[("Incarnate", 2)] == 1
+        assert rows[("Incarnate", 9)] == 2
+        assert rows[("Incarnate", 20)] == 5
+        assert rows[("Soulborn", 7)] == 0
+        assert rows[("Soulborn", 8)] == 1
+        assert rows[("Soulborn", 18)] == 3
+        assert rows[("Totemist", 6)] == 2
+        assert rows[("Spinemeld Warrior", 6)] == 0
+        assert rows[("Spinemeld Warrior", 7)] == 1
+
+    @requires_workbook
     def test_chakra_unlocks_seeded(self, incarnum_db: Path) -> None:
         conn = get_connection(incarnum_db)
         try:

@@ -102,9 +102,10 @@ class SoulmeldsTab(QWidget):
         self._capacity_lbl = QLabel("0")
         self._binds_lbl = QLabel("0 / 0")
         self._binds_lbl.setToolTip(
-            "Bound soulmelds / open chakras. A soulmeld can only be bound to a "
-            "chakra you have unlocked, and each open chakra holds one bound "
-            "soulmeld (Magic of Incarnum)."
+            "Bound soulmelds / chakra binds allowed by your meldshaping class "
+            "levels. A soulmeld can only be bound to a chakra you have "
+            "unlocked, and each open chakra holds one bound soulmeld (Magic of "
+            "Incarnum)."
         )
         self._auto_chk.toggled.connect(self._on_auto_toggled)
         self._total_spin.valueChanged.connect(self._on_total_changed)
@@ -306,7 +307,7 @@ class SoulmeldsTab(QWidget):
 
     def _on_bound_toggled(self, checked: bool) -> None:
         # Enforce the chakra-bind limit: refuse to bind more soulmelds than the
-        # character has open chakras.
+        # character's meldshaping classes allow.
         if (
             checked
             and not self._loading

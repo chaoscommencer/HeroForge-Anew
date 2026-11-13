@@ -719,7 +719,7 @@ class TestIncarnumPsionicsManeuvers:
         from heroforge.ui.tabs.soulmelds import SoulmeldsTab
 
         tab = SoulmeldsTab(model=model)
-        # Incarnate 9 grants 9 essentia, capacity 2, and 6 open chakras
+        # Incarnate 9 grants 9 essentia, capacity 2, and 2 chakra binds
         # (Magic of Incarnum, "Soulmelds" sheet / fallback tables).
         model.character.classes = [("Incarnate", 9)]
         model.derived_stats_changed.emit()
@@ -727,14 +727,15 @@ class TestIncarnumPsionicsManeuvers:
         assert tab._meldshaper_lbl.text() == "9"
         assert tab._capacity_lbl.text() == "2"
         assert tab._total_spin.value() == 9
-        assert tab._summary.chakra_binds_available == 6
+        assert tab._summary.chakra_binds_available == 2
+        assert tab._binds_lbl.text() == "0 / 2"
         assert model.character.options["essentia_pool"] == "9"
 
     def test_chakra_bind_limit_enforced(self, model: object) -> None:
         from heroforge.ui.tabs.soulmelds import SoulmeldsTab
 
         tab = SoulmeldsTab(model=model)
-        # Incarnate 2 opens only the Crown chakra: a single bind is allowed.
+        # Incarnate 2 has a single chakra bind (TblClassBinds).
         model.character.classes = [("Incarnate", 2)]
         model.derived_stats_changed.emit()
         assert tab._summary.chakra_binds_available == 1
