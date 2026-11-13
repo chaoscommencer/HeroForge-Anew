@@ -109,7 +109,12 @@ class ArmorItem:
 
 @dataclass(frozen=True)
 class WeaponItem:
-    """A weapon entry from the ``weapons`` table."""
+    """A weapon entry from the ``weapons`` table.
+
+    ``handedness`` is the ``WeaponInfo`` size code: ``L`` (light), ``O``
+    (one-handed), ``T`` (two-handed), ``R`` (ranged) or ``U`` (unarmed); it is
+    empty for custom weapons.
+    """
 
     name: str
     category: str
@@ -118,6 +123,7 @@ class WeaponItem:
     range_increment: int
     damage_type: str
     source: str
+    handedness: str = ""
 
 
 @dataclass(frozen=True)
@@ -942,8 +948,9 @@ class GameDataRepository:
         fragment, params = self._source_filter("source", sources)
         where = f"WHERE {fragment}" if fragment else ""
         rows = self._query(
-            "SELECT name, category, damage_medium, critical, range_increment, "
-            f"damage_type, source FROM weapons {where} ORDER BY name",
+            "SELECT name, category, size, damage_medium, critical, "
+            f"range_increment, damage_type, source FROM weapons {where} "
+            "ORDER BY name",
             params,
         )
         return [
@@ -955,6 +962,7 @@ class GameDataRepository:
                 range_increment=int(r["range_increment"] or 0),
                 damage_type=r["damage_type"] or "",
                 source=r["source"] or "",
+                handedness=(r["size"] or "").strip().upper(),
             )
             for r in rows
         ]

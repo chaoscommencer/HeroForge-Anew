@@ -584,6 +584,34 @@ def weapon_damage(dice: str, damage_modifier: int = 0) -> str:
     return base
 
 
+def weapon_strength_damage(
+    str_mod: int,
+    handedness: str = "",
+    *,
+    off_hand: bool = False,
+) -> int:
+    """Return the Strength modifier a weapon adds to its damage.
+
+    Reference: PHB p113-114 (weapon categories) and p134 (Strength).
+
+    *handedness* is the weapon's ``WeaponInfo`` size code: ``L`` (light),
+    ``O`` (one-handed), ``T`` (two-handed), ``R`` (ranged) or ``U`` (unarmed).
+    A two-handed melee weapon adds 1.5x a Strength bonus; an off-hand weapon
+    adds half (see :func:`damage_bonus`).
+
+    Args:
+        str_mod:    Strength modifier.
+        handedness: The weapon's size/handedness code (case-insensitive).
+        off_hand:   ``True`` when the weapon is wielded in the off hand.
+
+    Returns:
+        The Strength contribution to damage.
+    """
+    code = (handedness or "").strip().upper()
+    two_handed = code == "T" and not off_hand
+    return damage_bonus(str_mod, two_handed=two_handed, off_hand=off_hand)
+
+
 def carrying_capacity(str_score: int) -> tuple[int, int, int]:
     """Return (light_max, medium_max, heavy_max) carrying limits in pounds.
 

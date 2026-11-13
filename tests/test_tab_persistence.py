@@ -145,11 +145,12 @@ def catalog_db(tmp_path: Path) -> Path:
             ],
         )
         conn.executemany(
-            "INSERT INTO weapons (name, category, damage_medium, critical, "
-            "range_increment, damage_type, source) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO weapons (name, category, size, damage_medium, critical, "
+            "range_increment, damage_type, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                ("Longsword", "Martial", "1d8", "19-20/x2", 0, "slashing", "PHB"),
-                ("Longbow", "Martial", "1d8", "x3", 100, "piercing", "PHB"),
+                ("Longsword", "Martial", "O", "1d8", "19-20/x2", 0, "slashing", "PHB"),
+                ("Longbow", "Martial", "R", "1d8", "x3", 100, "piercing", "PHB"),
+                ("Greatsword", "Martial", "T", "2d6", "19-20/x2", 0, "slashing", "PHB"),
             ],
         )
         conn.executemany(
@@ -486,6 +487,10 @@ class TestEquipmentPartitioning:
 # ---------------------------------------------------------------------------
 
 
+def _catalogue_weapon(model: object, name: str) -> object:
+    return next(w for w in model.game_data().list_weapons() if w.name == name)
+
+
 class TestAttacksTab:
     def test_weapon_from_catalogue_persists(self, model: object) -> None:
         from heroforge.ui.tabs.attacks import AttacksTab
@@ -545,6 +550,18 @@ class TestAttacksTab:
         assert damage_cell is not None
         assert damage_cell.text() == damage
         assert model.character.attacks[0]["damage"] == damage
+
+    def test_two_handed_weapon_gets_one_and_a_half_strength(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        tab.add_weapon(_catalogue_weapon(model, "Greatsword"))
+        model.derived_stats_changed.emit()
+        # PHB p113: 2d6 + 1.5 x STR (+4) = 2d6+6.
+        assert tab._weapons_table.item(0, 2).text() == "2d6+6"
 
     def test_user_entered_damage_is_kept(self, model: object) -> None:
         from heroforge.ui.tabs.attacks import AttacksTab

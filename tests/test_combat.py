@@ -25,6 +25,7 @@ from heroforge.logic.combat import (
     two_weapon_penalties,
     weapon_base_dice,
     weapon_damage,
+    weapon_strength_damage,
 )
 
 
@@ -333,6 +334,23 @@ class TestWeaponDamage:
     def test_two_handed_str_damage(self) -> None:
         # 1.5x STR damage applied via damage_bonus then formatted.
         assert weapon_damage("2d6", damage_bonus(4, two_handed=True)) == "2d6+6"
+
+
+class TestWeaponStrengthDamage:
+    def test_one_handed_melee_gets_full_strength(self) -> None:
+        assert weapon_strength_damage(4, "O") == 4
+        assert weapon_strength_damage(4, "L") == 4
+
+    def test_two_handed_melee_gets_one_and_a_half_strength(self) -> None:
+        # PHB p113: two-handed weapons add 1.5x STR bonus (round down).
+        assert weapon_strength_damage(4, "T") == 6
+        assert weapon_strength_damage(3, "T") == 4
+
+    def test_two_handed_strength_penalty_is_not_multiplied(self) -> None:
+        assert weapon_strength_damage(-2, "T") == -2
+
+    def test_unknown_handedness_gets_full_strength(self) -> None:
+        assert weapon_strength_damage(4, "") == 4
 
 
 class TestFormatAttackLine:

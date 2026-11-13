@@ -25,11 +25,11 @@ from PyQt6.QtWidgets import (
 )
 
 from heroforge.logic.combat import (
-    damage_bonus,
     format_attack_line,
     iterative_attacks,
     weapon_base_dice,
     weapon_damage,
+    weapon_strength_damage,
 )
 from heroforge.ui.tabs._tab_helper import pick_from_catalog
 
@@ -139,6 +139,8 @@ class AttacksTab(QWidget):
     def _computed_damage(self, weapon: WeaponItem | None, ranged: bool) -> str | None:
         """Return *weapon*'s damage as weapon dice plus Strength (PHB p134).
 
+        Two-handed melee weapons add 1.5x a Strength bonus (PHB p113).
+
         Returns ``None`` when the weapon is unknown or its catalogue damage has
         no ``NdM`` dice (e.g. ``ref:UnarmedStrikeDamage``), in which case the
         row's damage text is left exactly as it is.
@@ -151,7 +153,7 @@ class AttacksTab(QWidget):
         if ranged or self._model is None:
             return base
         str_mod = self._model.derived_stats().ability_modifiers.get("STR", 0)
-        return weapon_damage(base, damage_bonus(str_mod))
+        return weapon_damage(base, weapon_strength_damage(str_mod, weapon.handedness))
 
     def _update_damage_cell(
         self, row: int, weapon: WeaponItem | None, computed: str | None
