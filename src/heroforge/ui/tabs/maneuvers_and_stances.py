@@ -131,6 +131,9 @@ class ManeuversAndStancesTab(QWidget):
     def _sync_to_model(self) -> None:
         if self._model is not None:
             self._model.character.maneuvers = self._entries()
+            # Active stances feed derived stats (e.g. Punishing Stance's -2
+            # AC), so tell the sheet/stat tabs to recompute.
+            self._model.derived_stats_changed.emit()
 
     def _on_item_changed(self, _item: QListWidgetItem) -> None:
         self._sync_to_model()
