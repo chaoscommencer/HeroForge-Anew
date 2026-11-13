@@ -56,10 +56,12 @@ def test_punishing_stance_unconditional_bonuses() -> None:
 
 
 def test_conditional_stances_are_excluded() -> None:
-    # Stonefoot Stance's +2 AC and Bolstering Voice's +2 Will save are both
-    # situational, so neither feeds a computed total.
+    # Stonefoot Stance's +2 AC, Stance of Clarity's +2/-2 AC and Bolstering
+    # Voice's ally-only +2 Will save are all situational, so none of them
+    # feeds a computed total.
     maneuvers = [
         _maneuver("Stonefoot Stance", True),
+        _maneuver("Stance of Clarity", True),
         _maneuver("Bolstering Voice", True),
     ]
     assert stance_save_bonuses(maneuvers) == {}
@@ -84,9 +86,31 @@ def test_describe_effect_text() -> None:
     punishing_ac = by_name[("Punishing Stance", "ac")]
     bolster = by_name[("Bolstering Voice", "save")]
     assert describe_effect(punishing_ac) == "-2 penalty to AC."
+    # Workbook row 211: "Allies gain +2 bonus on Will saves, +4 against fear".
     assert describe_effect(bolster) == (
-        "+2 bonus on Will saves against fear and charm effects."
+        "+2 bonus on Will saves for allies only (+4 against fear)."
     )
+
+
+def test_catalogue_matches_workbook_text() -> None:
+    """Conditional entries follow the workbook's Maneuvers & Stances text."""
+    names = {e.stance_name for e in STANCE_EFFECTS}
+    # Row 167: "+10 bonus on checks against bull rush, trip, and others, and
+    # gain DR 2/-" — no AC or saving-throw effect to catalogue.
+    assert "Roots of the Mountain" not in names
+    # Row 66: "Gain +2 AC against one fo[e], -2 against all others"; ToB types
+    # the bonus as insight.
+    clarity = sorted(
+        (e.value, e.target, e.condition)
+        for e in STANCE_EFFECTS
+        if e.stance_name == "Stance of Clarity"
+    )
+    assert clarity == [
+        (-2, "untyped", "against all other opponents"),
+        (2, "insight", "against one chosen opponent"),
+    ]
+    bolster = [e for e in STANCE_EFFECTS if e.stance_name == "Bolstering Voice"]
+    assert len(bolster) == 1 and bolster[0].conditional
 
 
 def test_derived_stats_apply_punishing_stance() -> None:

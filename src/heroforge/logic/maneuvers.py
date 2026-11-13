@@ -85,36 +85,27 @@ STANCE_EFFECTS: tuple[StanceEffect, ...] = (
     # Stone Dragon — Stonefoot Stance (ToB p67): +2 AC, but only against
     # creatures larger than you.
     StanceEffect("Stonefoot Stance", 2, KIND_AC, "untyped", "against larger creatures"),
-    # Stone Dragon — Roots of the Mountain (ToB p66): +2 AC and +2 on saves, but
-    # only to resist bull rush, trip, grapple and overrun attempts.
+    # Stone Dragon — Roots of the Mountain is deliberately absent: its effects
+    # ("+10 bonus on checks against bull rush, trip, and others, and gain DR
+    # 2/-", workbook row 167) touch neither AC nor a saving throw.
+    # Diamond Mind — Stance of Clarity (ToB p62): "Gain +2 AC against one fo[e],
+    # -2 against all others" (workbook row 66).  ToB types the bonus as insight.
     StanceEffect(
-        "Roots of the Mountain",
-        2,
-        KIND_AC,
-        "untyped",
-        "against bull rush, trip, grapple and overrun",
+        "Stance of Clarity", 2, KIND_AC, "insight", "against one chosen opponent"
     ),
     StanceEffect(
-        "Roots of the Mountain",
-        2,
-        KIND_SAVE,
-        "Fortitude",
-        "against bull rush, trip, grapple and overrun",
-    ),
-    # Diamond Mind — Stance of Clarity (ToB p62): +2 dodge AC, but only against a
-    # single chosen opponent.
-    StanceEffect(
-        "Stance of Clarity", 2, KIND_AC, "dodge", "against one chosen opponent"
+        "Stance of Clarity", -2, KIND_AC, "untyped", "against all other opponents"
     ),
     # Iron Heart — Absolute Steel Stance (ToB p69): +2 dodge AC, but only while
     # you move at least 10 feet in a round.
     StanceEffect(
         "Absolute Steel Stance", 2, KIND_AC, "dodge", "while moving 10 ft. or more"
     ),
-    # White Raven — Bolstering Voice (ToB p84): +2 morale bonus on saves, but
-    # only against fear and charm effects.
+    # White Raven — Bolstering Voice (ToB p84): "Allies gain +2 bonus on Will
+    # saves, +4 against fear" (workbook row 211).  It benefits allies, not the
+    # initiator, so it is catalogued as conditional and never applied here.
     StanceEffect(
-        "Bolstering Voice", 2, KIND_SAVE, "Will", "against fear and charm effects"
+        "Bolstering Voice", 2, KIND_SAVE, "Will", "for allies only (+4 against fear)"
     ),
 )
 
@@ -130,7 +121,7 @@ def describe_effect(effect: StanceEffect) -> str:
 
     Returns:
         A sentence such as ``"-2 penalty to AC."`` or
-        ``"+2 bonus on Will saves against fear and charm effects."``.
+        ``"+2 bonus on Will saves for allies only (+4 against fear)."``.
     """
     sign = "+" if effect.value >= 0 else ""
     word = "bonus" if effect.value >= 0 else "penalty"
