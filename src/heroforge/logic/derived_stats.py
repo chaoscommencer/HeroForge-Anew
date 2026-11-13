@@ -175,7 +175,7 @@ def _buff_bonus_sources(
             spec["target"],
             buffs.buff_amount(spec["value"]),
         )
-    if not marshal.active_aura_names(character):
+    if not marshal.projected_auras(character):
         return buffs.aggregate_bonuses(records), ac_bonuses
     charisma = max(
         1,

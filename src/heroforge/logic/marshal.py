@@ -345,13 +345,77 @@ def marshal_level(character: Character) -> int:
     )
 
 
-def active_aura_names(character: Character) -> list[str]:
-    """Return the names of the auras the character is projecting, in order."""
-    return [
-        str(entry.get("aura_name") or "")
-        for entry in getattr(character, "marshal_auras", None) or []
-        if entry.get("active") and entry.get("aura_name")
-    ]
+#: Auras known by marshal level, ``(minor, major)`` for levels 0-20.  Ports
+#: ``TblMarshallAurasKnown`` (``'Marshal Auras'!H1:J21``).
+AURAS_KNOWN: tuple[tuple[int, int], ...] = (
+    (0, 0),
+    (1, 0),
+    (1, 1),
+    (2, 1),
+    (2, 1),
+    (3, 2),
+    (3, 2),
+    (4, 2),
+    (4, 2),
+    (5, 3),
+    (5, 3),
+    (5, 3),
+    (6, 3),
+    (6, 3),
+    (6, 4),
+    (7, 4),
+    (7, 4),
+    (7, 4),
+    (7, 4),
+    (8, 4),
+    (8, 5),
+)
+
+
+def auras_known(level: int) -> tuple[int, int]:
+    """Return how many ``(minor, major)`` auras a marshal of *level* knows.
+
+    Levels above 20 use the 20th-level row.
+    """
+    return AURAS_KNOWN[max(0, min(level, len(AURAS_KNOWN) - 1))]
+
+
+def max_active_auras(level: int) -> tuple[int, int]:
+    """Return how many ``(minor, major)`` auras a marshal can project at once.
+
+    One minor aura from 1st level and one major aura from 2nd level
+    (``Class Abilities!A1641``: "You may project one minor and one major aura
+    at a time").
+    """
+    return (1 if level >= 1 else 0, 1 if level >= 2 else 0)
+
+
+def projected_auras(
+    character: Character,
+    catalog: Iterable[MarshalAura] = STANDARD_MARSHAL_AURAS,
+) -> list[MarshalAura]:
+    """Return the auras the character is actually projecting.
+
+    Entries of ``character.marshal_auras`` are the auras the character knows;
+    those flagged ``active`` are the ones it chose to project.  A marshal
+    projects at most one minor and one major aura at a time
+    (:func:`max_active_auras`), so only the first active aura of each type
+    counts, a character with no Marshal levels projects nothing and a marshal
+    below 2nd level projects no major aura.  Names missing from *catalog* are
+    skipped.
+    """
+    by_name = {a.name: a for a in catalog}
+    limits = dict(zip((MINOR, MAJOR), max_active_auras(marshal_level(character))))
+    projected: list[MarshalAura] = []
+    for entry in getattr(character, "marshal_auras", None) or []:
+        if not entry.get("active"):
+            continue
+        aura = by_name.get(str(entry.get("aura_name") or ""))
+        if aura is None or limits.get(aura.aura_type, 0) <= 0:
+            continue
+        limits[aura.aura_type] -= 1
+        projected.append(aura)
+    return projected
 
 
 def aura_bonus_specs(
@@ -377,16 +441,14 @@ def aura_bonus_specs(
         catalog:           The aura catalogue to resolve names against.
 
     Returns:
-        One spec per active aura whose effect the derived stats model.  Unknown
-        auras, unmodelled effects (:data:`TARGET_NONE`) and zero values are
-        skipped.
+        One spec per projected aura (:func:`projected_auras`) whose effect the
+        derived stats model.  Unmodelled effects (:data:`TARGET_NONE`) and zero
+        values are skipped.
     """
-    by_name = {a.name: a for a in catalog}
     level = marshal_level(character)
     specs: list[dict[str, object]] = []
-    for name in active_aura_names(character):
-        aura = by_name.get(name)
-        if aura is None or not aura.affects_derived_stats:
+    for aura in projected_auras(character, catalog):
+        if not aura.affects_derived_stats:
             continue
         value = aura_value(aura, charisma_modifier, level)
         if value == 0:
