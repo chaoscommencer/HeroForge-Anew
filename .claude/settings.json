@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CMD=$(python3 -I -c \"import json,sys; d=json.load(sys.stdin); print('grep' if d.get('tool_name')=='Grep' else d.get('tool_input',d).get('command',''))\" 2>/dev/null || true); case \"$CMD\" in *build-graph.sh*) ;; *grep*|*rg\\ *|*ripgrep*|*find\\ *|*fd\\ *|*ack\\ *|*ag\\ *) [ -f graphify-out/graph.json ] && echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"additionalContext\": \"graphify-out/graph.json exists. Run `scripts/build-graph.sh --keep-image graphify query \\\"<question>\\\"` before grepping raw files. Only grep after graphify has oriented you, or to modify/debug specific lines.\"}}' || true ;; esac",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "HIT=$(python3 -I -c \"import json,sys;d=json.load(sys.stdin);t=d.get('tool_input',d);s=(str(t.get('file_path') or '')+' '+str(t.get('pattern') or '')+' '+str(t.get('path') or '')).lower().replace(chr(92),'/');exts=('.py','.sh','.md','.toml','.yml','.yaml','.sql');sys.stdout.write('1' if 'graphify-out/' not in s and any(e in s for e in exts) else '')\" 2>/dev/null || true); if [ \"$HIT\" = 1 ] && [ -f graphify-out/graph.json ]; then echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"additionalContext\": \"graphify-out/graph.json exists. Query the graph before reading source files: `scripts/build-graph.sh --keep-image graphify query \\\"<question>\\\"`, `scripts/build-graph.sh --keep-image graphify explain \\\"<concept>\\\"`, or `scripts/build-graph.sh --keep-image graphify path \\\"<A>\\\" \\\"<B>\\\"`. Only read raw files after graphify has oriented you, or to modify/debug specific lines. This applies to subagents too: include it in every subagent prompt involving code exploration.\"}}'; fi || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
