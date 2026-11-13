@@ -281,7 +281,7 @@ def check_prestige_prerequisites(
 
 
 def available_prestige_classes(
-    all_prestige_classes: list[dict[str,str]],
+    all_prestige_classes: list[dict[str, str]],
     prereq_map: dict[str, list[str]],
     character_bab: int,
     character_ability_scores: dict[str, int],
