@@ -5,6 +5,12 @@ on:
     branches: ["main", "master", "copilot/**"]
   pull_request:
     branches: ["main", "master"]
+    # Not enabled yet: also run CI for pull requests INTO the long-lived
+    # copilot/** integration branches (e.g. copilot/perform-app-conversion).
+    # Today those PRs only get CI through the `push` trigger above when their
+    # head branch happens to match copilot/**. To enable, replace the line
+    # above with:
+    #   branches: ["main", "master", "copilot/**"]
 
 jobs:
   # Supply-chain security scan: audit the pinned dependencies for known CVEs.
@@ -22,6 +28,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # Read-only job: do not leave the token in .git/config for later steps.
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
@@ -61,6 +70,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # Read-only job: do not leave the token in .git/config for later steps.
+          persist-credentials: false
 
       # PyQt6 is a native extension: importing QtWidgets dynamically links
       # against system OpenGL/EGL/X libraries that the default ubuntu-latest
