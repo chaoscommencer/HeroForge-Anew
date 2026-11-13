@@ -8,9 +8,9 @@
 #
 # `pip install --require-hashes -r requirements-pip.txt` refuses to install unless
 # downloaded wheel's sha256 matches the value below — the published PyPI digest
-# of pip-26.1.2-py3-none-any.whl — consistent with the digest-pinned base image.
+# of pip-26.2.2-py3-none-any.whl — consistent with the digest-pinned base image.
 #
 # To bump: change BOTH the version and the --hash to the new wheel's published
 # PyPI sha256 (pip will hard-fail if they disagree). Kept as its own file so
 # Dependabot / CI can track and update the pin automatically.
-pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab
+pip==26.2.2 --hash=sha256:fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70
