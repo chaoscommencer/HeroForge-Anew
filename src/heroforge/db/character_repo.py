@@ -30,7 +30,27 @@ from pathlib import Path
 
 from heroforge.db.schema import get_connection, initialize_character_database
 from heroforge.logic.buffs import buff_amount
+from heroforge.logic.equipment import declared_bonus_specs
 from heroforge.models.character import Character
+
+
+def _encode_bonus_specs(item: dict) -> str | None:  # type: ignore[type-arg]
+    """Serialise an equipment entry's bonus specs to JSON (``None`` if none)."""
+    specs = declared_bonus_specs(item)
+    return json.dumps(specs) if specs else None
+
+
+def _decode_bonus_specs(raw: object) -> list[dict]:  # type: ignore[type-arg]
+    """Parse a stored ``bonuses`` JSON value, ignoring corrupt data."""
+    if not raw:
+        return []
+    try:
+        data = json.loads(str(raw))
+    except ValueError:
+        return []
+    if not isinstance(data, list):
+        return []
+    return declared_bonus_specs({"bonuses": data})
 
 
 def _load_table_gracefully[T](
@@ -227,8 +247,8 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
         )
         cur.executemany(
             "INSERT INTO character_equipment "
-            "(character_id, item_name, quantity, weight, equipped, slot, notes) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(character_id, item_name, quantity, weight, equipped, slot, notes, "
+            "bonuses) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     cid,
@@ -238,6 +258,7 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
                     1 if item.get("equipped") else 0,
                     item.get("slot"),
                     item.get("notes"),
+                    _encode_bonus_specs(item),
                 )
                 for item in character.equipment
             ],
@@ -667,8 +688,20 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
         ).fetchall()
     }
 
-    character.equipment = [
-        {
+    # Files saved before magic items carried bonus specs have no bonuses column.
+    equipment_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(character_equipment)").fetchall()
+    }
+    bonuses_column = "bonuses" if "bonuses" in equipment_columns else "NULL AS bonuses"
+    character.equipment = []
+    for er in conn.execute(
+        "SELECT item_name, quantity, weight, equipped, slot, notes, "
+        f"{bonuses_column} FROM character_equipment "
+        "WHERE character_id = ? ORDER BY id",
+        (character_id,),
+    ).fetchall():
+        entry: dict[str, object] = {
             "item_name": er["item_name"],
             "quantity": er["quantity"],
             "weight": er["weight"],
@@ -676,12 +709,11 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
             "slot": er["slot"],
             "notes": er["notes"],
         }
-        for er in conn.execute(
-            "SELECT item_name, quantity, weight, equipped, slot, notes "
-            "FROM character_equipment WHERE character_id = ? ORDER BY id",
-            (character_id,),
-        ).fetchall()
-    ]
+        # Only surface bonuses when present so plain gear round-trips unchanged.
+        specs = _decode_bonus_specs(er["bonuses"])
+        if specs:
+            entry["bonuses"] = specs
+        character.equipment.append(entry)
 
     # Files saved before the typed-bonus columns existed load their buffs as
     # plain tracking entries (no bonus type, target or amount).

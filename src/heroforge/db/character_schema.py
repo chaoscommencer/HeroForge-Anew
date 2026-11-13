@@ -124,7 +124,11 @@ CREATE TABLE IF NOT EXISTS character_equipment (
     weight          REAL DEFAULT 0,
     equipped        INTEGER DEFAULT 0,
     slot            TEXT,
-    notes           TEXT
+    notes           TEXT,
+    bonuses         TEXT
+    -- bonuses is a JSON list of {"target", "bonus_type", "value"} specs for a
+    -- magic item (e.g. enhancement +2 to STR).  They are stacked with active
+    -- buffs in heroforge.logic.derived_stats.  NULL means no bonuses.
 );
 
 CREATE TABLE IF NOT EXISTS character_buffs (

@@ -8,6 +8,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
+from heroforge.logic.buffs import buff_amount
+
 # Ability keys recognised as magic-item bonus targets (PHB p9).
 _ABILITY_KEYS: frozenset[str] = frozenset({"STR", "DEX", "CON", "INT", "WIS", "CHA"})
 
@@ -91,12 +93,36 @@ def item_bonus_specs(item: dict) -> list[dict]:  # type: ignore[type-arg]
     """
     if not item.get("equipped", True):
         return []
-    specs: list[dict] = []  # type: ignore[type-arg]
+    return declared_bonus_specs(item)
+
+
+def declared_bonus_specs(item: dict) -> list[dict]:  # type: ignore[type-arg]
+    """Return every bonus spec on *item*, equipped or not, in a uniform shape.
+
+    Collects the top-level ``target``/``bonus_type``/``value`` spec and the
+    ``bonuses`` list (see :func:`item_bonus_specs`) as
+    ``{"target", "bonus_type", "value"}`` dicts with an ``int`` value.  Specs
+    with no target are dropped, and an unusable value (e.g. text from a
+    hand-edited save) becomes ``0``.  Used to persist an item's bonuses.
+    """
+    raw: list[dict] = []  # type: ignore[type-arg]
     if item.get("target"):
-        specs.append(item)
+        raw.append(item)
     extra = item.get("bonuses")
     if isinstance(extra, list):
-        specs.extend(spec for spec in extra if isinstance(spec, dict))
+        raw.extend(spec for spec in extra if isinstance(spec, dict))
+    specs: list[dict] = []  # type: ignore[type-arg]
+    for spec in raw:
+        target = str(spec.get("target") or "").strip()
+        if not target:
+            continue
+        specs.append(
+            {
+                "target": target,
+                "bonus_type": str(spec.get("bonus_type") or "").strip(),
+                "value": buff_amount(spec.get("value")),
+            }
+        )
     return specs
 
 
