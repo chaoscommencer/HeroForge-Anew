@@ -3,7 +3,13 @@
 Combat statistics (BAB, melee/ranged attack, grapple) are computed from the
 character's derived stats and refresh in real time.  Weapons are loaded from the
 seeded ``weapons`` catalogue and persisted to :attr:`Character.attacks`; each
-weapon's attack bonus is recomputed from BAB and the relevant ability modifier.
+weapon's full iterative attack chain is recomputed from BAB and the relevant
+ability modifier, and its damage from the weapon dice plus Strength.
+
+A weapon row can be marked as wielded in the off hand.  With at least one
+primary and one off-hand weapon the tab applies the two-weapon-fighting
+penalties (PHB p160), lists the off-hand attacks granted by the Two-Weapon
+Fighting feat chain, and gives off-hand damage half the Strength bonus.
 """
 
 from __future__ import annotations
@@ -12,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QComboBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -27,6 +34,9 @@ from PyQt6.QtWidgets import (
 from heroforge.logic.combat import (
     format_attack_line,
     iterative_attacks,
+    off_hand_attacks,
+    two_weapon_feats,
+    two_weapon_penalties,
     weapon_base_dice,
     weapon_damage,
     weapon_strength_damage,
@@ -41,6 +51,16 @@ if TYPE_CHECKING:
 #: Item data role holding the damage text this tab last computed for a row, so
 #: a refresh can tell a computed value (safe to replace) from one the user typed.
 _AUTO_DAMAGE_ROLE = Qt.ItemDataRole.UserRole
+
+#: Values of the per-weapon "Hand" column (persisted as ``attack["hand"]``).
+HAND_PRIMARY = "Primary"
+HAND_OFF = "Off-hand"
+_HANDS = (HAND_PRIMARY, HAND_OFF)
+_HAND_COL = 6
+
+#: ``WeaponInfo`` size codes that count as a light off-hand weapon (PHB p160;
+#: an unarmed strike is a light weapon).
+_LIGHT_CODES = frozenset({"L", "U"})
 
 
 def _signed(value: int) -> str:
@@ -89,7 +109,15 @@ class AttacksTab(QWidget):
 
         weapons_box = QGroupBox("Equipped Weapons")
         weapons_layout = QVBoxLayout(weapons_box)
-        self._headers = ["Weapon", "Attack Bonus", "Damage", "Crit", "Range", "Type"]
+        self._headers = [
+            "Weapon",
+            "Attack Bonus",
+            "Damage",
+            "Crit",
+            "Range",
+            "Type",
+            "Hand",
+        ]
         self._weapons_table = QTableWidget(0, len(self._headers))
         self._weapons_table.setHorizontalHeaderLabels(self._headers)
         header = self._weapons_table.horizontalHeader()
@@ -128,20 +156,38 @@ class AttacksTab(QWidget):
         self._grapple_lbl.setText(_signed(stats.grapple))
         self._recompute_attack_bonuses()
 
-    def _attack_bonus_for(self, ranged: bool) -> str:
+    def _attack_bonus_for(
+        self, ranged: bool, *, twf_penalty: int = 0, off_hand: bool = False
+    ) -> str:
+        """Return a weapon's attack chain, e.g. ``+11/+6/+1``.
+
+        A primary weapon gets the BAB iterative chain (PHB p139).  While
+        fighting with two weapons, *twf_penalty* is added to every attack, and
+        an *off_hand* weapon gets one attack plus the extra attacks of Improved
+        and Greater Two-Weapon Fighting instead of the BAB chain (PHB p160).
+        """
         if self._model is None:
             return "+0"
         stats = self._model.derived_stats()
-        first = stats.ranged_attack if ranged else stats.melee_attack
-        bonuses = iterative_attacks(first, stats.base_attack_bonus)
+        first = (stats.ranged_attack if ranged else stats.melee_attack) + twf_penalty
+        if off_hand:
+            feats = two_weapon_feats(self._model.character.feats)
+            bonuses = off_hand_attacks(
+                first, improved=feats.improved, greater=feats.greater
+            )
+        else:
+            bonuses = iterative_attacks(first, stats.base_attack_bonus)
         return format_attack_line(bonuses)
 
-    def _computed_damage(self, weapon: WeaponItem | None, ranged: bool) -> str | None:
+    def _computed_damage(
+        self, weapon: WeaponItem | None, ranged: bool, *, off_hand: bool = False
+    ) -> str | None:
         """Return *weapon*'s damage as weapon dice plus Strength (PHB p134).
 
         Two-handed melee weapons add 1.5x a Strength bonus (PHB p113); thrown
         weapons and slings add Strength, bows only a Strength penalty, and
         other projectile weapons none (see :func:`weapon_strength_damage`).
+        An *off_hand* weapon adds half the Strength bonus (PHB p134).
 
         Returns ``None`` when the weapon is unknown or its catalogue damage has
         no ``NdM`` dice (e.g. ``ref:UnarmedStrikeDamage``), in which case the
@@ -161,6 +207,7 @@ class AttacksTab(QWidget):
             special=weapon.special,
             name=weapon.name,
             ranged=ranged,
+            off_hand=off_hand,
         )
         return weapon_damage(base, strength)
 
@@ -190,24 +237,67 @@ class AttacksTab(QWidget):
         new_item.setData(_AUTO_DAMAGE_ROLE, computed)
         self._weapons_table.setItem(row, 2, new_item)
 
+    def _row_is_ranged(self, row: int) -> bool:
+        range_item = self._weapons_table.item(row, 4)
+        text = range_item.text().strip() if range_item else ""
+        try:
+            return int(text) > 0
+        except ValueError:
+            return text not in ("", "—")
+
     def _recompute_attack_bonuses(self) -> None:
-        """Recompute each weapon's attack-bonus and damage cells."""
+        """Recompute each weapon's attack-bonus and damage cells.
+
+        Two-weapon fighting applies while at least one row is wielded in the
+        primary hand and at least one in the off hand.  The penalties depend on
+        the Two-Weapon Fighting feat and on whether the off-hand weapon is
+        light (PHB p160); the primary hand counts as having a light off-hand
+        weapon only when every off-hand row is light.
+        """
         catalog = self._weapon_catalog()
+        rows = []
+        for row in range(self._weapons_table.rowCount()):
+            name_item = self._weapons_table.item(row, 0)
+            weapon = catalog.get(name_item.text()) if name_item else None
+            rows.append((row, weapon, self._row_is_ranged(row), self.hand(row)))
+
+        off_hand_rows = [r for r in rows if r[3] == HAND_OFF]
+        two_weapon = bool(off_hand_rows) and len(off_hand_rows) < len(rows)
+        has_twf = (
+            two_weapon_feats(self._model.character.feats).two_weapon_fighting
+            if self._model is not None
+            else False
+        )
+
+        def is_light(weapon: WeaponItem | None) -> bool:
+            return weapon is not None and weapon.handedness in _LIGHT_CODES
+
+        primary_penalty = two_weapon_penalties(
+            off_hand_light=all(is_light(r[1]) for r in off_hand_rows),
+            has_two_weapon_fighting=has_twf,
+        ).primary
+
         self._suspend_sync = True
         try:
-            for row in range(self._weapons_table.rowCount()):
-                range_item = self._weapons_table.item(row, 4)
-                text = range_item.text().strip() if range_item else ""
-                try:
-                    ranged = int(text) > 0
-                except ValueError:
-                    ranged = text not in ("", "—")
-                bonus = self._attack_bonus_for(ranged)
+            for row, weapon, ranged, hand in rows:
+                off_hand = two_weapon and hand == HAND_OFF
+                if off_hand:
+                    penalty = two_weapon_penalties(
+                        off_hand_light=is_light(weapon),
+                        has_two_weapon_fighting=has_twf,
+                    ).off_hand
+                elif two_weapon:
+                    penalty = primary_penalty
+                else:
+                    penalty = 0
+                bonus = self._attack_bonus_for(
+                    ranged, twf_penalty=penalty, off_hand=off_hand
+                )
                 self._weapons_table.setItem(row, 1, QTableWidgetItem(bonus))
-                name_item = self._weapons_table.item(row, 0)
-                weapon = catalog.get(name_item.text()) if name_item else None
                 self._update_damage_cell(
-                    row, weapon, self._computed_damage(weapon, ranged)
+                    row,
+                    weapon,
+                    self._computed_damage(weapon, ranged, off_hand=off_hand),
                 )
         finally:
             self._suspend_sync = False
@@ -242,9 +332,30 @@ class AttacksTab(QWidget):
     # Weapon rows
     # ------------------------------------------------------------------
 
+    def hand(self, row: int) -> str:
+        """Return the hand (:data:`HAND_PRIMARY`/:data:`HAND_OFF`) of *row*."""
+        combo = self._weapons_table.cellWidget(row, _HAND_COL)
+        return combo.currentText() if isinstance(combo, QComboBox) else HAND_PRIMARY
+
+    def set_hand(self, row: int, hand: str) -> None:
+        """Wield the weapon in *row* in *hand* and refresh every attack."""
+        combo = self._weapons_table.cellWidget(row, _HAND_COL)
+        if isinstance(combo, QComboBox):
+            combo.setCurrentText(hand if hand in _HANDS else HAND_PRIMARY)
+
+    def _make_hand_combo(self, hand: str) -> QComboBox:
+        combo = QComboBox()
+        combo.addItems(_HANDS)
+        combo.setCurrentText(hand if hand in _HANDS else HAND_PRIMARY)
+        combo.currentTextChanged.connect(lambda _text: self._recompute_attack_bonuses())
+        return combo
+
     def _row_values(self, row: int) -> list[str]:
         values = []
         for col in range(len(self._headers)):
+            if col == _HAND_COL:
+                values.append(self.hand(row))
+                continue
             item = self._weapons_table.item(row, col)
             values.append(item.text() if item else "")
         return values
@@ -257,7 +368,7 @@ class AttacksTab(QWidget):
     def _entries(self) -> list[dict]:  # type: ignore[type-arg]
         result: list[dict] = []  # type: ignore[type-arg]
         for row in range(self._weapons_table.rowCount()):
-            name, bonus, damage, crit, rng, dtype = self._row_values(row)
+            name, bonus, damage, crit, rng, dtype, hand = self._row_values(row)
             if not name:
                 continue
             result.append(
@@ -270,6 +381,7 @@ class AttacksTab(QWidget):
                     "damage_type": dtype,
                     "ammunition": "",
                     "notes": "",
+                    "hand": hand,
                 }
             )
         return result
@@ -288,7 +400,12 @@ class AttacksTab(QWidget):
             row = self._weapons_table.rowCount()
             self._weapons_table.insertRow(row)
             for col, value in enumerate(values):
-                self._weapons_table.setItem(row, col, QTableWidgetItem(value))
+                if col == _HAND_COL:
+                    self._weapons_table.setCellWidget(
+                        row, col, self._make_hand_combo(value)
+                    )
+                else:
+                    self._weapons_table.setItem(row, col, QTableWidgetItem(value))
         finally:
             self._suspend_sync = False
 
@@ -303,6 +420,7 @@ class AttacksTab(QWidget):
                 weapon.critical,
                 str(weapon.range_increment) if weapon.range_increment else "—",
                 weapon.damage_type,
+                HAND_PRIMARY,
             ]
         else:
             values = [
@@ -312,9 +430,10 @@ class AttacksTab(QWidget):
                 "",
                 "—",
                 "",
+                HAND_PRIMARY,
             ]
         self._append_row(values)
-        self._sync_to_model()
+        self._recompute_attack_bonuses()
 
     def _add_weapon(self) -> None:
         catalog: dict[str, WeaponItem | None] = dict(self._weapon_catalog())
@@ -364,6 +483,7 @@ class AttacksTab(QWidget):
                         entry.get("critical", ""),
                         entry.get("range_increment", ""),
                         entry.get("damage_type", ""),
+                        entry.get("hand") or HAND_PRIMARY,
                     ]
                 )
         self._recompute_attack_bonuses()

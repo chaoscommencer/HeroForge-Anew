@@ -359,6 +359,8 @@ def parse_hfg(text: str) -> Character:
                     "damage_type": parts[5] or None,
                     "ammunition": parts[6] or None,
                     "notes": parts[7] or None,
+                    # Legacy saves predate two-weapon fighting: primary hand.
+                    "hand": "",
                 }
             )
 

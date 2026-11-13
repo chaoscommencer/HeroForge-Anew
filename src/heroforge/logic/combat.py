@@ -492,6 +492,35 @@ def two_weapon_penalties(
     return TwoWeaponPenalties(primary=primary, off_hand=off_hand)
 
 
+@dataclass(frozen=True)
+class TwoWeaponFeats:
+    """Which two-weapon-fighting feats a character has (PHB p102, p96, p95)."""
+
+    two_weapon_fighting: bool
+    improved: bool
+    greater: bool
+
+
+def two_weapon_feats(feats: Iterable[str]) -> TwoWeaponFeats:
+    """Detect the Two-Weapon Fighting feat chain in *feats*.
+
+    Names are matched case-insensitively and ignoring surrounding whitespace.
+
+    Args:
+        feats: The character's feat names.
+
+    Returns:
+        A :class:`TwoWeaponFeats` flagging Two-Weapon Fighting, Improved
+        Two-Weapon Fighting and Greater Two-Weapon Fighting.
+    """
+    names = {(feat or "").strip().lower() for feat in feats}
+    return TwoWeaponFeats(
+        two_weapon_fighting="two-weapon fighting" in names,
+        improved="improved two-weapon fighting" in names,
+        greater="greater two-weapon fighting" in names,
+    )
+
+
 def off_hand_attacks(
     off_hand_bonus: int,
     *,

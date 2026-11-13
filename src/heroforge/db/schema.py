@@ -69,6 +69,9 @@ _COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
         "caster_type": "ALTER TABLE classes ADD COLUMN caster_type TEXT",
     },
     "weapons": {"special": "ALTER TABLE weapons ADD COLUMN special TEXT"},
+    "character_attacks": {
+        "hand": "ALTER TABLE character_attacks ADD COLUMN hand TEXT",
+    },
 }
 
 

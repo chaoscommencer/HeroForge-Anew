@@ -257,6 +257,7 @@ CREATE TABLE IF NOT EXISTS character_attacks (
     damage_type     TEXT,
     ammunition      TEXT,
     notes           TEXT,
+    hand            TEXT,
     order_taken     INTEGER NOT NULL DEFAULT 0
 );
 

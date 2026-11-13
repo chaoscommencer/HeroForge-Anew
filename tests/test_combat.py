@@ -22,6 +22,7 @@ from heroforge.logic.combat import (
     off_hand_attacks,
     ranged_attack,
     touch_ac,
+    two_weapon_feats,
     two_weapon_penalties,
     weapon_base_dice,
     weapon_damage,
@@ -287,6 +288,31 @@ class TestTwoWeaponPenalties:
             off_hand_light=True, has_two_weapon_fighting=True
         )
         assert (penalties.primary, penalties.off_hand) == (-2, -2)
+
+
+class TestTwoWeaponFeats:
+    def test_no_feats(self) -> None:
+        feats = two_weapon_feats(["Power Attack", "Dodge"])
+        assert (feats.two_weapon_fighting, feats.improved, feats.greater) == (
+            False,
+            False,
+            False,
+        )
+
+    def test_detects_feat_chain_case_insensitively(self) -> None:
+        feats = two_weapon_feats(
+            [
+                "Two-Weapon Fighting",
+                "improved two-weapon fighting",
+                " Greater Two-Weapon Fighting ",
+            ]
+        )
+        assert feats.two_weapon_fighting and feats.improved and feats.greater
+
+    def test_improved_alone(self) -> None:
+        feats = two_weapon_feats(["Improved Two-Weapon Fighting"])
+        assert not feats.two_weapon_fighting
+        assert feats.improved and not feats.greater
 
 
 class TestOffHandAttacks:
