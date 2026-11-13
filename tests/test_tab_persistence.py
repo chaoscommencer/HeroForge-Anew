@@ -715,6 +715,215 @@ class TestIncarnumPsionicsManeuvers:
         assert meld["essentia_invested"] == 2
         assert model.character.options["essentia_pool"] == "5"
 
+    def test_essentia_pool_auto_calculates(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 9 grants 9 essentia, capacity 2, and 2 chakra binds
+        # (Magic of Incarnum, "Soulmelds" sheet / fallback tables).
+        model.character.classes = [("Incarnate", 9)]
+        model.derived_stats_changed.emit()
+
+        assert tab._meldshaper_lbl.text() == "9"
+        assert tab._capacity_lbl.text() == "2"
+        assert tab._total_spin.value() == 9
+        assert tab._summary.chakra_binds_available == 2
+        assert tab._binds_lbl.text() == "0 / 2"
+        assert model.character.options["essentia_pool"] == "9"
+
+    def test_bonus_essentia_pool_ignores_shaped_rows(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 5 (5 essentia) with Bonus Essentia: a meldshaper gets +2
+        # (Soulmelds!AL29) before any soulmeld is shaped, and shaping melds
+        # leaves the pool unchanged.
+        model.character.classes = [("Incarnate", 5)]
+        model.character.feats = ["Bonus Essentia"]
+        model.derived_stats_changed.emit()
+        assert tab._total_spin.value() == 7
+
+        assert tab.shape_soulmeld("Airstep Sandals", "Feet") is True
+        assert tab.shape_soulmeld("Mage's Spectacles", "Brow") is True
+        assert tab._total_spin.value() == 7
+        assert model.character.options["essentia_pool"] == "7"
+
+    def test_essentia_auto_flag_persisted(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        model.character.classes = [("Incarnate", 5)]
+        model.derived_stats_changed.emit()
+        # Writing the auto-calculated pool also records that it is automatic,
+        # so a reload never mistakes it for a manual override.
+        assert tab._auto_chk.isChecked() is True
+        assert model.character.options["essentia_pool"] == "5"
+        assert model.character.options["essentia_pool_auto"] == "true"
+
+    def test_reload_keeps_auto_mode_when_stored_pool_is_stale(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        model.character.classes = [("Incarnate", 5)]
+        model.derived_stats_changed.emit()
+        # A pool saved under different rules no longer matches the computed
+        # value; the persisted auto flag keeps the reload in auto mode.
+        model.character.options["essentia_pool"] = "6"
+        model.character_loaded.emit(0)
+        assert tab._auto_chk.isChecked() is True
+        assert tab._total_spin.value() == 5
+        assert model.character.options["essentia_pool_auto"] == "true"
+
+    def test_loading_manual_pool_keeps_override(self, model: object) -> None:
+        from heroforge.models.character import Character
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        model.character.classes = [("Incarnate", 5)]
+        model.derived_stats_changed.emit()
+        assert tab._auto_chk.isChecked() is True
+
+        # Load a character whose pool was set by hand while the tab is still
+        # showing the previous, auto-calculated character.
+        loaded = Character()
+        loaded.classes = [("Incarnate", 5)]
+        loaded.options = {"essentia_pool": "12", "essentia_pool_auto": "false"}
+        model.character = loaded
+        model.character_loaded.emit(0)
+
+        assert tab._auto_chk.isChecked() is False
+        assert tab._total_spin.value() == 12
+        assert loaded.options == {
+            "essentia_pool": "12",
+            "essentia_pool_auto": "false",
+        }
+
+    def test_chakra_bind_limit_enforced(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 4 opens Crown, Feet and Hands but has a single chakra bind
+        # (TblClassBinds).
+        model.character.classes = [("Incarnate", 4)]
+        model.derived_stats_changed.emit()
+        assert tab._summary.chakra_binds_available == 1
+
+        tab._add_row("Meld A", "Crown", 0)
+        tab._add_row("Meld B", "Feet", 0)
+        first = tab._bound_checkbox(0)
+        second = tab._bound_checkbox(1)
+        assert first is not None and second is not None
+
+        first.setChecked(True)  # within the single-bind limit
+        assert tab._bound_count() == 1
+        second.setChecked(True)  # exceeds the limit -> refused
+        assert second.isChecked() is False
+        assert tab._bound_count() == 1
+
+    def test_bind_to_locked_chakra_refused(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 2 has one bind but only the Crown chakra is open; an
+        # Incarnate cannot bind to the Feet chakra until 4th level.
+        model.character.classes = [("Incarnate", 2)]
+        model.derived_stats_changed.emit()
+        assert tab._summary.unlocked_chakras == frozenset({"Crown"})
+
+        assert tab.shape_soulmeld("Airstep Sandals", "Feet") is True
+        feet = tab._bound_checkbox(0)
+        assert feet is not None
+        feet.setChecked(True)
+        assert feet.isChecked() is False
+        assert model.character.soulmelds[0]["chakra_bound"] == ""
+
+    def test_second_bind_to_same_chakra_refused(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 6 has two binds; each open chakra holds one bound soulmeld.
+        model.character.classes = [("Incarnate", 6)]
+        model.derived_stats_changed.emit()
+        assert tab._summary.chakra_binds_available == 2
+
+        tab._add_row("Meld A", "Crown", 0)
+        tab._add_row("Meld B", "Crown", 0)
+        tab._add_row("Meld C", "Hands", 0)
+        first, second, third = (tab._bound_checkbox(r) for r in range(3))
+        assert first is not None and second is not None and third is not None
+
+        first.setChecked(True)
+        second.setChecked(True)  # Crown already holds a bound soulmeld
+        assert second.isChecked() is False
+        third.setChecked(True)  # Hands is open and a bind remains
+        assert third.isChecked() is True
+        assert tab._bound_count() == 2
+
+    def test_binds_dropped_when_class_level_falls(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        model.character.classes = [("Incarnate", 9)]
+        model.derived_stats_changed.emit()
+        tab._add_row("Meld A", "Crown", 0)
+        tab._add_row("Airstep Sandals", "Feet", 0)
+        for row in range(2):
+            checkbox = tab._bound_checkbox(row)
+            assert checkbox is not None
+            checkbox.setChecked(True)
+        assert tab._bound_count() == 2
+
+        # Incarnate 2 has one bind and only the Crown chakra open: the Feet
+        # bind no longer holds and is released.
+        model.character.classes = [("Incarnate", 2)]
+        model.derived_stats_changed.emit()
+        assert tab._is_bound(0) is True
+        assert tab._is_bound(1) is False
+        assert tab._binds_lbl.text() == "1 / 1"
+        assert [m["chakra_bound"] for m in model.character.soulmelds] == ["Crown", ""]
+
+    def test_loaded_binds_over_the_limit_are_released(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # A hand-edited save: Incarnate 2 (one bind, Crown open) with a Feet
+        # bind and two soulmelds bound to Crown.
+        model.character.classes = [("Incarnate", 2)]
+        model.character.soulmelds = [
+            {"soulmeld_name": "Airstep Sandals", "chakra_bound": "Feet"},
+            {"soulmeld_name": "Meld A", "chakra_bound": "Crown"},
+            {"soulmeld_name": "Meld B", "chakra_bound": "Crown"},
+        ]
+        model.character_loaded.emit(0)
+
+        assert [tab._is_bound(r) for r in range(3)] == [False, True, False]
+        assert [m["chakra_bound"] for m in model.character.soulmelds] == [
+            "",
+            "Crown",
+            "",
+        ]
+
+    def test_bind_without_known_chakra_only_checks_count(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # The seeded soulmeld catalogue does not record a chakra yet; such rows
+        # are limited by the bind count alone.
+        model.character.classes = [("Incarnate", 2)]
+        model.derived_stats_changed.emit()
+
+        tab._add_row("Meld A", "", 0)
+        tab._add_row("Meld B", "", 0)
+        first = tab._bound_checkbox(0)
+        second = tab._bound_checkbox(1)
+        assert first is not None and second is not None
+        first.setChecked(True)
+        assert first.isChecked() is True
+        second.setChecked(True)
+        assert second.isChecked() is False
+
     def test_psionic_power_and_pp_persist(self, model: object) -> None:
         from heroforge.ui.tabs.psionics import PsionicsTab
 

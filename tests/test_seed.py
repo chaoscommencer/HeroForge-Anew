@@ -404,6 +404,13 @@ class TestSeedAllWorkbookLoading:
                 "companion", workbook
             ),
         )
+        monkeypatch.setattr(
+            seed,
+            "seed_incarnum_progression",
+            lambda _conn, _path, workbook=None: workbook_args.setdefault(
+                "incarnum", workbook
+            ),
+        )
 
         seed.seed_all(db_path=db_path, data_dir=data_dir, workbook_path=workbook_path)
 
@@ -424,6 +431,7 @@ class TestSeedAllWorkbookLoading:
         formulas_wb = workbook_args["synergies"]
         assert formulas_wb is not None
         assert workbook_args["psionic"] is formulas_wb
+        assert workbook_args["incarnum"] is formulas_wb
         assert formulas_wb is not values_wb
         # Every workbook opened by seed_all is closed before returning.
         assert all(w.closed for w in created)
@@ -746,6 +754,141 @@ class TestPsionicProgression:
         finally:
             conn.close()
         assert count == 0
+
+
+class TestIncarnumProgressionSeed:
+    """The ``incarnum_progression`` / ``incarnum_chakra`` tables drive the
+    auto-calculated essentia pool and chakra-bind limits (Magic of Incarnum)."""
+
+    @pytest.fixture(scope="class")
+    def incarnum_db(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        from heroforge.db.schema import initialize_database
+
+        db_path = tmp_path_factory.mktemp("incarnum") / "incarnum.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_incarnum_progression(conn)
+        finally:
+            conn.close()
+        return db_path
+
+    @requires_workbook
+    def test_meldshaping_classes_seeded(self, incarnum_db: Path) -> None:
+        conn = get_connection(incarnum_db)
+        try:
+            classes = {
+                r["class_name"]
+                for r in conn.execute(
+                    "SELECT DISTINCT class_name FROM incarnum_progression"
+                )
+            }
+        finally:
+            conn.close()
+        assert {"Incarnate", "Soulborn", "Totemist"} <= classes
+
+    @requires_workbook
+    def test_essentia_matches_workbook(self, incarnum_db: Path) -> None:
+        conn = get_connection(incarnum_db)
+        try:
+            rows = {
+                (r["class_name"], r["class_level"]): r["essentia"]
+                for r in conn.execute(
+                    "SELECT class_name, class_level, essentia "
+                    "FROM incarnum_progression"
+                )
+            }
+        finally:
+            conn.close()
+        # Incarnate essentia: 9 at level 9, 26 at level 20 (TblClassEssentia).
+        assert rows[("Incarnate", 9)] == 9
+        assert rows[("Incarnate", 20)] == 26
+
+    @requires_workbook
+    def test_binds_match_workbook(self, incarnum_db: Path) -> None:
+        conn = get_connection(incarnum_db)
+        try:
+            rows = {
+                (r["class_name"], r["class_level"]): r["binds"]
+                for r in conn.execute(
+                    "SELECT class_name, class_level, binds FROM incarnum_progression"
+                )
+            }
+        finally:
+            conn.close()
+        # TblClassBinds: Incarnate 1 at 2nd, 2 at 9th, 5 at 20th; Soulborn 1 at
+        # 8th, 3 at 18th; Spinemeld Warrior 1 at 7th.
+        assert rows[("Incarnate", 1)] == 0
+        assert rows[("Incarnate", 2)] == 1
+        assert rows[("Incarnate", 9)] == 2
+        assert rows[("Incarnate", 20)] == 5
+        assert rows[("Soulborn", 7)] == 0
+        assert rows[("Soulborn", 8)] == 1
+        assert rows[("Soulborn", 18)] == 3
+        assert rows[("Totemist", 6)] == 2
+        assert rows[("Spinemeld Warrior", 6)] == 0
+        assert rows[("Spinemeld Warrior", 7)] == 1
+
+    @requires_workbook
+    def test_chakra_unlocks_seeded(self, incarnum_db: Path) -> None:
+        conn = get_connection(incarnum_db)
+        try:
+            rows = {
+                (r["class_name"], r["chakra"]): r["min_level"]
+                for r in conn.execute(
+                    "SELECT class_name, chakra, min_level FROM incarnum_chakra"
+                )
+            }
+        finally:
+            conn.close()
+        # Incarnate opens Crown at 2nd level; Totemist's Totem chakra at 2nd.
+        assert rows[("Incarnate", "Crown")] == 2
+        assert rows[("Totemist", "Totem")] == 2
+
+    @requires_workbook
+    def test_spinemeld_warrior_arms_chakra_seeded(self, incarnum_db: Path) -> None:
+        conn = get_connection(incarnum_db)
+        try:
+            rows = [
+                (r["chakra"], r["min_level"])
+                for r in conn.execute(
+                    "SELECT chakra, min_level FROM incarnum_chakra "
+                    "WHERE class_name = 'Spinemeld Warrior'"
+                )
+            ]
+        finally:
+            conn.close()
+        # Soulmelds!AC33 opens the Arms chakra at Spinemeld Warrior 7th level;
+        # the class opens no other chakra on its own.
+        assert rows == [("Arms", 7)]
+
+    @requires_workbook
+    def test_spinemeld_warrior_can_bind_arms_at_7th(self, incarnum_db: Path) -> None:
+        from heroforge.db.data_access import GameDataRepository
+        from heroforge.logic.incarnum import compute_incarnum, unlocked_chakras
+
+        progressions = GameDataRepository(incarnum_db).incarnum_progressions()
+        summary = compute_incarnum(
+            [("Spinemeld Warrior", 7)], character_level=7, progressions=progressions
+        )
+        assert summary.chakra_binds_available == 1
+        assert unlocked_chakras({"Spinemeld Warrior": 7}, progressions) == {"Arms"}
+        assert unlocked_chakras({"Spinemeld Warrior": 6}, progressions) == set()
+
+    def test_missing_workbook_leaves_table_untouched(self, tmp_path: Path) -> None:
+        from heroforge.db.schema import initialize_database
+
+        db_path = tmp_path / "no_workbook.db"
+        conn = initialize_database(db_path)
+        try:
+            seed.seed_incarnum_progression(conn, tmp_path / "does_not_exist.xlsm")
+            prog = conn.execute("SELECT COUNT(*) FROM incarnum_progression").fetchone()[
+                0
+            ]
+            chakra = conn.execute("SELECT COUNT(*) FROM incarnum_chakra").fetchone()[0]
+        finally:
+            conn.close()
+        assert prog == 0
+        assert chakra == 0
 
 
 class TestHelpers:
