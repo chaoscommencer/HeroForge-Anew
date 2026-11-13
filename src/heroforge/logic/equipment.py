@@ -328,6 +328,69 @@ def load_effects(category: str) -> tuple[int | None, int]:
     return _LOAD_EFFECTS.get(category, (None, 0))
 
 
+#: Base land speed (feet) of a Medium humanoid, used when the race records none.
+DEFAULT_LAND_SPEED = 30
+
+#: Races whose speed is not reduced by medium/heavy armor or load (PHB p14),
+#: matching the workbook's exemption list in ``Armor!R1``.
+SPEED_UNENCUMBERED_RACES: frozenset[str] = frozenset({"dwarf", "wildren"})
+
+
+def speed_ignores_encumbrance(race: str | None) -> bool:
+    """Return ``True`` when *race* keeps its full speed in armor or under load.
+
+    Only the base race (the part before any ``", subrace"``) is compared, so
+    ``"Dwarf, Hill"`` is exempt too.  Reference: PHB p14 (Dwarf).
+    """
+    base = (race or "").split(",", 1)[0].strip().lower()
+    return base in SPEED_UNENCUMBERED_RACES
+
+
+def reduced_speed(base_speed: int) -> int:
+    """Return *base_speed* reduced for medium/heavy armor or load.
+
+    Speed drops to two-thirds, rounded up to the next 5 ft. step: 20 ft. → 15,
+    30 → 20, 40 → 30 (PHB p162 Table 9-2; workbook ``Armor!R1``).
+    """
+    base = max(0, int(base_speed))
+    return -(-2 * base // 15) * 5
+
+
+def encumbered_speed(
+    base_speed: int,
+    armor_type: str | None,
+    load: str,
+    *,
+    ignore_encumbrance: bool = False,
+) -> tuple[int, int]:
+    """Return ``(speed, run_multiplier)`` after worn armor and carried load.
+
+    Medium or heavy body armor, or a load above light, reduces *base_speed*
+    with :func:`reduced_speed` unless *ignore_encumbrance* is set (see
+    :func:`speed_ignores_encumbrance`).  The run multiplier is ×4, or ×3 in
+    heavy armor or under a heavy load; the dwarf exemption does not change it.
+
+    Reference: PHB p122–123 (armor and speed), p162 Table 9-2 (load); workbook
+    ``Armor!R1`` (speed) and ``Armor!R6`` (run multiplier).
+
+    Args:
+        base_speed:  Base land speed in feet (usually the race's).
+        armor_type:  Type of the worn body armor (``"Light"``, ``"Medium"``,
+                     ``"Heavy"``), or ``None`` when none is worn.  Any other
+                     value is treated as not slowing the wearer.
+        load:        Load category from :func:`encumbrance_category`.
+        ignore_encumbrance: Keep the full speed regardless of armor and load.
+    """
+    armor = (armor_type or "").strip().lower()
+    slowed_by_armor = armor in ("medium", "heavy")
+    slowed_by_load = load in ("Medium", "Heavy", "Overloaded")
+    speed = max(0, int(base_speed))
+    if (slowed_by_armor or slowed_by_load) and not ignore_encumbrance:
+        speed = reduced_speed(speed)
+    run_multiplier = 3 if armor == "heavy" or load in ("Heavy", "Overloaded") else 4
+    return speed, run_multiplier
+
+
 def armor_check_penalty(armor_acp: int, shield_acp: int) -> int:
     """Calculate combined armor check penalty from armor and shield.
 

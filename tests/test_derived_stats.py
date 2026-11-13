@@ -321,3 +321,35 @@ class TestBuffApplication:
         stats = compute_derived_stats(char)
         assert stats.melee_attack == 0
         assert stats.fortitude == 0
+
+
+class TestSpeed:
+    """Land speed after worn armor and load (PHB p122, p162)."""
+
+    def test_defaults_to_30_ft_and_x4_run(self) -> None:
+        stats = compute_derived_stats(_character())
+        assert (stats.speed, stats.run_multiplier) == (30, 4)
+
+    def test_base_speed_passes_through_when_unencumbered(self) -> None:
+        stats = compute_derived_stats(_character(), base_speed=20)
+        assert (stats.speed, stats.run_multiplier) == (20, 4)
+
+    def test_heavy_armor_reduces_speed(self) -> None:
+        stats = compute_derived_stats(_character(), armor_type="Heavy")
+        assert (stats.speed, stats.run_multiplier) == (20, 3)
+
+    def test_carried_load_reduces_speed(self) -> None:
+        char = _character(STR=10)  # 33 / 66 / 100 lb.
+        char.equipment = [{"item_name": "Anvil", "quantity": 1, "weight": 50}]
+        stats = compute_derived_stats(char)
+        assert stats.load == "Medium"
+        assert (stats.speed, stats.run_multiplier) == (20, 4)
+
+    def test_exempt_race_keeps_speed(self) -> None:
+        stats = compute_derived_stats(
+            _character(),
+            base_speed=20,
+            armor_type="Heavy",
+            speed_ignores_encumbrance=True,
+        )
+        assert (stats.speed, stats.run_multiplier) == (20, 3)

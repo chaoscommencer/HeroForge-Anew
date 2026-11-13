@@ -115,6 +115,17 @@ class TestCharacterSheetData:
         assert data["hp"] == derived.hit_points
         assert data["speed"] == 30
 
+    def test_includes_derived_speed_and_run_multiplier(self) -> None:
+        character = _populated_character()
+        derived = compute_derived_stats(character, armor_type="Heavy")
+
+        data = character_sheet_data(character, derived)
+
+        assert (data["speed"], data["run_multiplier"]) == (20, 3)
+        assert "Speed: 20 ft. (run x3)" in export_character_sheet_text(data)
+        # An explicit speed still overrides the derived one.
+        assert character_sheet_data(character, derived, speed=40)["speed"] == 40
+
     def test_omits_combat_block_without_derived(self) -> None:
         data = character_sheet_data(_populated_character())
 

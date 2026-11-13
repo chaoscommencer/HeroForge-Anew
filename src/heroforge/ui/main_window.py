@@ -10,7 +10,7 @@ from __future__ import annotations
 import inspect
 import logging
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -31,6 +31,7 @@ from heroforge.db.data_access import ArmorItem, GameDataRepository
 from heroforge.env_paths import dir_from_env
 from heroforge.logic import race_templates
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
+from heroforge.logic.equipment import DEFAULT_LAND_SPEED, speed_ignores_encumbrance
 from heroforge.logic.familiar import (
     STANDARD_FAMILIAR_BONUSES,
     familiar_natural_link,
@@ -370,7 +371,18 @@ class CharacterModel(QObject):
         level_adjustment = race_templates.total_level_adjustment(race, templates)
         size = race.size if race is not None else "Medium"
         natural_armor = race.natural_armor if race is not None else 0
-        ac_bonuses, max_dex = self._armor_class_sources(natural_armor)
+        worn_armor = self._worn_armor()
+        ac_bonuses, max_dex = self._armor_class_sources(natural_armor, worn_armor)
+        # Medium/heavy body armor slows the wearer (PHB p122); the seeded races
+        # carry no land speed (0 = unknown), so fall back to 30 ft.
+        armor_type = next(
+            (item.type for slot, item in worn_armor if slot == "Body Armor"), None
+        )
+        base_speed = (
+            race.base_land_speed
+            if race is not None and race.base_land_speed > 0
+            else DEFAULT_LAND_SPEED
+        )
         hp_flat, hp_per_level = self._hit_point_bonuses()
         # Magic-item bonus specs on character.equipment are stacked together
         # with active buffs inside compute_derived_stats (PHB p176).
@@ -386,6 +398,9 @@ class CharacterModel(QObject):
             hp_flat_bonus=hp_flat,
             hp_per_level_bonus=hp_per_level,
             weight_catalog=self._weight_catalog(),
+            base_speed=base_speed,
+            armor_type=armor_type,
+            speed_ignores_encumbrance=speed_ignores_encumbrance(self._character.race),
         )
 
     def _weight_catalog(self) -> dict[str, float]:
@@ -415,22 +430,37 @@ class CharacterModel(QObject):
         return weights
 
     def _armor_class_sources(
-        self, natural_armor: int
+        self, natural_armor: int, worn_armor: Sequence[tuple[str, ArmorItem]]
     ) -> tuple[list[tuple[str, int]], int | None]:
         """Collect typed AC bonuses and the Max Dex cap for the active character.
 
-        Aggregates worn body armor and shield (resolved from the seeded armor
-        catalogue and the character's custom armor) plus the race's natural
-        armor. The enhancements tab currently stores magic armor special
-        abilities as bonus-equivalent pricing data, not an armor's actual +X
-        enhancement bonus, so those entries are intentionally excluded here. The
-        lowest Max Dex Bonus of any worn item caps the Dexterity contribution to
-        AC (PHB p136).
+        Aggregates the *worn_armor* body armor and shield (see
+        :meth:`_worn_armor`) plus the race's natural armor. The enhancements
+        tab currently stores magic armor special abilities as bonus-equivalent
+        pricing data, not an armor's actual +X enhancement bonus, so those
+        entries are intentionally excluded here. The lowest Max Dex Bonus of
+        any worn item caps the Dexterity contribution to AC (PHB p136).
         """
         bonuses: list[tuple[str, int]] = []
         if natural_armor:
             bonuses.append(("natural", int(natural_armor)))
 
+        caps: list[int] = []
+        for slot, item in worn_armor:
+            bonus_type = "armor" if slot == "Body Armor" else "shield"
+            bonuses.append((bonus_type, item.ac_bonus))
+            if item.max_dex_bonus is not None:
+                caps.append(item.max_dex_bonus)
+
+        max_dex = min(caps) if caps else None
+        return bonuses, max_dex
+
+    def _worn_armor(self) -> list[tuple[str, ArmorItem]]:
+        """Return ``(slot, item)`` for each equipped body armor and shield.
+
+        Items resolve from the seeded armor catalogue and the character's
+        custom armor; entries that resolve to neither are skipped.
+        """
         catalog: dict[str, ArmorItem] = {}
         if self._game_data.available:
             catalog = {a.name: a for a in self._game_data.list_armor()}
@@ -439,7 +469,7 @@ class CharacterModel(QObject):
             if name:
                 catalog.setdefault(name, _armor_item_from_entry(entry))
 
-        caps: list[int] = []
+        worn: list[tuple[str, ArmorItem]] = []
         for entry in self._character.equipment:
             slot = entry.get("slot")
             if slot not in ("Body Armor", "Shield"):
@@ -450,15 +480,9 @@ class CharacterModel(QObject):
             if not entry.get("equipped", True):
                 continue
             item = catalog.get(entry.get("item_name", ""))
-            if item is None:
-                continue
-            bonus_type = "armor" if slot == "Body Armor" else "shield"
-            bonuses.append((bonus_type, item.ac_bonus))
-            if item.max_dex_bonus is not None:
-                caps.append(item.max_dex_bonus)
-
-        max_dex = min(caps) if caps else None
-        return bonuses, max_dex
+            if item is not None:
+                worn.append((str(slot), item))
+        return worn
 
     def _hit_point_bonuses(self) -> tuple[int, int]:
         """Return ``(flat_bonus, per_level_bonus)`` HP contributions from feats.

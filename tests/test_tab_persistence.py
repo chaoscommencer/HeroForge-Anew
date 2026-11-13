@@ -412,6 +412,31 @@ class TestArmorTab:
         assert stats.touch_ac == 11
         assert stats.flat_footed_ac == 20
 
+    def test_heavy_armor_reduces_speed(self, model: object) -> None:
+        """Full plate slows a 30 ft. character to 20 ft. and a x3 run."""
+        model.character.ability_scores["STR"] = 18  # 100 lb. light load
+        model.character.equipment = [
+            {"slot": "Body Armor", "item_name": "Full Plate", "equipped": True},
+        ]
+        stats = model.derived_stats()
+        assert (stats.speed, stats.run_multiplier) == (20, 3)
+
+        model.character.equipment[0]["equipped"] = False
+        stats = model.derived_stats()
+        assert (stats.speed, stats.run_multiplier) == (30, 4)
+
+    def test_light_armor_keeps_speed(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 18
+        model.character.equipment = [{"slot": "Body Armor", "item_name": "Leather"}]
+        assert model.derived_stats().speed == 30
+
+    def test_dwarf_keeps_speed_in_heavy_armor(self, model: object) -> None:
+        model.character.race = "Dwarf"
+        model.character.ability_scores["STR"] = 18
+        model.character.equipment = [{"slot": "Body Armor", "item_name": "Full Plate"}]
+        stats = model.derived_stats()
+        assert (stats.speed, stats.run_multiplier) == (30, 3)
+
     def test_unequipped_armor_excluded_from_ac(self, model: object) -> None:
         """Unequipped items must not contribute to the derived AC."""
         model.character.ability_scores["DEX"] = 10
@@ -787,6 +812,12 @@ class TestEncumbrance:
         assert stats.load == "Heavy"
         assert stats.load_check_penalty == -6
         assert stats.armor_class == 11
+
+    def test_heavy_load_reduces_speed(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10
+        model.character.equipment = [_gear("Anvil", "Wondrous", 80.0, 0)]
+        stats = model.derived_stats()
+        assert (stats.speed, stats.run_multiplier) == (20, 3)
 
     def test_zero_weight_entry_resolves_from_catalogue(
         self, gear_model: object

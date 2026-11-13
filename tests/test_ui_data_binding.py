@@ -819,6 +819,25 @@ class TestCharacterSheetTabRealData:
         assert "Speed: 20 ft." in tab._text_edit.toPlainText()
         assert tab._data["speed"] == 20
 
+    def test_heavy_armor_speed_on_sheet_and_tent(self, empty_model: object) -> None:
+        """Worn heavy armor slows the speed on both printable summaries."""
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+        from heroforge.ui.tabs.table_tent import TableTentTab
+
+        empty_model.character.ability_scores["STR"] = 18
+        empty_model.character.custom_armor = [
+            {"name": "Field Plate", "type": "Heavy", "ac_bonus": 8, "weight": 50}
+        ]
+        empty_model.character.equipment = [
+            {"slot": "Body Armor", "item_name": "Field Plate", "equipped": True}
+        ]
+        sheet = CharacterSheetTab(model=empty_model)
+        tent = TableTentTab(model=empty_model)
+
+        assert "Speed: 20 ft. (run x3)" in sheet._text_edit.toPlainText()
+        assert sheet._data["speed"] == 20
+        assert "Speed 20 ft." in tent._text_edit.toPlainText()
+
     def test_loaded_signal_refreshes_from_loaded_character(
         self, empty_model: object
     ) -> None:

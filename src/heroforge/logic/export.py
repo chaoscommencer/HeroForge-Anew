@@ -27,10 +27,9 @@ def character_sheet_data(
     real computed values instead of placeholders.
 
     When *derived* is supplied the character's maximum hit points are included
-    as ``"hp"``.  When *speed* (the character's base land speed in feet) is
-    supplied it is included as ``"speed"``; the UI sources it from the selected
-    race so the sheet shows the real movement rate instead of the 30 ft.
-    default.
+    as ``"hp"``, and its armor- and load-adjusted land speed and run multiplier
+    as ``"speed"`` and ``"run_multiplier"``.  An explicit *speed* (feet)
+    overrides the derived one.
     """
     data: dict = {  # type: ignore[type-arg]
         "name": character.name,
@@ -69,6 +68,8 @@ def character_sheet_data(
                 "ac": derived.armor_class,
                 "touch_ac": derived.touch_ac,
                 "flat_footed_ac": derived.flat_footed_ac,
+                "speed": derived.speed,
+                "run_multiplier": derived.run_multiplier,
             }
         )
     if speed is not None:
@@ -102,6 +103,7 @@ def export_character_sheet_text(character_data: dict) -> str:  # type: ignore[ty
     - ``ability_scores`` (dict of ability name → score)
     - ``hp`` (int)
     - ``speed`` (int)
+    - ``run_multiplier`` (int, shown as ``(run xN)`` after the speed)
     - ``initiative`` (int)
     - ``bab`` (int)
     - ``fort`` (int)
@@ -167,6 +169,8 @@ def export_character_sheet_text(character_data: dict) -> str:  # type: ignore[ty
     # Combat stats
     hp = get("hp", "?")
     speed = get("speed", 30)
+    run = get("run_multiplier")
+    speed_str = f"{speed} ft." + (f" (run x{run})" if run else "")
     init = get("initiative", "?")
     bab = get("bab", "?")
     fort = get("fort", "?")
@@ -177,7 +181,7 @@ def export_character_sheet_text(character_data: dict) -> str:  # type: ignore[ty
     ffac = get("flat_footed_ac", "?")
 
     lines.append("COMBAT")
-    lines.append(f"  HP: {hp}    Speed: {speed} ft.    Initiative: {init}")
+    lines.append(f"  HP: {hp}    Speed: {speed_str}    Initiative: {init}")
     lines.append(f"  BAB: {bab}    Fort: {fort}    Ref: {ref}    Will: {will}")
     lines.append(f"  AC: {ac}    Touch: {tac}    Flat-Footed: {ffac}")
     lines.append(line)
