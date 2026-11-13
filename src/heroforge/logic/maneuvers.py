@@ -77,11 +77,11 @@ class StanceEffect:
 # (Armor Class or a saving throw).  Conditional entries record the qualifier in
 # ``condition`` so they are catalogued but never folded into a total.
 STANCE_EFFECTS: tuple[StanceEffect, ...] = (
-    # Iron Heart — Punishing Stance (ToB p70): trade defence for offence.  The
-    # extra 1d6 damage is not a tracked derived stat, but the −2 AC and −2 on
-    # Reflex saves are always-on while the stance is held.
+    # Iron Heart — Punishing Stance (ToB p70): "Attacks deal +1d6 damage, but
+    # you have -2 to AC" (workbook Maneuvers & Stances row 88).  The extra 1d6
+    # damage is not a tracked derived stat; the −2 AC is always on while the
+    # stance is held.  The stance carries no saving-throw penalty.
     StanceEffect("Punishing Stance", -2, KIND_AC, "untyped"),
-    StanceEffect("Punishing Stance", -2, KIND_SAVE, "Reflex"),
     # Stone Dragon — Stonefoot Stance (ToB p67): +2 AC, but only against
     # creatures larger than you.
     StanceEffect("Stonefoot Stance", 2, KIND_AC, "untyped", "against larger creatures"),

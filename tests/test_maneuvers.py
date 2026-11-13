@@ -36,7 +36,7 @@ def test_active_stance_names_only_readied() -> None:
 def test_active_stance_effects_matches_catalogue() -> None:
     maneuvers = [_maneuver("Punishing Stance", True)]
     effects = active_stance_effects(maneuvers)
-    assert {e.target for e in effects} == {"untyped", "Reflex"}
+    assert {e.target for e in effects} == {"untyped"}
     # An active stance that is not in the catalogue contributes nothing.
     assert active_stance_effects([_maneuver("Iron Guard's Glare", True)]) == []
 
@@ -49,8 +49,9 @@ def test_unreadied_stance_has_no_effect() -> None:
 
 def test_punishing_stance_unconditional_bonuses() -> None:
     maneuvers = [_maneuver("Punishing Stance", True)]
-    # Punishing Stance: -2 AC (untyped) and -2 Reflex saves (ToB p70).
-    assert stance_save_bonuses(maneuvers) == {"ref": -2}
+    # Punishing Stance: -2 AC (untyped) only; it has no save penalty
+    # (workbook Maneuvers & Stances row 88, ToB p70).
+    assert stance_save_bonuses(maneuvers) == {}
     assert stance_ac_bonuses(maneuvers) == [("untyped", -2)]
 
 
@@ -70,8 +71,9 @@ def test_stance_save_bonuses_accumulate() -> None:
 
     custom = (
         *STANCE_EFFECTS,
-        # A second unconditional Reflex effect on Punishing Stance.
+        # Two unconditional Reflex effects on Punishing Stance.
         StanceEffect("Punishing Stance", -1, KIND_SAVE, "Reflex"),
+        StanceEffect("Punishing Stance", -2, KIND_SAVE, "Reflex"),
     )
     maneuvers = [_maneuver("Punishing Stance", True)]
     assert stance_save_bonuses(maneuvers, custom) == {"ref": -3}
@@ -80,10 +82,8 @@ def test_stance_save_bonuses_accumulate() -> None:
 def test_describe_effect_text() -> None:
     by_name = {(e.stance_name, e.kind): e for e in STANCE_EFFECTS}
     punishing_ac = by_name[("Punishing Stance", "ac")]
-    punishing_ref = by_name[("Punishing Stance", "save")]
     bolster = by_name[("Bolstering Voice", "save")]
     assert describe_effect(punishing_ac) == "-2 penalty to AC."
-    assert describe_effect(punishing_ref) == "-2 penalty on Reflex saves."
     assert describe_effect(bolster) == (
         "+2 bonus on Will saves against fear and charm effects."
     )
@@ -102,7 +102,7 @@ def test_derived_stats_apply_punishing_stance() -> None:
     assert stanced.armor_class == baseline.armor_class - 2
     assert stanced.touch_ac == baseline.touch_ac - 2
     assert stanced.flat_footed_ac == baseline.flat_footed_ac - 2
-    assert stanced.reflex == baseline.reflex - 2
-    # Other saves are untouched.
+    # Punishing Stance carries no save penalty, so every save is untouched.
+    assert stanced.reflex == baseline.reflex
     assert stanced.fortitude == baseline.fortitude
     assert stanced.will == baseline.will
