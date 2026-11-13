@@ -27,6 +27,37 @@ _SAVE_ALIASES: Mapping[str, str] = {
 # applies (PHB p150–151).  Penalties always stack regardless of type.
 _STACKING_BONUS_TYPES: frozenset[str] = frozenset({"untyped", "dodge", "circumstance"})
 
+# Default bonus for catalogue items whose bonus target and type are fixed by the
+# item description (DMG chapter 7).  The workbook only computes these in VBA, so
+# they are not seedable; the value is the item's lowest version and the user
+# edits it in the Magic Equipment tab for stronger versions.  Keys are the
+# seeded ``magic_equipment`` names, lower-cased.
+_DEFAULT_ITEM_BONUSES: Mapping[str, tuple[str, str, int]] = {
+    "gauntlets of ogre power": ("STR", "enhancement", 2),
+    "belt of giant strength": ("STR", "enhancement", 4),
+    "gloves of dexterity": ("DEX", "enhancement", 2),
+    "amulet of health": ("CON", "enhancement", 2),
+    "headband of intellect": ("INT", "enhancement", 2),
+    "periapt of wisdom": ("WIS", "enhancement", 2),
+    "cloak of charisma": ("CHA", "enhancement", 2),
+    "cloak of resistance": ("Saves", "resistance", 1),
+    "vest of resistance": ("Saves", "resistance", 1),
+    # The Ring slot catalogue lists the ring of protection as "Protection".
+    "protection": ("AC", "deflection", 1),
+}
+
+
+def default_item_bonuses(name: str) -> list[dict]:  # type: ignore[type-arg]
+    """Return the default bonus specs for the catalogue item *name*.
+
+    Returns an empty list for items without a fixed, well-known bonus.
+    """
+    default = _DEFAULT_ITEM_BONUSES.get(str(name).strip().lower())
+    if default is None:
+        return []
+    target, bonus_type, value = default
+    return [{"target": target, "bonus_type": bonus_type, "value": value}]
+
 
 def aggregate_typed_bonuses(bonuses: Iterable[tuple[str, int]]) -> int:
     """Sum typed bonuses honouring D&D 3.5 stacking rules.

@@ -27,6 +27,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from heroforge.logic.buffs import buff_amount
+from heroforge.logic.equipment import declared_bonus_specs, default_item_bonuses
 from heroforge.ui.tabs._tab_helper import pick_from_catalog
 
 if TYPE_CHECKING:
@@ -57,6 +59,26 @@ _CATALOG_SLOTS: dict[str, frozenset[str]] = {
     "Hands/Rings (x2)": frozenset({"Hand", "Ring"}),
 }
 
+# Slot-table columns.  Each slot carries one editable typed bonus (target, type
+# and value), stacked with buffs and other items in the derived stats.
+_COL_ITEM = 1
+_COL_TARGET = 2
+_COL_TYPE = 3
+_COL_VALUE = 4
+_COL_NOTES = 5
+_BONUS_COLS = (_COL_TARGET, _COL_TYPE, _COL_VALUE)
+_TARGET_TOOLTIP = (
+    "What the item improves: STR, DEX, CON, INT, WIS, CHA, AC, Fortitude, "
+    "Reflex, Will, Saves, Attack, Initiative, Grapple or HP."
+)
+_TYPE_TOOLTIP = (
+    "The bonus type, e.g. enhancement, deflection, resistance, luck, insight. "
+    "Bonuses of the same type do not stack (PHB p176)."
+)
+# Item-cell data role holding (item name, bonus specs beyond the first) so an
+# item's extra specs survive edits made through the one-bonus-per-row table.
+_EXTRA_SPECS_ROLE = Qt.ItemDataRole.UserRole
+
 
 class MagicEquipmentTab(QWidget):
     """Magic item slots and inventory backed by the character model."""
@@ -85,13 +107,21 @@ class MagicEquipmentTab(QWidget):
 
         slots_box = QGroupBox("Item Slots")
         slots_layout = QVBoxLayout(slots_box)
-        headers = ["Slot", "Item", "Notes"]
+        headers = ["Slot", "Item", "Bonus To", "Bonus Type", "Bonus", "Notes"]
         self._slots_table = QTableWidget(len(_SLOTS), len(headers))
         self._slots_table.setHorizontalHeaderLabels(headers)
+        for col, tip in (
+            (_COL_TARGET, _TARGET_TOOLTIP),
+            (_COL_TYPE, _TYPE_TOOLTIP),
+            (_COL_VALUE, "The bonus amount, e.g. 2 for a +2 item."),
+        ):
+            header_item = self._slots_table.horizontalHeaderItem(col)
+            if header_item is not None:
+                header_item.setToolTip(tip)
         header = self._slots_table.horizontalHeader()
         assert header is not None
         header.setStretchLastSection(True)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(_COL_ITEM, QHeaderView.ResizeMode.Stretch)
         vheader = self._slots_table.verticalHeader()
         assert vheader is not None
         vheader.setVisible(False)
@@ -99,8 +129,8 @@ class MagicEquipmentTab(QWidget):
             slot_item = QTableWidgetItem(slot)
             slot_item.setFlags(slot_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._slots_table.setItem(row, 0, slot_item)
-            self._slots_table.setItem(row, 1, QTableWidgetItem(""))
-            self._slots_table.setItem(row, 2, QTableWidgetItem(""))
+            for col in range(_COL_ITEM, len(headers)):
+                self._slots_table.setItem(row, col, QTableWidgetItem(""))
         self._slots_table.itemChanged.connect(self._on_slot_changed)
         slots_layout.addWidget(self._slots_table)
         btn_row = QHBoxLayout()
@@ -158,20 +188,22 @@ class MagicEquipmentTab(QWidget):
         result: list[dict] = []  # type: ignore[type-arg]
         weights = self._weight_lookup()
         for row in range(len(_SLOTS)):
-            item = self._slots_table.item(row, 1)
-            notes = self._slots_table.item(row, 2)
+            item = self._slots_table.item(row, _COL_ITEM)
+            notes = self._slots_table.item(row, _COL_NOTES)
             name = item.text().strip() if item else ""
             if name:
-                result.append(
-                    {
-                        "item_name": name,
-                        "quantity": 1,
-                        "weight": weights.get(name, 0.0),
-                        "equipped": 1,
-                        "slot": _SLOTS[row],
-                        "notes": notes.text() if notes else "",
-                    }
-                )
+                entry: dict = {  # type: ignore[type-arg]
+                    "item_name": name,
+                    "quantity": 1,
+                    "weight": weights.get(name, 0.0),
+                    "equipped": 1,
+                    "slot": _SLOTS[row],
+                    "notes": notes.text() if notes else "",
+                }
+                bonuses = self._row_bonus_specs(row, name)
+                if bonuses:
+                    entry["bonuses"] = bonuses
+                result.append(entry)
         for i in range(self._extra_list.count()):
             li = self._extra_list.item(i)
             if li is None:
@@ -188,6 +220,50 @@ class MagicEquipmentTab(QWidget):
             )
         return result
 
+    def _cell_text(self, row: int, col: int) -> str:
+        cell = self._slots_table.item(row, col)
+        return cell.text().strip() if cell else ""
+
+    def _row_bonus_specs(self, row: int, name: str) -> list[dict]:  # type: ignore[type-arg]
+        """Return the bonus specs for the item in slot *row* named *name*.
+
+        The row's own bonus columns give the first spec; any further specs the
+        entry carried (e.g. from an import) are kept while the item is unchanged.
+        """
+        specs: list[dict] = []  # type: ignore[type-arg]
+        target = self._cell_text(row, _COL_TARGET)
+        if target:
+            specs.append(
+                {
+                    "target": target,
+                    "bonus_type": self._cell_text(row, _COL_TYPE),
+                    "value": buff_amount(self._cell_text(row, _COL_VALUE)),
+                }
+            )
+        item = self._slots_table.item(row, _COL_ITEM)
+        stored = item.data(_EXTRA_SPECS_ROLE) if item is not None else None
+        if isinstance(stored, tuple) and len(stored) == 2 and stored[0] == name:
+            specs.extend(stored[1])
+        return specs
+
+    def _set_row_bonuses(
+        self, row: int, name: str, specs: list[dict]  # type: ignore[type-arg]
+    ) -> None:
+        """Show *specs* for slot *row*: the first in the bonus columns, the rest
+        stored on the item cell."""
+        first = specs[0] if specs else {}
+        value = first.get("value")
+        values = {
+            _COL_TARGET: str(first.get("target", "")),
+            _COL_TYPE: str(first.get("bonus_type", "")),
+            _COL_VALUE: str(value) if first else "",
+        }
+        for col in _BONUS_COLS:
+            self._slots_table.setItem(row, col, QTableWidgetItem(values[col]))
+        item = self._slots_table.item(row, _COL_ITEM)
+        if item is not None:
+            item.setData(_EXTRA_SPECS_ROLE, (name, list(specs[1:])))
+
     def _sync_to_model(self) -> None:
         if self._model is None:
             return
@@ -197,6 +273,8 @@ class MagicEquipmentTab(QWidget):
             if e.get("slot") not in _OWNED_SLOTS
         ]
         self._model.character.equipment = others + self._entries()
+        # Item bonuses and weights feed the derived stats; refresh other tabs.
+        self._model.derived_stats_changed.emit()
 
     def _on_slot_changed(self, _item: QTableWidgetItem) -> None:
         if not self._loading:
@@ -237,7 +315,15 @@ class MagicEquipmentTab(QWidget):
                 }
                 if name not in game_names:
                     self._register_custom_item(name, slot)
-            self._slots_table.setItem(row, 1, QTableWidgetItem(name))
+            # Replace the row's item and prefill any well-known bonus in one
+            # model update.
+            self._loading = True
+            try:
+                self._slots_table.setItem(row, _COL_ITEM, QTableWidgetItem(name))
+                self._set_row_bonuses(row, name, default_item_bonuses(name))
+            finally:
+                self._loading = False
+            self._sync_to_model()
 
     def add_extra(self, name: str) -> bool:
         """Add a wondrous/extra item named *name*. Returns acceptance."""
@@ -278,8 +364,8 @@ class MagicEquipmentTab(QWidget):
     def _sync_from_model(self) -> None:
         self._loading = True
         for row in range(len(_SLOTS)):
-            self._slots_table.setItem(row, 1, QTableWidgetItem(""))
-            self._slots_table.setItem(row, 2, QTableWidgetItem(""))
+            for col in range(_COL_ITEM, self._slots_table.columnCount()):
+                self._slots_table.setItem(row, col, QTableWidgetItem(""))
         self._extra_list.clear()
         if self._model is not None:
             by_slot = {s: i for i, s in enumerate(_SLOTS)}
@@ -287,11 +373,13 @@ class MagicEquipmentTab(QWidget):
                 slot = entry.get("slot", "")
                 if slot in by_slot:
                     row = by_slot[slot]
+                    name = entry.get("item_name", "")
+                    self._slots_table.setItem(row, _COL_ITEM, QTableWidgetItem(name))
                     self._slots_table.setItem(
-                        row, 1, QTableWidgetItem(entry.get("item_name", ""))
+                        row, _COL_NOTES, QTableWidgetItem(entry.get("notes", ""))
                     )
-                    self._slots_table.setItem(
-                        row, 2, QTableWidgetItem(entry.get("notes", ""))
+                    self._set_row_bonuses(
+                        row, name.strip(), declared_bonus_specs(entry)
                     )
                 elif slot == _WONDROUS:
                     self._extra_list.addItem(

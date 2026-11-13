@@ -613,6 +613,127 @@ class TestMagicEquipmentSlotCatalogue:
         assert set(tab._merged_item_catalog(tab_slot)) == expected
 
 
+@pytest.fixture()
+def gear_model(qapp: object, catalog_db: Path) -> object:
+    """A model whose catalogue holds weighted big-six magic items."""
+    import sqlite3
+
+    from heroforge.db.data_access import GameDataRepository
+    from heroforge.ui.main_window import CharacterModel
+
+    conn = sqlite3.connect(catalog_db)
+    try:
+        conn.executemany(
+            "INSERT INTO magic_equipment (name, slot, weight, price_gp) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("Gauntlets of ogre power", "Hand", 4.0, 4000),
+                ("Cloak of resistance", "Shoulders", 1.0, 1000),
+                ("Boots of elvenkind", "Feet", 1.0, 2500),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return CharacterModel(game_data=GameDataRepository(str(catalog_db)))
+
+
+def _assign(tab: object, slot: str, name: str, monkeypatch: object) -> None:
+    from heroforge.ui.tabs import magic_equipment
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        magic_equipment, "pick_from_catalog", lambda *_args: name
+    )
+    tab._slots_table.setCurrentCell(magic_equipment._SLOTS.index(slot), 1)
+    tab._assign_slot()
+
+
+class TestMagicEquipmentTabBonuses:
+    def test_assigning_known_item_applies_its_bonus(
+        self, gear_model: object, monkeypatch: object
+    ) -> None:
+        from PyQt6.QtTest import QSignalSpy
+
+        from heroforge.ui.tabs.magic_equipment import MagicEquipmentTab
+
+        gear_model.character.ability_scores["STR"] = 10
+        tab = MagicEquipmentTab(model=gear_model)
+        spy = QSignalSpy(gear_model.derived_stats_changed)
+        _assign(tab, "Hands/Rings (x2)", "Gauntlets of ogre power", monkeypatch)
+
+        stats = gear_model.derived_stats()
+        assert stats.effective_ability_scores["STR"] == 12
+        assert stats.ability_modifiers["STR"] == 1
+        assert len(spy) >= 1
+        entry = next(
+            e
+            for e in gear_model.character.equipment
+            if e["item_name"] == "Gauntlets of ogre power"
+        )
+        # Catalogue weight is stamped onto the entry.
+        assert entry["weight"] == 4.0
+
+    def test_user_entered_bonus_applies_and_survives_reload(
+        self, gear_model: object, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        from heroforge.ui.tabs.magic_equipment import _SLOTS, MagicEquipmentTab
+
+        tab = MagicEquipmentTab(model=gear_model)
+        _assign(tab, "Shoulders", "Cloak of resistance", monkeypatch)
+        row = _SLOTS.index("Shoulders")
+        # Upgrade the cloak's default +1 to +3.
+        tab._slots_table.item(row, 4).setText("3")
+        assert gear_model.derived_stats().fortitude == 3
+        assert gear_model.derived_stats().will == 3
+
+        loaded = _round_trip(gear_model.character, tmp_path)
+        gear_model.character = loaded
+        tab._sync_from_model()
+        assert tab._slots_table.item(row, 2).text() == "Saves"
+        assert tab._slots_table.item(row, 3).text() == "resistance"
+        assert tab._slots_table.item(row, 4).text() == "3"
+        assert gear_model.derived_stats().reflex == 3
+
+    def test_bonus_edit_on_unknown_item(
+        self, gear_model: object, monkeypatch: object
+    ) -> None:
+        from heroforge.ui.tabs.magic_equipment import _SLOTS, MagicEquipmentTab
+
+        tab = MagicEquipmentTab(model=gear_model)
+        _assign(tab, "Feet", "Boots of elvenkind", monkeypatch)
+        row = _SLOTS.index("Feet")
+        # No default bonus is known for these boots.
+        assert tab._slots_table.item(row, 2).text() == ""
+        tab._slots_table.item(row, 2).setText("AC")
+        tab._slots_table.item(row, 3).setText("dodge")
+        tab._slots_table.item(row, 4).setText("1")
+        assert gear_model.derived_stats().armor_class == 11
+
+    def test_extra_bonus_specs_survive_tab_edits(self, gear_model: object) -> None:
+        from heroforge.ui.tabs.magic_equipment import _SLOTS, MagicEquipmentTab
+
+        gear_model.character.equipment = [
+            _magic_item(
+                "Gauntlets of ogre power", "Hands/Rings (x2)", "STR", "enhancement", 2
+            )
+        ]
+        gear_model.character.equipment[0]["bonuses"].append(
+            {"target": "fort", "bonus_type": "luck", "value": 1}
+        )
+        tab = MagicEquipmentTab(model=gear_model)
+        # Editing an unrelated slot rewrites every entry from the table.
+        tab._slots_table.item(_SLOTS.index("Head"), 5).setText("note")
+        entry = next(
+            e
+            for e in gear_model.character.equipment
+            if e["item_name"] == "Gauntlets of ogre power"
+        )
+        assert entry["bonuses"] == [
+            {"target": "STR", "bonus_type": "enhancement", "value": 2},
+            {"target": "fort", "bonus_type": "luck", "value": 1},
+        ]
+
+
 # ---------------------------------------------------------------------------
 # Attacks (weapon catalogue)
 # ---------------------------------------------------------------------------
