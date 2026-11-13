@@ -127,6 +127,72 @@ class TestCheckPrestigePrerequisites:
         )
 
 
+
+class TestCastPrerequisiteTag:
+    """``CAST:<type>:<level>`` -- ability to cast spells of a given level."""
+
+    def test_met_when_caster_reaches_level(self) -> None:
+        assert (
+            check_prestige_prerequisites(
+                ["CAST:Arcane:3"],
+                0,
+                {},
+                {},
+                [],
+                5,
+                {},
+                character_spellcasting={"Arcane": 3},
+            )
+            is True
+        )
+
+    def test_unmet_when_caster_below_level(self) -> None:
+        assert (
+            check_prestige_prerequisites(
+                ["CAST:Arcane:3"],
+                0,
+                {},
+                {},
+                [],
+                3,
+                {},
+                character_spellcasting={"Arcane": 2},
+            )
+            is False
+        )
+
+    def test_non_integer_level_fails_closed_instead_of_raising(self) -> None:
+        # Free text from the custom-class dialog or a save file must never
+        # raise (an exception in a Qt slot aborts the application).
+        assert (
+            check_prestige_prerequisites(
+                ["CAST:Arcane:3rd"],
+                0,
+                {},
+                {},
+                [],
+                20,
+                {},
+                character_spellcasting={"Arcane": 9},
+            )
+            is False
+        )
+
+    def test_missing_level_fails_closed(self) -> None:
+        assert (
+            check_prestige_prerequisites(
+                ["CAST:Arcane"],
+                0,
+                {},
+                {},
+                [],
+                20,
+                {},
+                character_spellcasting={"Arcane": 9},
+            )
+            is False
+        )
+
 class TestAvailablePrestigeClasses:
     def test_returns_only_qualifying_classes_sorted(self) -> None:
         all_classes = [

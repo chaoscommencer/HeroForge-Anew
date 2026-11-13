@@ -243,11 +243,18 @@ def check_prestige_prerequisites(
         if prereq.startswith("CAST:"):
             # Format: CAST:Type:Level (e.g. CAST:Arcane:3)
             parts = prereq[5:].split(":")
-            if len(parts) == 2:
-                cast_type, min_lvl = parts[0].strip(), int(parts[1].strip())
-                if character_spellcasting.get(cast_type, 0) < min_lvl:
-                    return False
-                continue
+            if len(parts) != 2:
+                return False
+            cast_type = parts[0].strip()
+            try:
+                min_lvl = int(parts[1].strip())
+            except ValueError:
+                # Malformed free text (e.g. "CAST:Arcane:3rd") fails closed
+                # rather than raising out of a Qt slot.
+                return False
+            if character_spellcasting.get(cast_type, 0) < min_lvl:
+                return False
+            continue
 
         # Check class-level prerequisites: "Wizard 5", "Fighter 2", …
         class_m = re.match(r"^(\w[\w\s]*?)\s+(\d+)$", prereq, re.IGNORECASE)

@@ -123,3 +123,28 @@ class TestPrestigePrerequisiteStatus:
         model.skill_ranks_changed.emit(_skills_tab_name("Knowledge (Arc"), 4.0)
         assert _enabled(archer)
         assert archer.toolTip() == ""
+
+
+class TestMalformedCustomPrerequisites:
+    def test_malformed_cast_tag_on_custom_class_does_not_raise(
+        self, model: object
+    ) -> None:
+        from heroforge.logic.prestige import custom_class_to_content
+        from heroforge.models.class_ import Class
+        from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+
+        tab = PrestigeClassesTab(model=model)
+        model.character.custom_content.append(
+            custom_class_to_content(
+                Class(
+                    name="Homebrew Mage",
+                    is_prestige=True,
+                    prerequisites=["CAST:Arcane:3rd"],
+                )
+            )
+        )
+        tab._load_available()  # must not raise ValueError
+
+        item = _item(tab, "Homebrew Mage")
+        assert not _enabled(item)
+        assert "[ ] CAST:Arcane:3rd" in item.toolTip()
