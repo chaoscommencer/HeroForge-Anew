@@ -838,6 +838,143 @@ class TestCharacterSheetTabRealData:
         assert sheet._data["speed"] == 20
         assert "Speed 20 ft." in tent._text_edit.toPlainText()
 
+    @staticmethod
+    def _click_pdf_export(
+        tab: object,
+        monkeypatch: pytest.MonkeyPatch,
+        path: str,
+        error: Exception | None = None,
+    ) -> tuple[list[tuple[dict, str]], list[str]]:
+        """Click "Export to PDF…" with a stubbed dialog, exporter and warning.
+
+        The stub exporter records its arguments, then raises *error* if given.
+        Returns the recorded exporter calls and warning texts.
+        """
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox, QPushButton
+
+        from heroforge.ui.tabs import character_sheet
+
+        calls: list[tuple[dict, str]] = []
+        warnings: list[str] = []
+        monkeypatch.setattr(
+            QFileDialog, "getSaveFileName", staticmethod(lambda *_a: (path, ""))
+        )
+        monkeypatch.setattr(
+            QMessageBox,
+            "warning",
+            staticmethod(lambda _parent, _title, text, *_a: warnings.append(text)),
+        )
+
+        def _export(data: dict, dest: str) -> None:
+            calls.append((data, dest))
+            if error is not None:
+                raise error
+
+        monkeypatch.setattr(character_sheet, "export_character_sheet_pdf", _export)
+        btn = next(
+            b for b in tab.findChildren(QPushButton) if b.text() == "Export to PDF…"
+        )
+        btn.click()
+        return calls, warnings
+
+    def test_pdf_button_exports_current_payload(
+        self, empty_model: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+
+        empty_model.character.name = "Aragorn"
+        tab = CharacterSheetTab(model=empty_model)
+        empty_model.ability_score_changed.emit("DEX", 16)
+
+        calls, warnings = self._click_pdf_export(tab, monkeypatch, "/x/sheet.pdf")
+
+        assert warnings == []
+        assert len(calls) == 1
+        data, dest = calls[0]
+        assert dest == "/x/sheet.pdf"
+        assert data is tab._data
+        assert data["name"] == "Aragorn"
+        assert data["initiative"] == 3
+        assert data["hp"] == empty_model.derived_stats().hit_points
+        assert data["speed"] == 30
+
+    def test_pdf_button_cancelled_dialog_exports_nothing(
+        self, empty_model: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+
+        tab = CharacterSheetTab(model=empty_model)
+
+        calls, warnings = self._click_pdf_export(tab, monkeypatch, "")
+
+        assert calls == [] and warnings == []
+
+    def test_pdf_button_warns_when_reportlab_missing(
+        self, empty_model: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+
+        tab = CharacterSheetTab(model=empty_model)
+
+        calls, warnings = self._click_pdf_export(
+            tab, monkeypatch, "/x/sheet.pdf", RuntimeError("needs reportlab")
+        )
+
+        assert len(calls) == 1
+        assert warnings == ["needs reportlab"]
+
+    def test_pdf_button_writes_sheet_with_hp_and_speed(
+        self,
+        empty_model: object,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """End to end: the real exporter writes the sheet's HP and speed."""
+        import base64
+        import re
+        import zlib
+
+        from PyQt6.QtWidgets import QFileDialog, QPushButton
+
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+
+        target = tmp_path / "sheet.pdf"
+        monkeypatch.setattr(
+            QFileDialog,
+            "getSaveFileName",
+            staticmethod(lambda *_a: (str(target), "")),
+        )
+        empty_model.character.ability_scores["STR"] = 18
+        empty_model.character.custom_armor = [
+            {"name": "Field Plate", "type": "Heavy", "ac_bonus": 8, "weight": 50}
+        ]
+        empty_model.character.equipment = [
+            {"slot": "Body Armor", "item_name": "Field Plate", "equipped": True}
+        ]
+        tab = CharacterSheetTab(model=empty_model)
+        btn = next(
+            b for b in tab.findChildren(QPushButton) if b.text() == "Export to PDF…"
+        )
+        btn.click()
+
+        # reportlab writes ASCII85 + Flate content streams; decode them to text.
+        raw = target.read_bytes()
+        assert raw.startswith(b"%PDF-")
+        streams = re.findall(rb"stream\r?\n(.*?)endstream", raw, re.S)
+        text = (
+            "".join(
+                zlib.decompress(base64.a85decode(st.strip(), adobe=True)).decode(
+                    "latin-1"
+                )
+                for st in streams
+                if st.strip().endswith(b"~>")
+            )
+            .replace("\\(", "(")
+            .replace("\\)", ")")
+        )
+        hp = empty_model.derived_stats().hit_points
+        assert f"HP: {hp}    Speed: 20 ft. (run x3)" in text
+
     @pytest.mark.parametrize(
         ("button", "filename"),
         [("Export to PDF…", "sheet.pdf"), ("Export to Text…", "sheet.txt")],
