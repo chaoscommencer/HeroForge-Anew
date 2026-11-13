@@ -221,6 +221,44 @@ class TestEffectsFeedDerivedStats:
         assert with_vestige.touch_ac == without.touch_ac
 
 
+class TestActiveVestiges:
+    """Effects apply only within the binder's limits (workbook BinLvl>=1 gates)."""
+
+    def test_no_binder_level_means_no_effects(self) -> None:
+        fighter = Character(
+            classes=[("Fighter", 5)],
+            ability_scores={"STR": 10},
+            vestiges=[{"vestige_name": "Eligor", "level": 7, "bound": True}],
+        )
+        assert vestiges.active_vestige_names(fighter) == []
+        stats = compute_derived_stats(fighter)
+        baseline = compute_derived_stats(Character(classes=[("Fighter", 5)]))
+        assert stats.effective_ability_scores["STR"] == 10
+        assert stats.armor_class == baseline.armor_class
+
+    def test_vestige_above_max_level_is_inactive(self) -> None:
+        # A 3rd-level binder may bind vestiges up to level 2; Eligor is 7th.
+        assert vestiges.active_vestige_names(_bound("Eligor", binder=3)) == []
+        stats = compute_derived_stats(
+            _bound("Eligor", binder=3, ability_scores={"STR": 10})
+        )
+        assert stats.effective_ability_scores["STR"] == 10
+
+    def test_only_the_allowed_number_of_vestiges_is_active(self) -> None:
+        # A 7th-level binder holds one vestige at a time.
+        assert vestiges.active_vestige_names(_bound("Amon", "Paimon", binder=7)) == [
+            "Amon"
+        ]
+        stats = compute_derived_stats(
+            _bound("Amon", "Paimon", binder=7, ability_scores={"DEX": 10})
+        )
+        assert stats.effective_ability_scores["DEX"] == 10
+
+    def test_within_limits_all_bound_vestiges_are_active(self) -> None:
+        char = _bound("Eligor", "Paimon", binder=15)
+        assert vestiges.active_vestige_names(char) == ["Eligor", "Paimon"]
+
+
 class TestEligorNaturalArmor:
     """Eligor's Resiliance: an enhancement bonus to natural armor (Armor!T27)."""
 

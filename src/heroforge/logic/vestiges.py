@@ -253,11 +253,41 @@ def bound_vestige_names(character: Character) -> list[str]:
     return names
 
 
+def active_vestige_names(character: Character) -> list[str]:
+    """Return the bound vestiges whose granted abilities currently apply.
+
+    The reference workbook gates every vestige effect on ``BinLvl>=1``
+    (e.g. ``Class Abilities!B4587``, ``Armor!T27``), and a binder can only hold
+    vestiges within the binder level limits.  So this keeps, in order, the bound
+    vestiges whose level (:func:`vestige_level_for`) passes :func:`can_bind`, up
+    to :func:`max_vestiges_bound`; a character with no binder level gets none.
+    The limits also hold for saves edited by hand or classes removed after
+    binding.
+    """
+    level = binder_level(character)
+    if level < 1:
+        return []
+    names: list[str] = []
+    for entry in character.vestiges:
+        if not entry.get("bound", True):
+            continue
+        name = str(entry.get("vestige_name", "")).strip()
+        if not name:
+            continue
+        raw_level = entry.get("level")
+        entry_level = vestige_level_for(
+            name, raw_level if isinstance(raw_level, int) else None
+        )
+        if can_bind(entry_level, level):
+            names.append(name)
+    return names[: max_vestiges_bound(level)]
+
+
 def vestige_bonus_specs(
     character: Character,
     effects: Iterable[VestigeEffect] = STANDARD_VESTIGE_EFFECTS,
 ) -> list[dict[str, object]]:
-    """Return the bound vestiges' always-on effects as typed bonus specs.
+    """Return the active vestiges' always-on effects as typed bonus specs.
 
     Each spec is a ``{"source", "target", "bonus_type", "value"}`` dict in the
     same shape as an active stance's
@@ -272,10 +302,10 @@ def vestige_bonus_specs(
             :data:`STANDARD_VESTIGE_EFFECTS`).
 
     Returns:
-        One spec per effect of every bound vestige, sized for the character's
-        binder level.
+        One spec per effect of every active vestige
+        (:func:`active_vestige_names`), sized for the character's binder level.
     """
-    bound = {name.lower() for name in bound_vestige_names(character)}
+    bound = {name.lower() for name in active_vestige_names(character)}
     level = binder_level(character)
     return [
         {
