@@ -155,9 +155,7 @@ def parse_natural_attacks(text: str) -> list[NaturalAttack]:
 
 def natural_attack_dice(attack: NaturalAttack, size: str) -> str:
     """Return *attack*'s damage dice for a creature of *size* (``""`` if none)."""
-    if attack.damage_row is None or not 1 <= attack.damage_row <= len(
-        DAMAGE_BY_SIZE
-    ):
+    if attack.damage_row is None or not 1 <= attack.damage_row <= len(DAMAGE_BY_SIZE):
         return ""
     try:
         column = SIZES.index(size) + attack.size_offset

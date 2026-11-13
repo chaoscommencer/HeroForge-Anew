@@ -149,9 +149,7 @@ class AttacksTab(QWidget):
         self._natural_table.setHorizontalHeaderLabels(
             ["Attack", "Attack Bonus", "Damage"]
         )
-        self._natural_table.setEditTriggers(
-            QTableWidget.EditTrigger.NoEditTriggers
-        )
+        self._natural_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         natural_header = self._natural_table.horizontalHeader()
         assert natural_header is not None
         natural_header.setStretchLastSection(True)

@@ -129,9 +129,7 @@ class TestAvailableForms:
     def test_forms_without_hit_dice_excluded(self, catalogue: list[dict]) -> None:
         # Workbook 'Creature Info' CD column requires LEN(HD)>0.
         catalogue.append(_creature("Mystery Cat", "Medium", "Animal", ""))
-        assert "Mystery Cat" not in {
-            c["name"] for c in available_forms(20, catalogue)
-        }
+        assert "Mystery Cat" not in {c["name"] for c in available_forms(20, catalogue)}
 
     def test_magical_beasts_never(self, catalogue: list[dict]) -> None:
         # Only the Magical Beast Wild Shape feat grants these (workbook
@@ -459,9 +457,7 @@ class TestFormLossOfLevels:
         model.class_levels_changed.emit()
         assert tab._active_check.isChecked() is False
         entry = next(
-            c
-            for c in model.character.companions
-            if c["companion_type"] == "wild_shape"
+            c for c in model.character.companions if c["companion_type"] == "wild_shape"
         )
         assert json.loads(entry["notes"])["active"] is False
         assert entry["creature"] == "Dire Bear"
@@ -490,9 +486,7 @@ class TestMalformedNotes:
         # The tab still persists later edits.
         tab._active_check.setChecked(True)
         entry = next(
-            c
-            for c in model.character.companions
-            if c["companion_type"] == "wild_shape"
+            c for c in model.character.companions if c["companion_type"] == "wild_shape"
         )
         assert json.loads(entry["notes"])["active"] is True
 
@@ -599,7 +593,11 @@ class TestNaturalAttackParsing:
         claws, bite = natural_attack_lines(
             attacks, size="Large", melee_attack=19, str_mod=10
         )
-        assert (claws.label, claws.attack_bonus, claws.damage) == ("2 Claws", 19, "2d4+10")
+        assert (claws.label, claws.attack_bonus, claws.damage) == (
+            "2 Claws",
+            19,
+            "2d4+10",
+        )
         assert (bite.label, bite.attack_bonus, bite.damage) == ("Bite", 14, "2d8+5")
         _, bite = natural_attack_lines(
             attacks,

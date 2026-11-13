@@ -249,9 +249,7 @@ class WildShapeTab(QWidget):
         speed = form.speed.strip()
         # The seeded catalogue stores the bare land speed in feet ("50").
         self._speed_label.setText(f"{speed} ft." if speed.isdigit() else speed or "—")
-        attacks = format_natural_attacks(
-            parse_natural_attacks(form.natural_attacks)
-        )
+        attacks = format_natural_attacks(parse_natural_attacks(form.natural_attacks))
         self._attacks_label.setText(attacks or "—")
         self._hd_label.setText(form.hit_dice or "—")
 

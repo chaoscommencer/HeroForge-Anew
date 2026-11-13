@@ -1288,9 +1288,7 @@ class GameDataRepository:
         )
         has_attacks = self._creatures_have_attacks
         if has_attacks is None:
-            existing = {
-                r["name"] for r in self._query("PRAGMA table_info(creatures)")
-            }
+            existing = {r["name"] for r in self._query("PRAGMA table_info(creatures)")}
             has_attacks = "natural_attacks" in existing
             if existing:
                 self._creatures_have_attacks = has_attacks
