@@ -23,6 +23,14 @@ set -euo pipefail
 : "${SCREEN_GEOMETRY:=1920x1080}"
 : "${NOVNC_PORT:=6080}"
 : "${VNC_PORT:=5900}"
+# Address websockify listens on. Empty (the default) means all interfaces, which
+# is right inside the display container, whose port Compose publishes on
+# 127.0.0.1 only. scripts/run-gui-local.sh runs this script directly in the
+# devcontainer and sets it to 127.0.0.1, so noVNC is reachable only through
+# VS Code's port forwarding.
+: "${NOVNC_HOST:=}"
+# noVNC web client directory (the Debian `novnc` package's location).
+: "${NOVNC_WEB:=/usr/share/novnc}"
 
 # Resolve the VNC password from the Compose secret file if present, otherwise
 # from the VNC_PASSWORD environment variable (plain `docker run` fallback). The
@@ -101,7 +109,9 @@ trap shutdown EXIT INT TERM
 # lock blocks the first, which then fails with "timeout in locking authority
 # file". Capturing nlist's output first lets each xauth invocation take and
 # release the lock in turn.
-export XAUTHORITY="/tmp/.X11-unix/.Xauthority"
+# XAUTHORITY can be overridden: scripts/run-gui-local.sh points it at a private
+# per-run directory, since there is no shared socket volume outside Compose.
+export XAUTHORITY="${XAUTHORITY:-/tmp/.X11-unix/.Xauthority}"
 : > "${XAUTHORITY}"
 # 0600 while the cookie is being written: xauth `add` and `nmerge` below both
 # REWRITE the authority file in place, so the owner needs write permission here
@@ -219,7 +229,7 @@ chmod 0600 "${cert_file}" "${key_file}"
 # websockify exits or a signal fires the trap.
 # The --cert, --key, and --ssl-only flags ensure WebSocket connections are
 # encrypted (wss:// only); plaintext ws:// is refused.
-websockify --web=/usr/share/novnc --cert="${cert_file}" --key="${key_file}" --ssl-only \
-    "${NOVNC_PORT}" "localhost:${VNC_PORT}" &
+websockify --web="${NOVNC_WEB}" --cert="${cert_file}" --key="${key_file}" --ssl-only \
+    "${NOVNC_HOST:+${NOVNC_HOST}:}${NOVNC_PORT}" "localhost:${VNC_PORT}" &
 websockify_pid=$!
 wait "${websockify_pid}"

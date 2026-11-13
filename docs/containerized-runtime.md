@@ -51,6 +51,32 @@ black src/ tests/
 
 ---
 
+## 2a. Run the GUI in the default profile (no containers)
+
+The default devcontainer profile has no container engine, so it shows the GUI
+with plain processes:
+
+```bash
+scripts/run-gui-local.sh
+```
+
+It starts the same desktop the Compose `display` sidecar runs
+([`scripts/display-entrypoint.sh`](../scripts/display-entrypoint.sh): Xvfb,
+fluxbox, x11vnc and websockify/noVNC) in the background, prints a one-time VNC
+password, and runs the app in the foreground on that display. Open the forwarded
+**port 6080** from the *Ports* panel (or `https://localhost:6080/vnc.html`) and
+enter the password. Closing the app or pressing Ctrl-C stops the desktop.
+
+- noVNC listens on `127.0.0.1` only and serves TLS only, so it is reachable just
+  through the private Codespaces / VS Code port forward.
+- The password, X cookie, TLS key and desktop config live in a private `0700`
+  directory on a RAM-backed tmpfs and are deleted on exit. The password file is
+  deleted as soon as the desktop is up, and the password is never on a command
+  line.
+- Difference from the Compose stack: the **app runs as your own user**, with your
+  network access and your workspace, not in a network-less, read-only
+  container. Use the QA profile and section 2 when you need that isolation.
+
 ## 2. Run the GUI for QA (Docker / Podman)
 
 The QA desktop is gated by a **one-time VNC password**. Let the helper script
