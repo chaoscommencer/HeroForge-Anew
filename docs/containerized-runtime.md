@@ -53,41 +53,48 @@ black src/ tests/
 
 ## 2. Run the GUI for QA (Docker / Podman)
 
-The QA stack requires a **VNC password** that gates access to the noVNC desktop.
-It is read from a git-ignored `.env` file in the project root. The easiest path
-is to let the helper script manage it for you:
+The QA desktop is gated by a **one-time VNC password**. Let the helper script
+manage it:
 
 ```bash
-scripts/run-gui.sh                      # build (first run) and launch the GUI
-scripts/run-gui.sh --build              # force a rebuild
-scripts/run-gui.sh --generate-password  # rotate the VNC password, then launch
-scripts/run-gui.sh down                 # tear the stack down
+scripts/run-gui.sh            # build (first run) and launch the GUI
+scripts/run-gui.sh --build    # force a rebuild
+scripts/run-gui.sh down       # tear the stack down
 ```
 
-On launch the script ensures `.env` exists (seeding it from `.env.example`) and
-that it carries a strong, randomly generated `VNC_PASSWORD`: one is created
-whenever the value is missing, empty, or still the `change-me` placeholder, and
-`--generate-password` forces a fresh one even if a real password is already set.
-The active password is always written back to `.env` for you to read. (VNC's
-classic auth only honours the first **8 characters**, so the generated secret is
-exactly 8 alphanumeric characters.)
+Every launch generates a fresh random password and prints it once in the
+terminal:
 
-The script then writes that password into a git-ignored `secrets/vnc_password`
-file, which Compose mounts into the display sidecar as a **secret** at
-`/run/secrets/vnc_password` instead of injecting it as an environment variable.
-This keeps the password out of the container environment (so it does not appear
-in `docker inspect` or `/proc/<pid>/environ`).
-
-To set it yourself instead, edit `.env` by hand and materialize the secret file:
-
-```bash
-cp .env.example .env
-# then edit .env and set a strong VNC_PASSWORD
-mkdir -p secrets && printf '%s' "$VNC_PASSWORD" > secrets/vnc_password
+```text
+  VNC password for this session: 4toN5hXw
 ```
 
-Then open the forwarded **port 6080** (noVNC) and enter your `VNC_PASSWORD` — the
-HeroForge-Anew window appears on the desktop, ready to click through for QA.
+Open the forwarded **port 6080** from VS Code's *Ports* panel (or
+`https://localhost:6080/vnc.html`) and enter that password. The HeroForge-Anew
+window appears on the desktop, ready to click through for QA. (VNC's classic
+auth only honours the first **8 characters**, so the generated secret is exactly
+8 alphanumeric characters.)
+
+How the password is kept short-lived:
+
+- It is **never written to `.env` or anywhere in the repository**. The script
+  writes it to a `0600` file inside a new `0700` directory on a RAM-backed tmpfs
+  (`$XDG_RUNTIME_DIR`, else `/dev/shm`) and passes that path to Compose in
+  `HEROFORGE_VNC_SECRET_FILE`.
+- Compose mounts the file into the display sidecar as a **secret** at
+  `/run/secrets/vnc_password`, not as an environment variable, so it does not
+  appear in `docker inspect` or `/proc/<pid>/environ`.
+- A background watcher **deletes the host file** as soon as the display port
+  answers (the container keeps its mounted copy), or when Compose exits, or
+  after 30 minutes at most.
+- Inside the sidecar the password goes to x11vnc through
+  `-passwdfile rm:<file>`, which reads and then deletes the file, so it never
+  appears on a command line and afterwards lives only in x11vnc's memory.
+
+Restarting the stack gives a new password. Older versions stored the password
+in `.env` and `secrets/vnc_password`; the script deletes the old
+`secrets/vnc_password` and tells you to remove any leftover `VNC_PASSWORD` line
+from `.env`.
 
 The script auto-detects a container engine, preferring **Podman** (rootless, more
 secure) and falling back to Docker:
@@ -98,19 +105,24 @@ secure) and falling back to Docker:
 4. `docker-compose`
 
 It aligns the in-container user with your UID/GID and, as described above,
-provisions a `VNC_PASSWORD` automatically when one is not already present.
+supplies a one-time VNC password for each launch.
 
 ### Doing it by hand
 
 ```bash
-cp .env.example .env   # set a strong VNC_PASSWORD (once)
-mkdir -p secrets && printf '%s' "$VNC_PASSWORD" > secrets/vnc_password
+# Put a one-time password in a private tmpfs file (deleted again below).
+export HEROFORGE_VNC_SECRET_FILE="$(mktemp -d /dev/shm/heroforge-vnc.XXXXXXXX)/vnc_password"
+( umask 077; LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 8 >"$HEROFORGE_VNC_SECRET_FILE" )
+cat "$HEROFORGE_VNC_SECRET_FILE"; echo   # your password for this session
 export APP_UID=$(id -u) APP_GID=$(id -g)
 
 # Podman (preferred)
 podman-compose -f docker-compose.yml up --build
 # …or Docker
 docker compose -f docker-compose.yml up --build
+
+# In another terminal, once port 6080 answers, delete the host copy:
+rm -rf "$(dirname "$HEROFORGE_VNC_SECRET_FILE")"
 ```
 
 ### How the display works
@@ -233,14 +245,19 @@ cannot modify the repo.
   encrypted and plaintext `ws://`/`http://` is refused (see *TLS on the noVNC
   WebSocket* above).
 - noVNC is published on **loopback only** (`127.0.0.1:6080`) and gated by a
-  **required** VNC password. The password is set in the git-ignored `.env` file
-  but delivered to the display sidecar as a **Compose secret** (a file mounted at
-  `/run/secrets/vnc_password`, sourced from a git-ignored `secrets/vnc_password`
-  file that `scripts/run-gui.sh` materializes from `.env`) rather than an
+  **required**, **one-time** VNC password. `scripts/run-gui.sh` generates a
+  fresh one per launch and prints it once; it is never stored in `.env` or the
+  repository. It reaches the display sidecar as a **Compose secret** (a file
+  mounted at `/run/secrets/vnc_password`, sourced from a `0600` file on a
+  RAM-backed tmpfs that is deleted once the container is up) rather than an
   environment variable, so it never appears in the container environment
-  (`docker inspect` / `/proc/<pid>/environ`). The stack refuses to start without
-  a password (and rejects the `change-me` placeholder). `scripts/run-gui.sh`
-  generates a strong password automatically — see section 2.
+  (`docker inspect` / `/proc/<pid>/environ`). x11vnc reads it through
+  `-passwdfile rm:`, which deletes that copy too, so the password is never on a
+  command line. The stack refuses to start without a password (and rejects the
+  `change-me` placeholder) — see section 2.
+- The **main access control is the port forward itself**: Codespaces forwards
+  port 6080 **privately** (only your signed-in GitHub account can open it). Keep
+  it private; never set the port's visibility to *Public*.
 - Both base images are **pinned by digest** (not just a mutable tag) in
   `Dockerfile.heroforge-app` and `Dockerfile.display`, making builds reproducible and resistant
   to tag re-pointing / supply-chain tampering. Third-party Python wheels are

@@ -37,14 +37,13 @@ fi
 
 if [[ -z "${VNC_PASSWORD:-}" ]]; then
     echo "error: VNC_PASSWORD is not set — refusing to start a passwordless desktop." >&2
-    echo "       Copy .env.example to .env and set a strong VNC_PASSWORD." >&2
+    echo "       Start the stack with scripts/run-gui.sh, which supplies a one-time password." >&2
     exit 1
 fi
 
 if [[ "${VNC_PASSWORD}" == "change-me" ]]; then
     echo "error: VNC_PASSWORD is still the placeholder 'change-me' — refusing to start." >&2
-    echo "       Set a strong VNC_PASSWORD in .env (or run scripts/run-gui.sh," >&2
-    echo "       which generates one automatically)." >&2
+    echo "       Start the stack with scripts/run-gui.sh, which supplies a one-time password." >&2
     exit 1
 fi
 
@@ -143,15 +142,26 @@ fi
 # Dockerfile.display), so no dialog appears and no runtime workaround is needed.
 fluxbox >/dev/null 2>&1 &
 
-# Store the VNC password in a private file, then export the display over VNC
-# bound to loopback only — the sole client is the in-container websockify bridge.
-vnc_pass_file="${HOME}/.vnc/passwd"
+# Hand the VNC password to x11vnc through a one-shot file rather than its
+# command line (where `x11vnc -storepasswd <pw>` or `-passwd <pw>` would expose
+# it to anyone who can list processes). The printf builtin writes the file
+# without spawning a process; x11vnc reads the first line and, because of the
+# `rm:` prefix, deletes the file straight away, so afterwards the password lives
+# only in x11vnc's memory. The file sits on the private /home/app tmpfs (owner-
+# only, mode 0700) and is created 0600.
+vnc_pass_file="${HOME}/.vnc/passwd-once"
 mkdir -p "$(dirname "${vnc_pass_file}")"
-x11vnc -storepasswd "${VNC_PASSWORD}" "${vnc_pass_file}" >/dev/null 2>&1
+(
+    umask 077
+    printf '%s\n' "${VNC_PASSWORD}" >"${vnc_pass_file}"
+)
+chmod 600 "${vnc_pass_file}"
+unset VNC_PASSWORD
 # Export the Xvfb display over VNC. Flags, in order:
 #   -display "${DISPLAY}"      attach to the Xvfb screen (:99) the rest of the
 #                              stack draws into.
-#   -rfbauth "${vnc_pass_file}"  require the stored VNC password to connect.
+#   -passwdfile rm:"${vnc_pass_file}"  require the VNC password read from that
+#                              file, then delete the file.
 #   -localhost                 bind the listener to 127.0.0.1 only, so the sole
 #                              client is the in-container websockify bridge; the
 #                              VNC port is never exposed outside the container.
@@ -190,7 +200,7 @@ x11vnc -storepasswd "${VNC_PASSWORD}" "${vnc_pass_file}" >/dev/null 2>&1
 #                              power-manage in a headless container, so we skip
 #                              DPMS entirely and suppress that benign-but-noisy line.
 #   -quiet                     trim routine per-connection chatter from the log.
-x11vnc -display "${DISPLAY}" -rfbauth "${vnc_pass_file}" \
+x11vnc -display "${DISPLAY}" -passwdfile "rm:${vnc_pass_file}" \
     -localhost -rfbport "${VNC_PORT}" -forever -noshared -noxdamage -nodpms -quiet &
 
 # Generate a self-signed certificate and key for TLS encryption of the noVNC

@@ -88,12 +88,11 @@ PyQt6 GUI without installing anything locally:
   (`Dockerfile.heroforge-app` + `Dockerfile.display` + `docker-compose.yml`): an
   `app` container running the
   Qt application plus a `display` sidecar that hosts the viewable desktop
-  (Xvfb + noVNC). The desktop is gated by a required `VNC_PASSWORD` you set in a
-  git-ignored `.env` file:
+  (Xvfb + noVNC). The desktop is gated by a one-time VNC password that the
+  helper prints on each launch:
 
   ```bash
-  cp .env.example .env      # set a strong VNC_PASSWORD (once)
-  scripts/run-gui.sh        # build + launch; view at http://localhost:6080
+  scripts/run-gui.sh        # build + launch; open the forwarded port 6080
   ```
 
   The helper auto-detects Podman (preferred) or Docker. See

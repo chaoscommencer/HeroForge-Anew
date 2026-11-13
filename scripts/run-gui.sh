@@ -7,19 +7,19 @@
 # falling back to docker), exports the host UID/GID, and brings up the
 # docker-compose stack. The viewable desktop is hosted entirely inside the
 # `display` sidecar (Xvfb + noVNC); no host X server is involved. The GUI is
-# viewable at http://localhost:6080 (gated by the VNC password from .env).
+# viewable at https://localhost:6080/vnc.html through the forwarded port 6080
+# (gated by a one-time VNC password this script prints).
 #
 # Usage:
 #   scripts/run-gui.sh                      # build (if needed) and run the GUI
 #   scripts/run-gui.sh --build              # force a rebuild
-#   scripts/run-gui.sh --generate-password  # rotate the VNC password, then run
 #   scripts/run-gui.sh down                 # tear the whole stack down
 #
-# On a normal run this ensures a .env exists (seeded from .env.example) and that
-# it carries a strong, randomly-generated VNC_PASSWORD: one is generated when
-# .env is missing, empty, or still set to the "change-me" placeholder. Pass
-# --generate-password to force a fresh password even if a real one is already
-# set. The active password is always stored in .env for you to read.
+# Every launch generates a fresh, random VNC password and prints it once. The
+# password is never written to .env or anywhere in the repository: it is handed
+# to Compose through a 0600 file in a private directory on a RAM-backed tmpfs,
+# and that file is deleted as soon as the display container is up (see
+# start_vnc_secret_cleanup below).
 #
 # For a complete teardown, append --remove-orphans (and --volumes to also drop
 # the persistent data/X11 volumes), e.g. `scripts/run-gui.sh down
@@ -33,17 +33,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-# Path of the git-ignored file that backs the Compose `vnc_password` secret. The
-# password is mounted into the display sidecar at /run/secrets/vnc_password from
-# here (see docker-compose.yml), rather than injected as an environment
-# variable, so it never lands in the container environment.
-SECRET_FILE="secrets/vnc_password"
-
-# --- VNC password helpers ----------------------------------------------------
-# The noVNC desktop is gated by VNC_PASSWORD. x11vnc's classic VNC auth only
+# --- One-time VNC password ---------------------------------------------------
+# The noVNC desktop is gated by a VNC password. x11vnc's classic VNC auth only
 # honours the first 8 characters, so a longer secret buys nothing here; generate
-# exactly 8 from a CSPRNG. The alphabet is restricted to [A-Za-z0-9] so the
-# value is safe to drop into .env and sed without escaping.
+# exactly 8 from a CSPRNG, fresh for every launch, restricted to [A-Za-z0-9].
 #
 # Read a fixed finite chunk of randomness (head exits normally on EOF) and filter
 # it, rather than piping the *infinite* /dev/urandom into `head -c 8` — there the
@@ -55,115 +48,94 @@ gen_password() {
     printf '%s' "${raw:0:8}"
 }
 
-# Write VNC_PASSWORD=<pw> into .env, replacing any existing line or appending a
-# new one. The password is alphanumeric, so the sed replacement needs no escaping.
-set_env_password() {
-    local pw="$1"
-    if grep -q '^VNC_PASSWORD=' .env; then
-        sed -i "s/^VNC_PASSWORD=.*/VNC_PASSWORD=${pw}/" .env
+# Pick a RAM-backed directory for the short-lived secret file, so the password
+# never reaches a disk: $XDG_RUNTIME_DIR (per-user tmpfs) when set, else
+# /dev/shm. Falls back to $TMPDIR (or /tmp) only when neither exists, with a
+# warning.
+secret_parent_dir() {
+    if [[ -n "${XDG_RUNTIME_DIR:-}" && -d "${XDG_RUNTIME_DIR}" && -w "${XDG_RUNTIME_DIR}" ]]; then
+        printf '%s' "${XDG_RUNTIME_DIR}"
+    elif [[ -d /dev/shm && -w /dev/shm ]]; then
+        printf '%s' /dev/shm
     else
-        printf 'VNC_PASSWORD=%s\n' "$pw" >>.env
+        echo "warning: no tmpfs found for the VNC secret; using ${TMPDIR:-/tmp}." >&2
+        printf '%s' "${TMPDIR:-/tmp}"
     fi
 }
 
-# Ensure .env exists and holds a usable VNC password. Generates a new one when
-# .env is missing, the password is empty/unset, it is still the "change-me"
-# placeholder, or *force* is set (the --generate-password flag).
-ensure_vnc_password() {
-    local force="$1" current=""
-
-    if [[ ! -f .env ]]; then
-        if [[ -f .env.example ]]; then
-            cp .env.example .env
-            echo "Created .env from .env.example."
-        else
-            : >.env
-            echo "Created empty .env."
-        fi
-    fi
-
-    # Read the password currently recorded in .env (last VNC_PASSWORD wins).
-    current="$(sed -n 's/^VNC_PASSWORD=//p' .env | tail -n1)"
-
-    if [[ "$force" == "1" || -z "$current" || "$current" == "change-me" ]]; then
-        local pw
-        pw="$(gen_password)"
-        set_env_password "$pw"
-        echo "Generated a new VNC_PASSWORD in .env: ${pw}"
-    else
-        echo "Using existing VNC_PASSWORD from .env."
-    fi
-
-    # .env holds the VNC password in plaintext, so keep it owner-only (it is
-    # commonly created world-readable/writable by the default umask or a copied
-    # .env.example). This does not weaken anything that depended on a looser
-    # mode; nothing reads .env but this script and the compose front-end, both
-    # run as the dev user.
-    chmod 600 .env
-}
-
-# Materialize the file-based Compose secret from the VNC_PASSWORD recorded in
-# .env. docker-compose.yml mounts this file at /run/secrets/vnc_password in the
-# display sidecar; a file-based secret (rather than an env var) keeps the
-# password out of the container environment, and a *file* source specifically is
-# required because the display service runs with a read-only root filesystem.
+# Write a fresh password to a 0600 file inside a new 0700 directory and export
+# its path as HEROFORGE_VNC_SECRET_FILE, which docker-compose.yml uses as the
+# source of the `vnc_password` secret (mounted at /run/secrets/vnc_password in
+# the display sidecar). The password is written with the printf builtin, so it
+# never appears in any process's argument list.
 #
-# The file is written 0600 (owner-only) under the git-ignored secrets/ directory.
-# When .env carries no password the file is created empty so plain compose
-# subcommands (config/down/stop) still resolve the secret reference; the
-# entrypoint then refuses to start a passwordless desktop at run time.
-#
-# Under rootless Podman the file is additionally re-owned (still 0600) to the
-# subordinate UID that backs the container's non-root `app` user, so `app` can
-# read it WITHOUT the security-weakening `userns_mode: keep-id` (see
-# docker-compose.podman.yml). Docker maps the container user 1:1 to the host dev
-# user and reads the 0600 file as its owner, so it needs no remap.
-write_vnc_secret_file() {
-    local pw=""
-    if [[ -f .env ]]; then
-        pw="$(sed -n 's/^VNC_PASSWORD=//p' .env | tail -n1)"
-    fi
-    mkdir -p "$(dirname "$SECRET_FILE")"
-    # Remove any prior copy first: a previous Podman run may have left the file
-    # owned by a subordinate UID (via the unshare-chown below), which this
-    # process (the unprivileged dev user) cannot truncate in place but can
-    # unlink, because it owns the parent secrets/ directory.
-    rm -f "$SECRET_FILE"
-    ( umask 077; printf '%s' "$pw" >"$SECRET_FILE" )
-    chmod 600 "$SECRET_FILE"
-
-    # Rootless Podman maps the container's `app` user (APP_UID) to a high
-    # subordinate UID on the host, so a host-dev-owned 0600 secret appears owned
-    # by another user inside the container and is unreadable. The old fix,
-    # `userns_mode: keep-id`, mapped `app` straight onto the host dev user and so
-    # collapsed the rootless escape isolation that is the main reason we prefer
-    # Podman. Instead, re-own the secret to that subuid: `podman unshare` enters
-    # the rootless user namespace (where the dev user is root and APP_UID maps to
-    # the subuid), so chowning to APP_UID there sets the host file's owner to the
-    # subuid. The file stays mode 0600 — now owned by a high subuid, hence
-    # unreadable to other *host* users as well — yet appears `app`-owned and
-    # readable inside the container.
+# Under rootless Podman the file is re-owned (still 0600) to the subordinate UID
+# that backs the container's non-root `app` user, so `app` can read it WITHOUT
+# the security-weakening `userns_mode: keep-id`: `podman unshare` enters the
+# rootless user namespace, where chowning to APP_UID sets the host owner to that
+# subuid. Docker maps the container user 1:1 to the host dev user, so it needs no
+# remap.
+create_vnc_secret() {
+    VNC_SECRET_DIR="$(mktemp -d "$(secret_parent_dir)/heroforge-vnc.XXXXXXXX")"
+    chmod 700 "$VNC_SECRET_DIR"
+    export HEROFORGE_VNC_SECRET_FILE="${VNC_SECRET_DIR}/vnc_password"
+    VNC_PASSWORD_ONCE="$(gen_password)"
+    (
+        umask 077
+        printf '%s' "$VNC_PASSWORD_ONCE" >"$HEROFORGE_VNC_SECRET_FILE"
+    )
+    # Explicit chmod as well as the umask: a default ACL on the parent directory
+    # would otherwise widen the file's permissions.
+    chmod 600 "$HEROFORGE_VNC_SECRET_FILE"
     if [[ "${COMPOSE[0]}" == podman* ]]; then
-        podman unshare chown "$APP_UID:$APP_GID" "$SECRET_FILE"
+        podman unshare chown "$APP_UID:$APP_GID" "$HEROFORGE_VNC_SECRET_FILE"
+    fi
+}
+
+# Delete the secret directory in the background once it is no longer needed.
+# Compose bind-mounts the file into the display container when the container
+# starts; the mount keeps the file readable inside the container after the host
+# path is unlinked, so the host copy can go as soon as the container is up. The
+# watcher removes it when the first of these happens:
+#   * the display's published port (127.0.0.1:6080) accepts a TCP connection,
+#     meaning the container is running and the secret is mounted;
+#   * the compose process (this script's PID, after `exec`) exits; or
+#   * 30 minutes pass (a stuck or very slow first build).
+# The probe is a bare TCP connect, so websockify may log one harmless
+# "UNEXPECTED_EOF" TLS line for it.
+start_vnc_secret_cleanup() {
+    local owner_pid=$$ dir="$VNC_SECRET_DIR"
+    (
+        trap 'rm -rf "$dir"' EXIT
+        deadline=$((SECONDS + 1800))
+        while ((SECONDS < deadline)) && kill -0 "$owner_pid" 2>/dev/null; do
+            if (exec 3<>/dev/tcp/127.0.0.1/6080) 2>/dev/null; then
+                sleep 2
+                break
+            fi
+            sleep 1
+        done
+    ) </dev/null >/dev/null 2>&1 &
+}
+
+# Older versions of this script stored the password in .env and in
+# secrets/vnc_password. Remove that generated file, and point out the now-unused
+# .env line (the user's .env itself is left alone).
+clean_legacy_vnc_secret() {
+    if [[ -e secrets/vnc_password ]]; then
+        rm -f secrets/vnc_password
+        rmdir secrets 2>/dev/null || true
+        echo "Removed the old stored VNC password file secrets/vnc_password."
+    fi
+    if [[ -f .env ]] && grep -q '^VNC_PASSWORD=' .env; then
+        echo "note: .env still has a VNC_PASSWORD line. It is no longer used (each launch"
+        echo "      gets a fresh one-time password); delete that line from .env."
     fi
 }
 
 # Align the in-container user with the current user for socket/file permissions.
 export APP_UID="$(id -u)"
 export APP_GID="$(id -g)"
-
-# Pull the --generate-password flag out of the argument list (it is ours, not
-# compose's); everything else is forwarded to the compose command untouched.
-GENERATE_PASSWORD=0
-args=()
-for arg in "$@"; do
-    if [[ "$arg" == "--generate-password" ]]; then
-        GENERATE_PASSWORD=1
-    else
-        args+=("$arg")
-    fi
-done
-set -- ${args[@]+"${args[@]}"}
 
 # Pick a compose front-end. Podman is preferred (rootless / more secure);
 # docker is used as a fallback.
@@ -196,15 +168,14 @@ if [[ "${COMPOSE[0]}" == podman* ]]; then
 fi
 
 # Subcommands like "down" / "logs" are passed straight through; otherwise default
-# to bringing the stack up with a build. Even these need the secret file to exist
-# so Compose can resolve the `vnc_password` secret reference while parsing the
-# file, so materialize it (from whatever .env currently holds) first.
+# to bringing the stack up with a build. These need no password: with
+# HEROFORGE_VNC_SECRET_FILE unset, docker-compose.yml points the secret at
+# /dev/null, which is enough for Compose to parse the file.
 #
 # Tip: for a thorough `down`, add --remove-orphans (sweeps up containers for
 # services no longer defined in docker-compose.yml) and --volumes (also drops the
 # persistent heroforge-data and x11-socket volumes); these are forwarded as-is.
 if [[ "${1:-}" =~ ^(down|logs|ps|stop|build|config)$ ]]; then
-    write_vnc_secret_file
     # `down` emits one line per resource it removes, straight from the compose
     # engine. Each container appears twice (once when stopped, once when
     # removed) and volumes/network follow — clarify that up front so the
@@ -245,13 +216,20 @@ if [[ "${1:-}" =~ ^(down|logs|ps|stop|build|config)$ ]]; then
     exec "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" "$@"
 fi
 
-# Ensure .env carries a usable, strong VNC password before launching the stack
-# (generating one when missing/placeholder, or whenever --generate-password is
-# given), then write it into the git-ignored secret file that Compose mounts
-# into the display sidecar at /run/secrets/vnc_password.
-ensure_vnc_password "$GENERATE_PASSWORD"
-write_vnc_secret_file
+# Create this launch's one-time password, schedule its file for deletion, and
+# show it once. The EXIT trap removes the file if anything fails before `exec`
+# (exec does not run the trap; the background watcher takes over from there).
+clean_legacy_vnc_secret
+create_vnc_secret
+trap 'rm -rf "$VNC_SECRET_DIR"' EXIT
+start_vnc_secret_cleanup
 
 echo "Using: ${COMPOSE[*]}  (UID=$APP_UID, GID=$APP_GID)"
-echo "View the GUI at http://localhost:6080 (use your VNC_PASSWORD from .env)."
+echo
+echo "  VNC password for this session: ${VNC_PASSWORD_ONCE}"
+echo "  Open the forwarded port 6080 from the Ports panel (or"
+echo "  https://localhost:6080/vnc.html) and enter it. It is shown only here and"
+echo "  changes on every launch."
+echo
+unset VNC_PASSWORD_ONCE
 exec "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up --build "$@"

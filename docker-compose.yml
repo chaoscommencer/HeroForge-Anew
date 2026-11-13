@@ -14,12 +14,12 @@
 # or workspace bind mounts, rather than next to the editor/credentials — which
 # is why the devcontainer's desktop-lite feature is no longer used.
 #
-# Human access to the desktop is gated by a REQUIRED VNC password. Compose reads
-# it from a git-ignored .env file in the project root (copy .env.example to .env
-# and set VNC_PASSWORD) and hands it to the display sidecar as a Compose *secret*
-# — a file mounted at /run/secrets/vnc_password — rather than an environment
-# variable, so the password never appears in the container's environment (and
-# thus not in `docker inspect` or /proc/<pid>/environ). The entrypoint refuses to
+# Human access to the desktop is gated by a REQUIRED one-time VNC password.
+# scripts/run-gui.sh generates it per launch and Compose hands it to the display
+# sidecar as a Compose *secret* — a file mounted at /run/secrets/vnc_password —
+# rather than an environment variable, so the password never appears in the
+# container's environment (and thus not in `docker inspect` or
+# /proc/<pid>/environ). It is never stored in .env. The entrypoint refuses to
 # start a passwordless desktop.
 #
 # Engine compatibility: this file is plain Compose and works with either
@@ -267,15 +267,18 @@ services:
 # REQUIRED noVNC access password, supplied to the display sidecar as a file
 # mounted at /run/secrets/vnc_password instead of an environment variable, so the
 # password stays out of the container environment (and out of `docker inspect` /
-# /proc/<pid>/environ). The source file (secrets/vnc_password, git-ignored) is
-# materialized from the VNC_PASSWORD in .env by scripts/run-gui.sh on each
-# launch; a file-based secret is required here because the display service runs
-# with a read-only root filesystem (Compose cannot inject an env-based secret
-# into a read-only service). To run the stack by hand, create the file first:
-#   mkdir -p secrets && printf '%s' "$VNC_PASSWORD" > secrets/vnc_password
+# /proc/<pid>/environ). scripts/run-gui.sh generates a fresh one-time password
+# for every launch, writes it to a 0600 file on a RAM-backed tmpfs, exports that
+# path as HEROFORGE_VNC_SECRET_FILE, and deletes the host copy once the display
+# container is up (the bind mount keeps it readable inside the container). A
+# file-based secret is required because the display service runs with a
+# read-only root filesystem (Compose cannot inject an env-based secret into a
+# read-only service). When the variable is unset (e.g. `down`, `logs`), the
+# secret points at /dev/null so the file still parses; the display entrypoint
+# refuses to start with an empty password.
 secrets:
   vnc_password:
-    file: ./secrets/vnc_password
+    file: ${HEROFORGE_VNC_SECRET_FILE:-/dev/null}
 
 # Named volume carrying the X11 unix socket between the two containers. It is
 # initialized from the display image's /tmp/.X11-unix (mode 1777), so both the
