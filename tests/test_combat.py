@@ -352,6 +352,39 @@ class TestWeaponStrengthDamage:
     def test_unknown_handedness_gets_full_strength(self) -> None:
         assert weapon_strength_damage(4, "") == 4
 
+    def test_thrown_weapon_gets_full_strength(self) -> None:
+        # PHB p134: Strength applies to thrown-weapon damage.
+        assert weapon_strength_damage(4, "R", special="T", ranged=True) == 4
+        assert weapon_strength_damage(-1, "R", special="U,T", ranged=True) == -1
+
+    def test_melee_weapon_with_range_increment_gets_full_strength(self) -> None:
+        # A dagger keeps its Strength bonus whether stabbed or thrown.
+        assert weapon_strength_damage(4, "L", name="Dagger", ranged=True) == 4
+
+    def test_sling_gets_full_strength(self) -> None:
+        assert weapon_strength_damage(3, "R", name="Sling", ranged=True) == 3
+        assert weapon_strength_damage(-2, "R", name="Sling, War", ranged=True) == -2
+
+    def test_bow_applies_only_a_strength_penalty(self) -> None:
+        # PHB p113-114: bows apply a Strength penalty but not a bonus (a
+        # composite bow's mighty rating is not modelled, so it adds +0).
+        assert weapon_strength_damage(4, "R", name="Longbow", ranged=True) == 0
+        assert weapon_strength_damage(-2, "R", name="Longbow", ranged=True) == -2
+        assert (
+            weapon_strength_damage(
+                -1, "R", special="M", name="Shortbow, Composite", ranged=True
+            )
+            == -1
+        )
+
+    def test_crossbow_and_other_projectiles_get_no_strength(self) -> None:
+        assert weapon_strength_damage(4, "R", name="Crossbow, Light", ranged=True) == 0
+        assert weapon_strength_damage(-2, "R", name="Crossbow, Heavy", ranged=True) == 0
+        assert weapon_strength_damage(4, "R", name="Blowgun", ranged=True) == 0
+
+    def test_unknown_ranged_weapon_gets_no_strength(self) -> None:
+        assert weapon_strength_damage(4, "", name="Custom Gun", ranged=True) == 0
+
 
 class TestFormatAttackLine:
     def test_positive_chain(self) -> None:

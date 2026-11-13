@@ -139,7 +139,9 @@ class AttacksTab(QWidget):
     def _computed_damage(self, weapon: WeaponItem | None, ranged: bool) -> str | None:
         """Return *weapon*'s damage as weapon dice plus Strength (PHB p134).
 
-        Two-handed melee weapons add 1.5x a Strength bonus (PHB p113).
+        Two-handed melee weapons add 1.5x a Strength bonus (PHB p113); thrown
+        weapons and slings add Strength, bows only a Strength penalty, and
+        other projectile weapons none (see :func:`weapon_strength_damage`).
 
         Returns ``None`` when the weapon is unknown or its catalogue damage has
         no ``NdM`` dice (e.g. ``ref:UnarmedStrikeDamage``), in which case the
@@ -150,10 +152,17 @@ class AttacksTab(QWidget):
         base = weapon_base_dice(weapon.damage)
         if not base:
             return None
-        if ranged or self._model is None:
+        if self._model is None:
             return base
         str_mod = self._model.derived_stats().ability_modifiers.get("STR", 0)
-        return weapon_damage(base, weapon_strength_damage(str_mod, weapon.handedness))
+        strength = weapon_strength_damage(
+            str_mod,
+            weapon.handedness,
+            special=weapon.special,
+            name=weapon.name,
+            ranged=ranged,
+        )
+        return weapon_damage(base, strength)
 
     def _update_damage_cell(
         self, row: int, weapon: WeaponItem | None, computed: str | None

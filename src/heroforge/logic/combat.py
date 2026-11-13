@@ -584,30 +584,59 @@ def weapon_damage(dice: str, damage_modifier: int = 0) -> str:
     return base
 
 
+def _special_codes(special: str) -> set[str]:
+    return {code.strip().upper() for code in (special or "").split(",") if code}
+
+
 def weapon_strength_damage(
     str_mod: int,
     handedness: str = "",
     *,
+    special: str = "",
+    name: str = "",
+    ranged: bool = False,
     off_hand: bool = False,
 ) -> int:
     """Return the Strength modifier a weapon adds to its damage.
 
-    Reference: PHB p113-114 (weapon categories) and p134 (Strength).
+    Reference: PHB p113-114 (weapon categories, bows, slings) and p134
+    (Strength: melee, thrown and sling damage).
 
     *handedness* is the weapon's ``WeaponInfo`` size code: ``L`` (light),
     ``O`` (one-handed), ``T`` (two-handed), ``R`` (ranged) or ``U`` (unarmed).
-    A two-handed melee weapon adds 1.5x a Strength bonus; an off-hand weapon
-    adds half (see :func:`damage_bonus`).
+
+    * Melee weapons (any code but ``R``) add Strength even when they also have
+      a range increment (a dagger or spear keeps it when thrown).  Two-handed
+      weapons add 1.5x a Strength bonus; off-hand weapons add half (see
+      :func:`damage_bonus`).
+    * Thrown ranged weapons (special code ``T``, e.g. javelin) and slings add
+      the full Strength modifier.
+    * Bows apply a Strength penalty but no bonus.  A composite bow's mighty
+      rating is not modelled, so it is treated as rating +0.
+    * Other projectile weapons (crossbows, blowguns ...) and ranged weapons
+      of unknown kind (``ranged`` with no handedness) add nothing.
 
     Args:
         str_mod:    Strength modifier.
         handedness: The weapon's size/handedness code (case-insensitive).
+        special:    Comma-separated ``WeaponInfo`` special codes.
+        name:       Weapon name, used to tell bows and slings apart.
+        ranged:     ``True`` when the weapon has a range increment.
         off_hand:   ``True`` when the weapon is wielded in the off hand.
 
     Returns:
         The Strength contribution to damage.
     """
     code = (handedness or "").strip().upper()
+    lowered = (name or "").lower()
+    if code == "R" or (ranged and not code):
+        if code == "R" and "T" in _special_codes(special):
+            return damage_bonus(str_mod, off_hand=off_hand)
+        if "sling" in lowered:
+            return str_mod
+        if "bow" in lowered and "crossbow" not in lowered:
+            return min(str_mod, 0)
+        return 0
     two_handed = code == "T" and not off_hand
     return damage_bonus(str_mod, two_handed=two_handed, off_hand=off_hand)
 

@@ -59,6 +59,19 @@ def get_connection(db_path: str | Path = "heroforge.db") -> sqlite3.Connection:
     return conn
 
 
+#: Additive column migrations for tables that predate a column, keyed by table.
+#: Each statement adds one column that newer code reads or the seeder writes.
+_COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
+    "classes": {
+        "spellcasting_ability": (
+            "ALTER TABLE classes ADD COLUMN spellcasting_ability TEXT"
+        ),
+        "caster_type": "ALTER TABLE classes ADD COLUMN caster_type TEXT",
+    },
+    "weapons": {"special": "ALTER TABLE weapons ADD COLUMN special TEXT"},
+}
+
+
 def _apply_schema_if_needed(
     conn: sqlite3.Connection,
     schema_sql: str,
@@ -92,24 +105,21 @@ def _apply_schema_if_needed(
         conn.executescript(schema_sql)
         conn.commit()
 
-    if "classes" in expected_tables:
+    applied_migrations = False
+    for table, column_migrations in _COLUMN_MIGRATIONS.items():
+        if table not in expected_tables:
+            continue
         existing_columns = {
-            row["name"] for row in conn.execute("PRAGMA table_info(classes)").fetchall()
+            row["name"]
+            for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
         }
-        column_migrations = {
-            "spellcasting_ability": (
-                "ALTER TABLE classes ADD COLUMN spellcasting_ability TEXT"
-            ),
-            "caster_type": "ALTER TABLE classes ADD COLUMN caster_type TEXT",
-        }
-        applied_migrations = False
         for column, statement in column_migrations.items():
             if column in existing_columns:
                 continue
             conn.execute(statement)
             applied_migrations = True
-        if applied_migrations:
-            conn.commit()
+    if applied_migrations:
+        conn.commit()
 
 
 def initialize_database(db_path: str | Path = "heroforge.db") -> sqlite3.Connection:

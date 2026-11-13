@@ -342,7 +342,8 @@ CREATE TABLE IF NOT EXISTS weapons (
     range_increment INTEGER DEFAULT 0,
     weight          REAL DEFAULT 0,
     damage_type     TEXT,
-    source          TEXT
+    source          TEXT,
+    special         TEXT
 );
 
 CREATE TABLE IF NOT EXISTS weapon_damage (

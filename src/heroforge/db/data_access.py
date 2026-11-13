@@ -112,8 +112,10 @@ class WeaponItem:
     """A weapon entry from the ``weapons`` table.
 
     ``handedness`` is the ``WeaponInfo`` size code: ``L`` (light), ``O``
-    (one-handed), ``T`` (two-handed), ``R`` (ranged) or ``U`` (unarmed); it is
-    empty for custom weapons.
+    (one-handed), ``T`` (two-handed), ``R`` (ranged) or ``U`` (unarmed).
+    ``special`` holds the comma-separated ``WeaponInfo`` special codes, such as
+    ``T`` (thrown) or ``M`` (mighty/composite).  Both are empty for custom
+    weapons.
     """
 
     name: str
@@ -124,6 +126,7 @@ class WeaponItem:
     damage_type: str
     source: str
     handedness: str = ""
+    special: str = ""
 
 
 @dataclass(frozen=True)
@@ -947,12 +950,9 @@ class GameDataRepository:
         """Return weapon entries ordered by name."""
         fragment, params = self._source_filter("source", sources)
         where = f"WHERE {fragment}" if fragment else ""
-        rows = self._query(
-            "SELECT name, category, size, damage_medium, critical, "
-            f"range_increment, damage_type, source FROM weapons {where} "
-            "ORDER BY name",
-            params,
-        )
+        # ``SELECT *`` so a database seeded before the ``special`` column was
+        # added still lists its weapons (with no special codes).
+        rows = self._query(f"SELECT * FROM weapons {where} ORDER BY name", params)
         return [
             WeaponItem(
                 name=r["name"],
@@ -963,6 +963,11 @@ class GameDataRepository:
                 damage_type=r["damage_type"] or "",
                 source=r["source"] or "",
                 handedness=(r["size"] or "").strip().upper(),
+                special=(
+                    (r["special"] or "").strip().upper()
+                    if "special" in r.keys()
+                    else ""
+                ),
             )
             for r in rows
         ]

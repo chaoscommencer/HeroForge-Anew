@@ -145,12 +145,15 @@ def catalog_db(tmp_path: Path) -> Path:
             ],
         )
         conn.executemany(
-            "INSERT INTO weapons (name, category, size, damage_medium, critical, "
-            "range_increment, damage_type, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO weapons (name, category, size, special, damage_medium, "
+            "critical, range_increment, damage_type, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                ("Longsword", "Martial", "O", "1d8", "19-20/x2", 0, "slashing", "PHB"),
-                ("Longbow", "Martial", "R", "1d8", "x3", 100, "piercing", "PHB"),
-                ("Greatsword", "Martial", "T", "2d6", "19-20/x2", 0, "slashing", "PHB"),
+                ("Longsword", "Martial", "O", "", "1d8", "19-20/x2", 0, "S", "PHB"),
+                ("Longbow", "Martial", "R", "", "1d8", "x3", 100, "P", "PHB"),
+                ("Greatsword", "Martial", "T", "", "2d6", "19-20/x2", 0, "S", "PHB"),
+                ("Javelin", "Simple", "R", "T", "1d6", "x2", 30, "P", "PHB"),
+                ("Dagger", "Simple", "L", "", "1d4", "19-20/x2", 10, "P/S", "PHB"),
             ],
         )
         conn.executemany(
@@ -562,6 +565,26 @@ class TestAttacksTab:
         model.derived_stats_changed.emit()
         # PHB p113: 2d6 + 1.5 x STR (+4) = 2d6+6.
         assert tab._weapons_table.item(0, 2).text() == "2d6+6"
+
+    @pytest.mark.parametrize(
+        ("weapon", "strength", "expected"),
+        [
+            ("Javelin", 18, "1d6+4"),  # thrown: full STR
+            ("Dagger", 18, "1d4+4"),  # melee weapon with a range increment
+            ("Longbow", 18, "1d8"),  # bows add no STR bonus ...
+            ("Longbow", 6, "1d8-2"),  # ... but do take a STR penalty
+        ],
+    )
+    def test_ranged_and_thrown_weapon_strength_damage(
+        self, model: object, weapon: str, strength: int, expected: str
+    ) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = strength
+        tab = AttacksTab(model=model)
+        tab.add_weapon(_catalogue_weapon(model, weapon))
+        model.derived_stats_changed.emit()
+        assert tab._weapons_table.item(0, 2).text() == expected
 
     def test_user_entered_damage_is_kept(self, model: object) -> None:
         from heroforge.ui.tabs.attacks import AttacksTab
