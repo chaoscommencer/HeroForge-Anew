@@ -748,6 +748,58 @@ class TestIncarnumPsionicsManeuvers:
         assert tab._total_spin.value() == 7
         assert model.character.options["essentia_pool"] == "7"
 
+    def test_essentia_auto_flag_persisted(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        model.character.classes = [("Incarnate", 5)]
+        model.derived_stats_changed.emit()
+        # Writing the auto-calculated pool also records that it is automatic,
+        # so a reload never mistakes it for a manual override.
+        assert tab._auto_chk.isChecked() is True
+        assert model.character.options["essentia_pool"] == "5"
+        assert model.character.options["essentia_pool_auto"] == "true"
+
+    def test_reload_keeps_auto_mode_when_stored_pool_is_stale(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        model.character.classes = [("Incarnate", 5)]
+        model.derived_stats_changed.emit()
+        # A pool saved under different rules no longer matches the computed
+        # value; the persisted auto flag keeps the reload in auto mode.
+        model.character.options["essentia_pool"] = "6"
+        model.character_loaded.emit(0)
+        assert tab._auto_chk.isChecked() is True
+        assert tab._total_spin.value() == 5
+        assert model.character.options["essentia_pool_auto"] == "true"
+
+    def test_loading_manual_pool_keeps_override(self, model: object) -> None:
+        from heroforge.models.character import Character
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        model.character.classes = [("Incarnate", 5)]
+        model.derived_stats_changed.emit()
+        assert tab._auto_chk.isChecked() is True
+
+        # Load a character whose pool was set by hand while the tab is still
+        # showing the previous, auto-calculated character.
+        loaded = Character()
+        loaded.classes = [("Incarnate", 5)]
+        loaded.options = {"essentia_pool": "12", "essentia_pool_auto": "false"}
+        model.character = loaded
+        model.character_loaded.emit(0)
+
+        assert tab._auto_chk.isChecked() is False
+        assert tab._total_spin.value() == 12
+        assert loaded.options == {
+            "essentia_pool": "12",
+            "essentia_pool_auto": "false",
+        }
+
     def test_chakra_bind_limit_enforced(self, model: object) -> None:
         from heroforge.ui.tabs.soulmelds import SoulmeldsTab
 

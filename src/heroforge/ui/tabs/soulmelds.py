@@ -73,6 +73,8 @@ class SoulmeldsTab(QWidget):
         self._capacity: dict[str, int] = {}
         self._progressions: Mapping[str, IncarnumProgression] | None = None
         self._summary = IncarnumSummary(0, 0, 0, 0, 0)
+        # The character the widgets currently show; see _recalculate.
+        self._synced_character: object | None = None
         self._loading = False
         self._auto_apply = False
         self._build_ui()
@@ -179,7 +181,18 @@ class SoulmeldsTab(QWidget):
         Connected to :attr:`CharacterModel.derived_stats_changed` so changes to
         class levels or feats flow straight into the display, including the
         essentia pool when auto-calculation is enabled.
+
+        The model re-emits ``derived_stats_changed`` for a newly loaded or reset
+        character before this tab's own ``character_loaded`` /
+        ``character_reset`` slot runs.  The widgets then still hold the previous
+        character's auto/manual state, so a swapped character is synced first
+        instead of having that stale state written into its options.
         """
+        if self._model is not None and self._model.character is not (
+            self._synced_character
+        ):
+            self._sync_from_model()
+            return
         self._summary = self._compute_summary()
         self._meldshaper_lbl.setText(str(self._summary.meldshaper_level))
         self._capacity_lbl.setText(str(self._summary.soulmeld_capacity))
@@ -197,7 +210,11 @@ class SoulmeldsTab(QWidget):
         finally:
             self._auto_apply = False
         if not self._loading and self._model is not None:
-            self._model.character.options[_OPTION_KEY] = str(self._total_spin.value())
+            options = self._model.character.options
+            options[_OPTION_KEY] = str(self._total_spin.value())
+            # Record auto mode alongside the value so a reload cannot mistake a
+            # computed pool for a manual override.
+            options[_AUTO_KEY] = "true"
 
     def _on_auto_toggled(self, checked: bool) -> None:
         self._total_spin.setEnabled(not checked)
@@ -395,6 +412,7 @@ class SoulmeldsTab(QWidget):
         self._loading = True
         self._melds_table.setRowCount(0)
         if self._model is not None:
+            self._synced_character = self._model.character
             melds = self._model.game_data().list_soulmelds()
             self._chakra = {m.name: m.chakra for m in melds}
             self._capacity = {m.name: m.essentia_capacity for m in melds}
