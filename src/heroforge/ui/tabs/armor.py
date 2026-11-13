@@ -309,6 +309,8 @@ class ArmorTab(QWidget):
             if e.get("slot") not in _OWNED_SLOTS
         ]
         self._model.character.equipment = others + self._entries()
+        # Armor feeds AC and the carried load; refresh the dependent tabs.
+        self._model.derived_stats_changed.emit()
 
     # ------------------------------------------------------------------
     # AC summary

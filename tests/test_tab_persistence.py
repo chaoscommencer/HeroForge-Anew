@@ -487,6 +487,340 @@ class TestEquipmentPartitioning:
 
 
 # ---------------------------------------------------------------------------
+# Magic equipment bonuses, weight and encumbrance
+# ---------------------------------------------------------------------------
+
+
+def _magic_item(
+    name: str, slot: str, target: str, bonus_type: str, value: int
+) -> dict[str, object]:
+    return {
+        "item_name": name,
+        "quantity": 1,
+        "weight": 0.0,
+        "equipped": 1,
+        "slot": slot,
+        "notes": "",
+        "bonuses": [{"target": target, "bonus_type": bonus_type, "value": value}],
+    }
+
+
+def _typed_buff(
+    name: str, bonus_type: str, target: str, amount: int
+) -> dict[str, object]:
+    return {
+        "id": name,
+        "name": name,
+        "bonus_type": bonus_type,
+        "target_stat": target,
+        "amount": amount,
+    }
+
+
+class TestMagicEquipmentIntegration:
+    def test_item_and_buff_enhancements_do_not_stack(self, model: object) -> None:
+        # PHB p176: Bull's Strength (+4 enhancement) and Gauntlets of ogre power
+        # (+2 enhancement) are the same bonus type, so only the +4 applies.
+        model.character.ability_scores["STR"] = 10
+        model.character.equipment = [
+            _magic_item(
+                "Gauntlets of ogre power", "Hands/Rings (x2)", "STR", "enhancement", 2
+            ),
+        ]
+        model.character.buffs = [
+            _typed_buff("Bull's Strength", "enhancement", "STR", 4),
+        ]
+        stats = model.derived_stats()
+        assert stats.effective_ability_scores["STR"] == 14
+
+    def test_item_and_buff_resistance_saves_do_not_stack(self, model: object) -> None:
+        model.character.equipment = [
+            _magic_item("Cloak of resistance", "Shoulders", "fort", "resistance", 1),
+        ]
+        model.character.buffs = [
+            _typed_buff("Resistance", "resistance", "fort", 1),
+        ]
+        stats = model.derived_stats()
+        assert stats.fortitude == 1
+
+    def test_item_and_buff_of_different_types_stack(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10
+        model.character.equipment = [
+            _magic_item(
+                "Gauntlets of ogre power", "Hands/Rings (x2)", "STR", "enhancement", 2
+            ),
+        ]
+        model.character.buffs = [_typed_buff("Rage", "morale", "STR", 4)]
+        stats = model.derived_stats()
+        assert stats.effective_ability_scores["STR"] == 16
+
+    def test_item_deflection_ac_does_not_stack_with_buff(self, model: object) -> None:
+        model.character.ability_scores["DEX"] = 10
+        model.character.equipment = [
+            _magic_item("Protection", "Hands/Rings (x2)", "AC", "deflection", 1),
+        ]
+        model.character.buffs = [
+            _typed_buff("Shield of Faith", "deflection", "AC", 2),
+        ]
+        stats = model.derived_stats()
+        assert stats.armor_class == 12
+
+
+@pytest.fixture()
+def slot_catalog_model(qapp: object, catalog_db: Path) -> object:
+    """A model whose catalogue holds one item per seeded workbook slot."""
+    import sqlite3
+
+    from heroforge.db.data_access import GameDataRepository
+    from heroforge.db.seed import _MAGIC_EQUIPMENT_SLOTS
+    from heroforge.ui.main_window import CharacterModel
+
+    conn = sqlite3.connect(catalog_db)
+    try:
+        conn.execute("DELETE FROM magic_equipment")
+        conn.executemany(
+            "INSERT INTO magic_equipment (name, slot, weight) VALUES (?, ?, ?)",
+            [(f"{slot} item", slot, 1.0) for slot, *_columns in _MAGIC_EQUIPMENT_SLOTS],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return CharacterModel(game_data=GameDataRepository(str(catalog_db)))
+
+
+class TestMagicEquipmentSlotCatalogue:
+    @pytest.mark.parametrize(
+        ("tab_slot", "expected"),
+        [
+            ("Head", {"Head item"}),
+            ("Face/Eyes", {"Face item"}),
+            ("Throat/Neck", {"Neck item"}),
+            ("Shoulders", {"Shoulders item"}),
+            ("Body", {"Body item"}),
+            ("Torso", {"Torso item"}),
+            ("Arms/Wrists", {"Arm item"}),
+            ("Hands/Rings (x2)", {"Hand item", "Ring item"}),
+            ("Waist", {"Waist item"}),
+            ("Feet", {"Feet item"}),
+        ],
+    )
+    def test_slot_picker_lists_only_that_slots_items(
+        self, slot_catalog_model: object, tab_slot: str, expected: set[str]
+    ) -> None:
+        from heroforge.ui.tabs.magic_equipment import MagicEquipmentTab
+
+        tab = MagicEquipmentTab(model=slot_catalog_model)
+        assert set(tab._merged_item_catalog(tab_slot)) == expected
+
+
+@pytest.fixture()
+def gear_model(qapp: object, catalog_db: Path) -> object:
+    """A model whose catalogue holds weighted big-six magic items."""
+    import sqlite3
+
+    from heroforge.db.data_access import GameDataRepository
+    from heroforge.ui.main_window import CharacterModel
+
+    conn = sqlite3.connect(catalog_db)
+    try:
+        conn.executemany(
+            "INSERT INTO magic_equipment (name, slot, weight, price_gp) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("Gauntlets of ogre power", "Hand", 4.0, 4000),
+                ("Cloak of resistance", "Shoulders", 1.0, 1000),
+                ("Boots of elvenkind", "Feet", 1.0, 2500),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return CharacterModel(game_data=GameDataRepository(str(catalog_db)))
+
+
+def _assign(tab: object, slot: str, name: str, monkeypatch: object) -> None:
+    from heroforge.ui.tabs import magic_equipment
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        magic_equipment, "pick_from_catalog", lambda *_args: name
+    )
+    tab._slots_table.setCurrentCell(magic_equipment._SLOTS.index(slot), 1)
+    tab._assign_slot()
+
+
+class TestMagicEquipmentTabBonuses:
+    def test_assigning_known_item_applies_its_bonus(
+        self, gear_model: object, monkeypatch: object
+    ) -> None:
+        from PyQt6.QtTest import QSignalSpy
+
+        from heroforge.ui.tabs.magic_equipment import MagicEquipmentTab
+
+        gear_model.character.ability_scores["STR"] = 10
+        tab = MagicEquipmentTab(model=gear_model)
+        spy = QSignalSpy(gear_model.derived_stats_changed)
+        _assign(tab, "Hands/Rings (x2)", "Gauntlets of ogre power", monkeypatch)
+
+        stats = gear_model.derived_stats()
+        assert stats.effective_ability_scores["STR"] == 12
+        assert stats.ability_modifiers["STR"] == 1
+        assert len(spy) >= 1
+        entry = next(
+            e
+            for e in gear_model.character.equipment
+            if e["item_name"] == "Gauntlets of ogre power"
+        )
+        # Catalogue weight is stamped onto the entry.
+        assert entry["weight"] == 4.0
+
+    def test_user_entered_bonus_applies_and_survives_reload(
+        self, gear_model: object, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        from heroforge.ui.tabs.magic_equipment import _SLOTS, MagicEquipmentTab
+
+        tab = MagicEquipmentTab(model=gear_model)
+        _assign(tab, "Shoulders", "Cloak of resistance", monkeypatch)
+        row = _SLOTS.index("Shoulders")
+        # Upgrade the cloak's default +1 to +3.
+        tab._slots_table.item(row, 4).setText("3")
+        assert gear_model.derived_stats().fortitude == 3
+        assert gear_model.derived_stats().will == 3
+
+        loaded = _round_trip(gear_model.character, tmp_path)
+        gear_model.character = loaded
+        tab._sync_from_model()
+        assert tab._slots_table.item(row, 2).text() == "Saves"
+        assert tab._slots_table.item(row, 3).text() == "resistance"
+        assert tab._slots_table.item(row, 4).text() == "3"
+        assert gear_model.derived_stats().reflex == 3
+
+    def test_bonus_edit_on_unknown_item(
+        self, gear_model: object, monkeypatch: object
+    ) -> None:
+        from heroforge.ui.tabs.magic_equipment import _SLOTS, MagicEquipmentTab
+
+        tab = MagicEquipmentTab(model=gear_model)
+        _assign(tab, "Feet", "Boots of elvenkind", monkeypatch)
+        row = _SLOTS.index("Feet")
+        # No default bonus is known for these boots.
+        assert tab._slots_table.item(row, 2).text() == ""
+        tab._slots_table.item(row, 2).setText("AC")
+        tab._slots_table.item(row, 3).setText("dodge")
+        tab._slots_table.item(row, 4).setText("1")
+        assert gear_model.derived_stats().armor_class == 11
+
+    def test_extra_bonus_specs_survive_tab_edits(self, gear_model: object) -> None:
+        from heroforge.ui.tabs.magic_equipment import _SLOTS, MagicEquipmentTab
+
+        gear_model.character.equipment = [
+            _magic_item(
+                "Gauntlets of ogre power", "Hands/Rings (x2)", "STR", "enhancement", 2
+            )
+        ]
+        gear_model.character.equipment[0]["bonuses"].append(
+            {"target": "fort", "bonus_type": "luck", "value": 1}
+        )
+        tab = MagicEquipmentTab(model=gear_model)
+        # Editing an unrelated slot rewrites every entry from the table.
+        tab._slots_table.item(_SLOTS.index("Head"), 5).setText("note")
+        entry = next(
+            e
+            for e in gear_model.character.equipment
+            if e["item_name"] == "Gauntlets of ogre power"
+        )
+        assert entry["bonuses"] == [
+            {"target": "STR", "bonus_type": "enhancement", "value": 2},
+            {"target": "fort", "bonus_type": "luck", "value": 1},
+        ]
+
+
+def _gear(name: str, slot: str, weight: float, equipped: int = 1) -> dict:
+    return {
+        "item_name": name,
+        "quantity": 1,
+        "weight": weight,
+        "equipped": equipped,
+        "slot": slot,
+        "notes": "",
+    }
+
+
+class TestEncumbrance:
+    """Carried weight sets the load, which caps Max Dex and adds an ACP.
+
+    PHB p162; the workbook's LoadMaxDex/LoadACP (Armor!R12/R14) use the same
+    3/1 Max Dex and -3/-6 penalties for medium and heavy loads.
+    """
+
+    def test_carried_weight_sets_load_category(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10  # 33 / 66 / 100 lb.
+        model.character.equipment = [
+            _gear("Leather", "Body Armor", 15.0),
+            _gear("Handy Haversack", "Wondrous", 5.0, equipped=0),
+        ]
+        stats = model.derived_stats()
+        assert stats.carried_weight == 20.0
+        assert stats.load == "Light"
+        assert stats.load_check_penalty == 0
+
+        model.character.equipment.append(_gear("Anvil", "Wondrous", 20.0, 0))
+        stats = model.derived_stats()
+        assert stats.carried_weight == 40.0
+        assert stats.load == "Medium"
+        assert stats.load_check_penalty == -3
+
+    def test_medium_load_caps_dex_bonus_to_ac(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10
+        model.character.ability_scores["DEX"] = 18  # +4
+        model.character.equipment = [
+            _gear("Leather", "Body Armor", 15.0),
+            _gear("Anvil", "Wondrous", 25.0, equipped=0),
+        ]
+        # 10 + leather 2 + DEX capped to +3 by the medium load = 15.
+        assert model.derived_stats().armor_class == 15
+
+    def test_heavy_load_uses_heavy_penalties(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10
+        model.character.ability_scores["DEX"] = 18
+        model.character.equipment = [_gear("Anvil", "Wondrous", 80.0, 0)]
+        stats = model.derived_stats()
+        assert stats.load == "Heavy"
+        assert stats.load_check_penalty == -6
+        assert stats.armor_class == 11
+
+    def test_zero_weight_entry_resolves_from_catalogue(
+        self, gear_model: object
+    ) -> None:
+        # An entry saved before weights were stamped on still counts.
+        gear_model.character.equipment = [
+            _gear("Gauntlets of ogre power", "Hands/Rings (x2)", 0.0),
+            _gear("Full Plate", "Body Armor", 0.0),
+        ]
+        assert gear_model.derived_stats().carried_weight == 54.0
+
+    def test_load_penalty_reaches_skills(self, model: object) -> None:
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        model.character.ability_scores["STR"] = 10
+        tab = SkillsTab(model=model)
+        climb_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Climb")
+        model.character.equipment = [_gear("Anvil", "Wondrous", 80.0, 0)]
+        model.derived_stats_changed.emit()
+        assert tab._table.item(climb_row, 6).text() == "-6"
+
+    def test_stats_tab_shows_current_load(self, model: object) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        model.character.ability_scores["STR"] = 10
+        tab = StatsAndCharacterDetailsTab(model=model)
+        model.character.equipment = [_gear("Anvil", "Wondrous", 40.0, 0)]
+        model.derived_stats_changed.emit()
+        assert tab._derived_labels["load"].text() == "40 lb. (Medium)"
+
+
+# ---------------------------------------------------------------------------
 # Attacks (weapon catalogue)
 # ---------------------------------------------------------------------------
 

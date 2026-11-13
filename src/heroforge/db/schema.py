@@ -72,6 +72,9 @@ _COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
     "character_attacks": {
         "hand": "ALTER TABLE character_attacks ADD COLUMN hand TEXT",
     },
+    "character_equipment": {
+        "bonuses": "ALTER TABLE character_equipment ADD COLUMN bonuses TEXT",
+    },
     "character_buffs": {
         "bonus_type": "ALTER TABLE character_buffs ADD COLUMN bonus_type TEXT",
         "target_stat": "ALTER TABLE character_buffs ADD COLUMN target_stat TEXT",

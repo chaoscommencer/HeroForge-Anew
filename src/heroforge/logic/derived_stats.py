@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from heroforge.logic import buffs, combat, saving_throws
+from heroforge.logic import buffs, combat, equipment, saving_throws
 from heroforge.logic.ability_scores import ability_modifier
 from heroforge.logic.health import hit_dice_sequence, max_hit_points
 
@@ -98,30 +98,48 @@ def _canonical_buff_targets(target: str) -> tuple[str, ...]:
 def _buff_bonus_sources(
     character: Character,
 ) -> tuple[dict[str, int], list[tuple[str, int]]]:
-    """Aggregate the active buffs of *character* into applicable bonuses.
+    """Aggregate the typed bonuses of active buffs and equipped magic items.
 
     Returns ``(net, ac_bonuses)`` where *net* maps canonical derived-stat keys
     (ability scores plus ``melee``/``ranged``/``fort``/``ref``/``will``/
     ``initiative``/``grapple``/``hp``) to their net bonus after stacking, and
     *ac_bonuses* is a list of ``(bonus_type, amount)`` pairs routed through the
-    armor-class aggregator so AC buffs stack with armor/shield sources by type.
+    armor-class aggregator so AC bonuses stack with armor/shield sources by type.
+
+    Buffs and magic items are stacked together, so a Bull's Strength (+4
+    enhancement) and Gauntlets of ogre power (+2 enhancement) give +4, not +6.
 
     Reference: PHB p176 (bonus types and stacking).
     """
     records: list[tuple[str, str, str, int]] = []
     ac_bonuses: list[tuple[str, int]] = []
-    for index, entry in enumerate(getattr(character, "buffs", None) or []):
-        amount = buffs.buff_amount(entry.get("amount"))
-        target = str(entry.get("target_stat") or "")
-        if amount == 0 or not target.strip():
-            continue
-        bonus_type = str(entry.get("bonus_type") or "untyped").strip() or "untyped"
-        source = str(entry.get("id") or index)
-        for canonical in _canonical_buff_targets(target):
+
+    def add(source: str, bonus_type: object, target: object, amount: int) -> None:
+        target_text = str(target or "")
+        if amount == 0 or not target_text.strip():
+            return
+        btype = str(bonus_type or "untyped").strip() or "untyped"
+        for canonical in _canonical_buff_targets(target_text):
             if canonical == "ac":
-                ac_bonuses.append((bonus_type, amount))
+                ac_bonuses.append((btype, amount))
             else:
-                records.append((source, bonus_type, canonical, amount))
+                records.append((source, btype, canonical, amount))
+
+    for index, entry in enumerate(getattr(character, "buffs", None) or []):
+        add(
+            f"buff:{entry.get('id') or index}",
+            entry.get("bonus_type"),
+            entry.get("target_stat"),
+            buffs.buff_amount(entry.get("amount")),
+        )
+    for index, item in enumerate(getattr(character, "equipment", None) or []):
+        for spec in equipment.item_bonus_specs(item):
+            add(
+                f"item:{index}",
+                spec.get("bonus_type"),
+                spec.get("target"),
+                buffs.buff_amount(spec.get("value")),
+            )
     return buffs.aggregate_bonuses(records), ac_bonuses
 
 
@@ -169,6 +187,12 @@ class DerivedStats:
     reflex: int
     will: int
     carrying_capacity: tuple[int, int, int]
+    carried_weight: float = 0.0
+    """Total weight of :attr:`Character.equipment`, in pounds (PHB p162)."""
+    load: str = "Light"
+    """Load category: ``Light``, ``Medium``, ``Heavy`` or ``Overloaded``."""
+    load_check_penalty: int = 0
+    """Check penalty from the load (0/-3/-6); does not stack with armor's."""
 
 
 def _class_levels(character: Character) -> dict[str, int]:
@@ -191,11 +215,14 @@ def compute_derived_stats(
     max_dex: int | None = None,
     hp_flat_bonus: int = 0,
     hp_per_level_bonus: int = 0,
+    weight_catalog: Mapping[str, float] | None = None,
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
     The character's active :attr:`~heroforge.models.character.Character.buffs`
-    are aggregated with the bonus-type stacking rules (PHB p176) and folded in:
+    and the bonus specs of equipped magic items in
+    :attr:`~heroforge.models.character.Character.equipment` are aggregated
+    together with the bonus-type stacking rules (PHB p176) and folded in:
     ability-score buffs adjust the effective scores, AC buffs join the
     armor-class aggregation by type, and the remaining typed bonuses are added to
     the relevant attack, save, initiative, grapple and hit-point readouts.
@@ -232,6 +259,11 @@ def compute_derived_stats(
                        Toughness's +3).
         hp_per_level_bonus: Per-Hit-Die hit-point bonus from feats/templates
                        (e.g. Improved Toughness's +1 per Hit Die).
+        weight_catalog: Optional item name → unit weight map used for equipment
+                       entries stored without a weight.  The carried weight sets
+                       the load (PHB p162); a medium or heavy load caps the
+                       Dexterity bonus to AC at +3/+1 alongside *max_dex* and
+                       sets :attr:`DerivedStats.load_check_penalty`.
 
     Returns:
         An immutable :class:`DerivedStats` snapshot.
@@ -288,6 +320,13 @@ def compute_derived_stats(
         else computed_hit_points
     ) + buff_net.get("hp", 0)
 
+    capacity = combat.carrying_capacity(scores["STR"])
+    carried = equipment.carried_weight(character.equipment or [], weight_catalog)
+    load = equipment.encumbrance_category(carried, *capacity)
+    load_max_dex, load_check_penalty = equipment.load_effects(load)
+    if load_max_dex is not None:
+        max_dex = load_max_dex if max_dex is None else min(max_dex, load_max_dex)
+
     combined_ac_bonuses = list(ac_bonuses or ())
     combined_ac_bonuses.extend(buff_ac)
     ac = combat.aggregate_armor_class(
@@ -326,5 +365,8 @@ def compute_derived_stats(
         will=saving_throws.will(
             base_will, wis_mod, save_bonuses.get("will", 0) + buff_net.get("will", 0)
         ),
-        carrying_capacity=combat.carrying_capacity(scores["STR"]),
+        carrying_capacity=capacity,
+        carried_weight=carried,
+        load=load,
+        load_check_penalty=load_check_penalty,
     )

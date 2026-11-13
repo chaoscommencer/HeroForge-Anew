@@ -106,16 +106,23 @@ class SkillsTab(QWidget):
         self._cached_armor_catalog: dict[str, int] = {}  # name → check_penalty
         self._cached_synergy_pairs: list[tuple[str, str, int]] = []
         self._cached_class_base_points: dict[str, int] = {}
+        # Check penalty from the carried load (PHB p162), cached from the derived
+        # stats on each refresh so _recalculate() stays in-memory.
+        self._load_check_penalty = 0
         self._build_ui()
         if model:
             model.character_reset.connect(self._reset)
             model.ability_score_changed.connect(self._on_ability_score_changed)
             model.character_loaded.connect(lambda _id: self._sync_from_model())
+            # Connected before _refresh_familiar_bonuses, which recalculates, so
+            # the recalculation sees the current load penalty.
+            model.derived_stats_changed.connect(self._refresh_load_penalty)
             model.derived_stats_changed.connect(self._refresh_familiar_bonuses)
             model.class_levels_changed.connect(self._refresh_class_skills)
             self._refresh_game_data_caches()
             self._update_ability_mods()
             self._refresh_class_skills()
+            self._refresh_load_penalty()
             self._refresh_familiar_bonuses()
 
     def _build_ui(self) -> None:
@@ -347,7 +354,14 @@ class SkillsTab(QWidget):
         for entry in self._model.character.equipment:
             if entry.get("slot") in _ACP_SLOTS:
                 total += penalties.get(entry.get("item_name", ""), 0)
-        return total
+        # A medium or heavy load's penalty does not stack with armor's; the
+        # worse of the two applies (PHB p162).
+        return min(total, self._load_check_penalty)
+
+    def _refresh_load_penalty(self) -> None:
+        """Cache the carried load's check penalty from the derived stats."""
+        if self._model is not None:
+            self._load_check_penalty = self._model.derived_stats().load_check_penalty
 
     def _synergy_bonuses(self) -> dict[str, int]:
         """Return the synergy bonuses earned by the current rank allocation.
