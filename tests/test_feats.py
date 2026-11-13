@@ -82,6 +82,21 @@ class TestCheckPrerequisites:
             is False
         )
 
+    def test_skill_prereq_matches_case_insensitively(self) -> None:
+        # The Skills tab stores "Knowledge (Arcana)"; DMG prereq text uses
+        # "Knowledge (arcana)".  Both spellings must refer to the same skill.
+        assert (
+            check_prerequisites(
+                ["Knowledge (arcana) 6 ranks"],
+                0,
+                {},
+                {"Knowledge (Arcana)": 6.0},
+                [],
+                1,
+            )
+            is True
+        )
+
     def test_multiple_prereqs_all_met(self) -> None:
         assert (
             check_prerequisites(

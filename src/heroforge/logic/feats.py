@@ -116,7 +116,7 @@ def check_prerequisites(
     - Ability score: ``'STR 13'``, ``'Intelligence 13'``
     - BAB: ``'+6 BAB'``, ``'BAB +6'``
     - Feat: exact feat name string
-    - Skill: ``'Climb 5 ranks'``
+    - Skill: ``'Climb 5 ranks'`` (skill names match case-insensitively)
     - Level: ``'Character level 5'``
 
     Unknown prerequisite formats are conservatively assumed to be *not met*.
@@ -151,6 +151,10 @@ def check_prerequisites(
         ``True`` if all prerequisites are satisfied, ``False`` otherwise.
     """
     feats_lower = {f.lower() for f in character_feats}
+    # Skill names are matched case-insensitively: the Skills tab stores
+    # "Knowledge (Arcana)" while rulebook prerequisite text spells it
+    # "Knowledge (arcana)".
+    skills_cf = {name.casefold(): ranks for name, ranks in character_skills.items()}
     chain = _chain or frozenset()
     prereq_map_lower = _prereq_map_lower
     if prereq_map_lower is None and feat_prereqs:
@@ -184,7 +188,7 @@ def check_prerequisites(
         skill_result = _parse_skill_prereq(prereq)
         if skill_result is not None:
             skill_name, min_ranks = skill_result
-            if character_skills.get(skill_name, 0.0) < min_ranks:
+            if skills_cf.get(skill_name.casefold(), 0.0) < min_ranks:
                 return False
             continue
 
