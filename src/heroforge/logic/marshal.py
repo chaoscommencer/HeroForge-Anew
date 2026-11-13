@@ -8,8 +8,9 @@ within 60 feet:
 
 * **Minor auras** grant a bonus equal to the marshal's Charisma bonus (a
   non-positive Charisma modifier confers no benefit).
-* **Major auras** grant a bonus equal to one-half the marshal's marshal level
-  (rounded down, minimum +1).
+* **Major auras** are available from 2nd level and grant +1, rising to +2 at
+  7th level, +3 at 14th and +4 at 20th (``Tables!O338:O354`` in the reference
+  workbook: ``1+(MrsLvl>=7)+(MrsLvl>=14)+(MrsLvl>=20)``).
 
 In the reference workbook (``HeroForge Anew 3.5 v7.4.0.1.xlsm``) the *Marshal
 Auras* sheet stores only the aura **names** and whether each is *Minor* or
@@ -186,7 +187,7 @@ STANDARD_MARSHAL_AURAS: tuple[MarshalAura, ...] = (
         TARGET_REF,
         description="Bonus on Reflex saves.",
     ),
-    # --- Major auras (bonus = half marshal level, minimum +1) --------------
+    # --- Major auras (bonus = +1 at 2nd level, +2 at 7th, +3 at 14th, +4 at 20th)
     MarshalAura(
         "Hardy Soldiers",
         MAJOR,
@@ -317,10 +318,14 @@ def minor_aura_value(charisma_modifier: int) -> int:
 def major_aura_value(marshal_level: int) -> int:
     """Return a major aura's bonus for the given marshal class level.
 
-    A major aura grants a bonus equal to one-half the marshal's marshal level,
-    rounded down, with a minimum of +1 (*Miniatures Handbook* p12).
+    A marshal gains major auras at 2nd level.  The bonus is +1, rising to +2 at
+    7th level, +3 at 14th and +4 at 20th (*Miniatures Handbook* p12).  Ports
+    ``1+(MrsLvl>=7)+(MrsLvl>=14)+(MrsLvl>=20)`` from ``Tables!O338:O354``; a
+    marshal below 2nd level has no major aura (``Class Abilities!A1641``).
     """
-    return max(1, marshal_level // 2)
+    if marshal_level < 2:
+        return 0
+    return 1 + (marshal_level >= 7) + (marshal_level >= 14) + (marshal_level >= 20)
 
 
 def aura_value(aura: MarshalAura, charisma_modifier: int, marshal_level: int) -> int:

@@ -51,7 +51,8 @@ class MarshalAurasTab(QWidget):
             QLabel(
                 "<b>Marshal Auras</b> – check an aura to project it. A minor "
                 "aura grants its bonus equal to your Charisma modifier; a major "
-                "aura grants half your marshal level (minimum +1)."
+                "aura, from 2nd level, grants +1, rising to +2 at 7th level, "
+                "+3 at 14th and +4 at 20th."
             )
         )
 

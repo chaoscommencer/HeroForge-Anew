@@ -36,11 +36,21 @@ class TestAuraValues:
     def test_minor_non_positive_charisma_confers_nothing(self) -> None:
         assert minor_aura_value(-2) == 0
 
-    def test_major_is_half_level_minimum_one(self) -> None:
-        assert major_aura_value(1) == 1  # rounds down to 0, floored to +1
+    def test_major_follows_workbook_progression(self) -> None:
+        # Tables!O338:O354: 1+(MrsLvl>=7)+(MrsLvl>=14)+(MrsLvl>=20).
         assert major_aura_value(2) == 1
-        assert major_aura_value(6) == 3
-        assert major_aura_value(20) == 10
+        assert major_aura_value(6) == 1
+        assert major_aura_value(7) == 2
+        assert major_aura_value(10) == 2
+        assert major_aura_value(13) == 2
+        assert major_aura_value(14) == 3
+        assert major_aura_value(19) == 3
+        assert major_aura_value(20) == 4
+
+    def test_no_major_aura_below_second_level(self) -> None:
+        # Class Abilities!A1641 grants a major aura only when MrsLvl >= 2.
+        assert major_aura_value(0) == 0
+        assert major_aura_value(1) == 0
 
 
 class TestCatalogue:
@@ -140,9 +150,15 @@ class TestAurasFeedDerivedStats:
     """Active auras reach compute_derived_stats without the UI model."""
 
     def test_major_aura_raises_armor_class(self) -> None:
-        before = compute_derived_stats(_marshal(level=6))
-        after = compute_derived_stats(_marshal(level=6, auras=("Motivate Care",)))
-        assert after.armor_class - before.armor_class == 3
+        before = compute_derived_stats(_marshal(level=10))
+        after = compute_derived_stats(_marshal(level=10, auras=("Motivate Care",)))
+        assert after.armor_class - before.armor_class == 2
+
+    def test_first_level_marshal_has_no_major_aura_bonus(self) -> None:
+        before = compute_derived_stats(_marshal(level=1))
+        after = compute_derived_stats(_marshal(level=1, auras=("Resilient Troops",)))
+        assert after.fortitude == before.fortitude
+        assert after.will == before.will
 
     def test_minor_aura_uses_buffed_charisma(self) -> None:
         character = _marshal(cha=12, auras=("Force of Will",))  # Cha +1
@@ -264,7 +280,7 @@ class TestMarshalAurasTab:
         before = model.derived_stats()
 
         tab = MarshalAurasTab(model=model)
-        # Demand Fortitude (minor, Cha +3) and Resilient Troops (major, +3).
+        # Demand Fortitude (minor, Cha +3) and Resilient Troops (major, +1).
         for lst in (tab._minor_list, tab._major_list):
             for i in range(lst.count()):
                 item = lst.item(i)
@@ -275,10 +291,10 @@ class TestMarshalAurasTab:
                     item.setCheckState(Qt.CheckState.Checked)
 
         after = model.derived_stats()
-        # Fortitude gains both auras (+6); Reflex/Will gain Resilient Troops (+3).
-        assert after.fortitude - before.fortitude == 6
-        assert after.reflex - before.reflex == 3
-        assert after.will - before.will == 3
+        # Fortitude gains both auras (+4); Reflex/Will gain Resilient Troops (+1).
+        assert after.fortitude - before.fortitude == 4
+        assert after.reflex - before.reflex == 1
+        assert after.will - before.will == 1
 
     def test_active_attack_and_ac_auras_modify_derived_stats(
         self, model: object
@@ -287,7 +303,7 @@ class TestMarshalAurasTab:
 
         from heroforge.ui.tabs.marshal_auras import MarshalAurasTab
 
-        model.character.classes = [("Marshal", 8)]  # major value +4
+        model.character.classes = [("Marshal", 8)]  # major value +2
 
         before = model.derived_stats()
 
@@ -298,8 +314,8 @@ class TestMarshalAurasTab:
                 item.setCheckState(Qt.CheckState.Checked)
 
         after = model.derived_stats()
-        assert after.armor_class - before.armor_class == 4
-        assert after.melee_attack - before.melee_attack == 4
+        assert after.armor_class - before.armor_class == 2
+        assert after.melee_attack - before.melee_attack == 2
 
     def test_toggling_emits_derived_stats_changed(self, model: object) -> None:
         from PyQt6.QtCore import Qt
