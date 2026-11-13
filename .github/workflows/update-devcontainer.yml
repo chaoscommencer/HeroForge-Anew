@@ -1,77 +1,146 @@
-name: Update devcontainer dependencies
+name: Update devcontainer base image
+
+# Proposes a bump of the devcontainers/python base image pinned (tag + digest) in
+# .devcontainer/Dockerfile.devcontainer-default.
+#
+# Supply-chain policy: only images published at least MIN_AGE_DAYS (14) days ago
+# are proposed, so a compromised or broken release is usually caught and pulled
+# before it reaches us. When a newer image fixes a serious vulnerability, run the
+# workflow by hand with `allow_recent: true` and a reason; the age gate is then
+# skipped and the reason is recorded in the pull request body.
+#
+# MCR tags read <image version>-<Python minor>-<OS>, e.g. 3.3.3-3.12-bookworm.
+# Updates stay on the current image major version and Python minor version
+# (for example 3.x.y-3.12-bookworm), and pin the full image version; moving to a
+# new major or Python minor is a deliberate change made by hand together with CI.
+#
+# Note: scheduled runs only happen for workflows on the default branch, and a
+# pull request opened with GITHUB_TOKEN does not trigger other workflows, so
+# re-run CI on the PR (close/reopen or push) before merging.
 
 on:
   schedule:
     - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
   workflow_dispatch:
+    inputs:
+      allow_recent:
+        description: 'Skip the 14-day age gate (only for an image that fixes a serious vulnerability)'
+        type: boolean
+        default: false
+      reason:
+        description: 'Why the age gate is skipped (CVE / advisory); recorded in the PR'
+        type: string
+        default: ''
 
 # Minimal default: read-only for all jobs unless explicitly overridden at the job level.
 # Elevated permissions (contents: write, pull-requests: write) are declared only on the
-# apply-updates job that actually performs writes, preventing any read-only detection job
-# from being able to abuse write access.
+# apply-updates job that actually performs writes.
 permissions:
   contents: read
+
+env:
+  DOCKERFILE: .devcontainer/Dockerfile.devcontainer-default
+  REPO_URL: https://mcr.microsoft.com/v2/devcontainers/python
+  MIN_AGE_DAYS: '14'
 
 jobs:
   detect-updates:
     runs-on: ubuntu-latest
-    # Inherits the read-only workflow-level permissions — no write access needed here.
     outputs:
-      python-image-tag: ${{ steps.python-image.outputs.tag }}
-      python-image-digest: ${{ steps.python-image.outputs.digest }}
-      has-updates: ${{ steps.compare.outputs.has_updates }}
-      update-branch: ${{ steps.compare.outputs.update_branch }}
+      tag: ${{ steps.pick.outputs.tag }}
+      digest: ${{ steps.pick.outputs.digest }}
+      created: ${{ steps.pick.outputs.created }}
+      has-updates: ${{ steps.pick.outputs.has_updates }}
+      update-branch: ${{ steps.pick.outputs.update_branch }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          persist-credentials: false
 
-      - name: Fetch latest devcontainers/python bookworm image
-        id: python-image
+      - name: Pick the newest eligible devcontainers/python image
+        id: pick
+        env:
+          ALLOW_RECENT: ${{ inputs.allow_recent || false }}
         run: |
-          TAGS=$(curl -sf "https://mcr.microsoft.com/v2/devcontainers/python/tags/list" | jq -r '.tags[]')
-          if [ -z "$TAGS" ]; then
-            echo "ERROR: Failed to fetch devcontainers/python tag list from MCR (network error, API unavailability, or unexpected JSON response)" >&2
-            exit 1
-          fi
-          # Match versioned patch tags for Python 3.x on bookworm: e.g. 3-3.12.10-bookworm
-          LATEST_TAG=$(echo "$TAGS" | grep -E '^3-3\.[0-9]+\.[0-9]+-bookworm$' | sort -V | tail -1)
-          if [ -z "$LATEST_TAG" ]; then
-            echo "ERROR: Could not determine latest devcontainers/python bookworm tag" >&2
-            exit 1
-          fi
-          RAW_DIGEST=$(curl -sI \
-            -H "Accept: application/vnd.oci.image.index.v1+json" \
-            "https://mcr.microsoft.com/v2/devcontainers/python/manifests/${LATEST_TAG}" \
-            | grep -i "^docker-content-digest:" \
-            | awk '{print $2}' \
-            | tr -d '\r\n')
-          if ! echo "$RAW_DIGEST" | grep -qE '^sha256:[a-f0-9]{64}$'; then
-            echo "ERROR: Digest '${RAW_DIGEST}' does not match expected sha256:<hex64> format" >&2
-            exit 1
-          fi
-          echo "tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
-          echo "digest=${RAW_DIGEST}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
 
-      - name: Compare fetched image with current Dockerfile
-        id: compare
-        run: |
-          FILE=".devcontainer/Dockerfile"
-          CURRENT_FROM=$(grep -m1 '^FROM mcr.microsoft.com/devcontainers/python:' "$FILE" || true)
+          CURRENT_FROM=$(grep -m1 '^FROM mcr.microsoft.com/devcontainers/python:' "$DOCKERFILE" || true)
           if [ -z "$CURRENT_FROM" ]; then
-            echo "ERROR: Could not find devcontainers/python FROM line in ${FILE}" >&2
+            echo "ERROR: no devcontainers/python FROM line in ${DOCKERFILE}" >&2
             exit 1
           fi
-          INCOMING_FROM="FROM mcr.microsoft.com/devcontainers/python:${{ steps.python-image.outputs.tag }}@${{ steps.python-image.outputs.digest }}"
-
-          if [ "$CURRENT_FROM" != "$INCOMING_FROM" ]; then
-            echo "has_updates=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_updates=false" >> "$GITHUB_OUTPUT"
+          # Current image major and Python minor, e.g. "3" and "3.12" from
+          # "3-3.12-bookworm" or "3.3.3-3.12-bookworm".
+          read -r MAJOR MINOR < <(echo "$CURRENT_FROM" \
+            | sed -nE 's|^FROM [^:]+:([0-9]+)(\.[0-9]+)*-(3\.[0-9]+)-bookworm@.*|\1 \3|p')
+          if ! echo "${MAJOR:-} ${MINOR:-}" | grep -qE '^[0-9]+ 3\.[0-9]+$'; then
+            echo "ERROR: could not read the image/Python versions from: ${CURRENT_FROM}" >&2
+            exit 1
           fi
 
-          TAG_NORMALIZED=$(echo "${{ steps.python-image.outputs.tag }}" | tr '.-' '_')
-          echo "update_branch=automated/update-devcontainer_python_${TAG_NORMALIZED}" >> "$GITHUB_OUTPUT"
+          TAGS=$(curl -sf "${REPO_URL}/tags/list" | jq -r '.tags[]')
+          if [ -z "$TAGS" ]; then
+            echo "ERROR: failed to fetch the devcontainers/python tag list from MCR" >&2
+            exit 1
+          fi
+          MINOR_RE=$(echo "$MINOR" | sed 's/\./\\./')
+          # Newest first, limited so a bad tag list cannot make the job crawl.
+          CANDIDATES=$(echo "$TAGS" | grep -E "^${MAJOR}\.[0-9]+\.[0-9]+-${MINOR_RE}-bookworm\$" | sort -rV | head -n 10 || true)
+          if [ -z "$CANDIDATES" ]; then
+            echo "ERROR: no ${MAJOR}.x.y-${MINOR}-bookworm tags found" >&2
+            exit 1
+          fi
+
+          INDEX_ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
+          MANIFEST_ACCEPT='application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
+          CUTOFF=$(date -u -d "-${MIN_AGE_DAYS} days" +%s)
+
+          TAG='' DIGEST='' CREATED=''
+          for CANDIDATE in $CANDIDATES; do
+            DIGEST_C=$(curl -sfI -H "Accept: ${INDEX_ACCEPT}" "${REPO_URL}/manifests/${CANDIDATE}" \
+              | grep -i '^docker-content-digest:' | awk '{print $2}' | tr -d '\r\n')
+            if ! echo "$DIGEST_C" | grep -qE '^sha256:[a-f0-9]{64}$'; then
+              echo "skip ${CANDIDATE}: unexpected digest '${DIGEST_C}'"
+              continue
+            fi
+            # Image creation time from the linux/amd64 image config (standard OCI API).
+            AMD64=$(curl -sf -H "Accept: ${INDEX_ACCEPT}" "${REPO_URL}/manifests/${DIGEST_C}" \
+              | jq -r '[.manifests[] | select(.platform.os=="linux" and .platform.architecture=="amd64")][0].digest')
+            CONFIG=$(curl -sf -H "Accept: ${MANIFEST_ACCEPT}" "${REPO_URL}/manifests/${AMD64}" | jq -r '.config.digest')
+            CREATED_C=$(curl -sfL "${REPO_URL}/blobs/${CONFIG}" | jq -r '.created')
+            CREATED_S=$(date -u -d "$CREATED_C" +%s 2>/dev/null || echo '')
+            if [ -z "$CREATED_S" ]; then
+              echo "skip ${CANDIDATE}: could not read its creation date"
+              continue
+            fi
+            if [ "$ALLOW_RECENT" != "true" ] && [ "$CREATED_S" -gt "$CUTOFF" ]; then
+              echo "skip ${CANDIDATE}: created ${CREATED_C}, younger than ${MIN_AGE_DAYS} days"
+              continue
+            fi
+            TAG=$CANDIDATE DIGEST=$DIGEST_C CREATED=$CREATED_C
+            break
+          done
+          if [ -z "$TAG" ]; then
+            echo "No eligible image yet; nothing to do."
+            echo "has_updates=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Picked ${TAG} (${DIGEST}), created ${CREATED}"
+
+          INCOMING_FROM="FROM mcr.microsoft.com/devcontainers/python:${TAG}@${DIGEST}"
+          if [ "$CURRENT_FROM" = "$INCOMING_FROM" ] || echo "$CURRENT_FROM" | grep -qF "@${DIGEST}"; then
+            echo "has_updates=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_updates=true" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo "tag=${TAG}"
+            echo "digest=${DIGEST}"
+            echo "created=${CREATED}"
+            echo "update_branch=automated/update-devcontainer_python_$(echo "$TAG" | tr '.-' '_')"
+          } >> "$GITHUB_OUTPUT"
 
   apply-updates:
     needs: detect-updates
@@ -88,56 +157,77 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
       - name: Apply Python image update to Dockerfile
+        env:
+          TAG: ${{ needs.detect-updates.outputs.tag }}
+          DIGEST: ${{ needs.detect-updates.outputs.digest }}
         run: |
-          FILE=".devcontainer/Dockerfile"
-          TAG="${{ needs.detect-updates.outputs.python-image-tag }}"
-          DIGEST="${{ needs.detect-updates.outputs.python-image-digest }}"
+          set -euo pipefail
+          # Defence in depth: re-validate the values before they reach sed.
+          echo "$TAG" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-3\.[0-9]+-bookworm$'
+          echo "$DIGEST" | grep -qE '^sha256:[a-f0-9]{64}$'
 
           # Update the human-readable tag in the comment block above the FROM line
           sed -i \
             "s|human-readable tag ([^)]*) is kept|human-readable tag (${TAG}) is kept|" \
-            "$FILE"
+            "$DOCKERFILE"
 
           # Update the FROM line — replace existing tag and digest atomically
           sed -i \
             "s|FROM mcr.microsoft.com/devcontainers/python:[^@]*@sha256:[a-f0-9]\{64\}|FROM mcr.microsoft.com/devcontainers/python:${TAG}@${DIGEST}|" \
-            "$FILE"
+            "$DOCKERFILE"
 
       - name: Commit changes and open pull request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.detect-updates.outputs.tag }}
+          DIGEST: ${{ needs.detect-updates.outputs.digest }}
+          CREATED: ${{ needs.detect-updates.outputs.created }}
+          BRANCH: ${{ needs.detect-updates.outputs.update-branch }}
+          BASE: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+          ALLOW_RECENT: ${{ inputs.allow_recent || false }}
+          REASON: ${{ inputs.reason }}
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git add .devcontainer/Dockerfile
-
+          git add "$DOCKERFILE"
           if git diff --cached --quiet; then
             echo "Destination is already up to date — nothing to deliver"
             exit 0
           fi
 
-          EVENT="${{ github.event_name }}"
           if [ "$EVENT" = "schedule" ]; then
-            TRIGGER_DESC="scheduled cron job"
+            TRIGGER_DESC="scheduled run"
           else
-            TRIGGER_DESC="manual workflow dispatch"
+            TRIGGER_DESC="manual run"
           fi
-
-          TAG="${{ needs.detect-updates.outputs.python-image-tag }}"
-          DIGEST="${{ needs.detect-updates.outputs.python-image-digest }}"
-          BRANCH="${{ needs.detect-updates.outputs.update-branch }}"
+          if [ "$ALLOW_RECENT" = "true" ]; then
+            GATE="**Age gate skipped** (allow_recent). Reason given: ${REASON:-none given}"
+          else
+            GATE="Passed the ${MIN_AGE_DAYS}-day age gate."
+          fi
 
           git checkout -b "$BRANCH"
           git commit -m "chore: update devcontainer to Python image ${TAG}"
           git push origin "$BRANCH"
 
-          gh pr create \
-            --title "chore: update devcontainer to Python image ${TAG}" \
-            --body "Automated dependency update for the devcontainer:
+          BODY_FILE=$(mktemp)
+          cat >"$BODY_FILE" <<BODY
+          Automated base image update for the devcontainer:
 
           - **devcontainers/python**: \`${TAG}\` (\`${DIGEST}\`)
+          - Image created: ${CREATED}
+          - ${GATE}
 
-          Triggered by: ${TRIGGER_DESC}." \
-            --base main \
+          Triggered by: ${TRIGGER_DESC}.
+
+          This PR was opened with GITHUB_TOKEN, so CI did not start automatically;
+          re-run it before merging.
+          BODY
+          gh pr create \
+            --title "chore: update devcontainer to Python image ${TAG}" \
+            --body-file "$BODY_FILE" \
+            --base "$BASE" \
             --head "$BRANCH"
