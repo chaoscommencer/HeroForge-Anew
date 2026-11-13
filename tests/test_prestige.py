@@ -193,6 +193,79 @@ class TestCastPrerequisiteTag:
             is False
         )
 
+
+def _check_alignment(required: str, alignment: str) -> bool:
+    return check_prestige_prerequisites(
+        [f"ALIGN:{required}"], 0, {}, {}, [], 1, {}, character_alignment=alignment
+    )
+
+
+class TestAlignPrerequisiteTag:
+    """``ALIGN:<axis...>`` -- every listed alignment component must match."""
+
+    def test_single_axis_matches_full_alignment(self) -> None:
+        assert _check_alignment("Evil", "Neutral Evil") is True
+        assert _check_alignment("Evil", "Chaotic Evil") is True
+        assert _check_alignment("Lawful", "Lawful Good") is True
+
+    def test_single_axis_unmet(self) -> None:
+        assert _check_alignment("Evil", "Lawful Good") is False
+        assert _check_alignment("Lawful", "Chaotic Neutral") is False
+
+    def test_two_axis_requirement_needs_both(self) -> None:
+        assert _check_alignment("Lawful Evil", "Lawful Evil") is True
+        assert _check_alignment("Lawful Evil", "Neutral Evil") is False
+
+    def test_any_prefix_is_ignored(self) -> None:
+        assert _check_alignment("Any evil", "Chaotic Evil") is True
+
+    def test_abbreviations_are_normalised(self) -> None:
+        assert _check_alignment("Evil", "NE") is True
+        assert _check_alignment("Lawful", "lg") is True
+        assert _check_alignment("LE", "Lawful Evil") is True
+        assert _check_alignment("Good", "CE") is False
+
+    def test_true_neutral_is_neutral(self) -> None:
+        assert _check_alignment("Neutral", "True Neutral") is True
+        assert _check_alignment("Neutral", "N") is True
+
+    def test_nonlawful_excludes_lawful(self) -> None:
+        assert _check_alignment("Nonlawful", "Chaotic Good") is True
+        assert _check_alignment("Non-lawful", "True Neutral") is True
+        assert _check_alignment("Nonlawful", "Lawful Neutral") is False
+
+    def test_blank_alignment_fails(self) -> None:
+        assert _check_alignment("Evil", "") is False
+
+    def test_empty_requirement_fails_closed(self) -> None:
+        assert _check_alignment("", "Neutral Evil") is False
+
+
+class TestRacePrerequisiteTag:
+    def test_race_met_case_insensitively(self) -> None:
+        assert (
+            check_prestige_prerequisites(
+                ["RACE:Dwarf"], 0, {}, {}, [], 1, {}, character_race="dwarf"
+            )
+            is True
+        )
+
+    def test_race_unmet(self) -> None:
+        assert (
+            check_prestige_prerequisites(
+                ["RACE:Dwarf"], 0, {}, {}, [], 1, {}, character_race="Human"
+            )
+            is False
+        )
+
+    def test_empty_race_requirement_fails_closed(self) -> None:
+        assert (
+            check_prestige_prerequisites(
+                ["RACE:"], 0, {}, {}, [], 1, {}, character_race=""
+            )
+            is False
+        )
+
 class TestAvailablePrestigeClasses:
     def test_returns_only_qualifying_classes_sorted(self) -> None:
         all_classes = [

@@ -6,6 +6,7 @@ Reference: PHB Chapter 3 (prestige class descriptions), DMG Chapter 2.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Mapping
 
 from heroforge.logic.feats import check_prerequisites
@@ -182,6 +183,62 @@ def list_custom_prestige_classes(
     return [cls for cls in list_custom_classes(custom_content) if cls.is_prestige]
 
 
+# Two-letter (and one-letter) alignment abbreviations -> full words.
+_ALIGNMENT_ABBREVIATIONS: dict[str, str] = {
+    "lg": "lawful good",
+    "ng": "neutral good",
+    "cg": "chaotic good",
+    "ln": "lawful neutral",
+    "n": "neutral",
+    "tn": "neutral",
+    "cn": "chaotic neutral",
+    "le": "lawful evil",
+    "ne": "neutral evil",
+    "ce": "chaotic evil",
+}
+_ALIGNMENT_AXES = frozenset({"lawful", "chaotic", "good", "evil", "neutral"})
+
+
+def _alignment_tokens(text: str) -> list[str]:
+    """Split *text* into lowercase alignment words, expanding abbreviations.
+
+    ``"Non-lawful"`` / ``"non lawful"`` collapse to ``"nonlawful"``; filler
+    words such as ``"any"`` and ``"true"`` (as in *True Neutral*) are dropped.
+    """
+    lowered = re.sub(r"\bnon[\s-]+", "non", text.lower())
+    tokens: list[str] = []
+    for word in re.findall(r"[a-z]+", lowered):
+        tokens.extend(_ALIGNMENT_ABBREVIATIONS.get(word, word).split())
+    return [t for t in tokens if t not in {"any", "true", "alignment"}]
+
+
+def alignment_satisfies(required: str, alignment: str) -> bool:
+    """Return whether *alignment* satisfies the ``ALIGN:`` requirement *required*.
+
+    Matching is by alignment component rather than whole string, so
+    ``"Evil"`` is satisfied by Lawful/Neutral/Chaotic Evil, ``"Lawful Evil"``
+    only by Lawful Evil, and ``"Nonlawful"`` by any alignment without the
+    lawful component.  Abbreviations (``LG``, ``NE``, ``N`` ...) are accepted
+    on either side.  An empty or unrecognised requirement fails closed.
+
+    Reference: PHB p104 (alignment); DMG p176 ("Any evil" style prereqs).
+    """
+    required_tokens = _alignment_tokens(required)
+    if not required_tokens:
+        return False
+    have = set(_alignment_tokens(alignment))
+    for token in required_tokens:
+        if token.startswith("non") and token[3:] in _ALIGNMENT_AXES:
+            if token[3:] in have or not have & _ALIGNMENT_AXES:
+                return False
+        elif token in _ALIGNMENT_AXES:
+            if token not in have:
+                return False
+        else:
+            return False
+    return True
+
+
 def check_prestige_prerequisites(
     prerequisites: list[str],
     character_bab: int,
@@ -199,6 +256,8 @@ def check_prestige_prerequisites(
     Extends the generic feat prerequisite checker with support for
     class-level prerequisites (e.g. ``'Spellcaster level 3'``) and narrative
     tags (e.g. ``'ALIGN:Evil'``, ``'RACE:Human'``, ``'CAST:Arcane:3'``).
+    ``ALIGN:`` matches by alignment component (see :func:`alignment_satisfies`)
+    and ``RACE:`` by case-insensitive race name.
 
     Reference: PHB p168 (Prestige Class descriptions).
 
@@ -217,8 +276,6 @@ def check_prestige_prerequisites(
     Returns:
         ``True`` if all prerequisites are satisfied.
     """
-    import re
-
     if character_spellcasting is None:
         character_spellcasting = {}
 
@@ -229,14 +286,15 @@ def check_prestige_prerequisites(
 
         # Check narrative tags: ALIGN:..., RACE:..., CAST:...
         if prereq.startswith("ALIGN:"):
-            required_align = prereq[6:].strip()
-            if character_alignment.lower() != required_align.lower():
+            if not alignment_satisfies(prereq[6:], character_alignment):
                 return False
             continue
 
         if prereq.startswith("RACE:"):
             required_race = prereq[5:].strip()
-            if character_race.lower() != required_race.lower():
+            if not required_race:
+                return False
+            if character_race.strip().casefold() != required_race.casefold():
                 return False
             continue
 
