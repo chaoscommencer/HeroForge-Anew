@@ -1,8 +1,8 @@
 """Wild Shape tab for HeroForge-Anew (Excel tab 9d).
 
 Reference: PHB p37 (Druid class feature).  A druid of 5th level or higher can
-assume the form of an animal (and, at higher levels, larger animals, plants,
-elementals and magical beasts).  This tab lets the user pick an available form
+assume the form of an animal (and, at higher levels, larger and smaller animals,
+plants and elementals).  This tab lets the user pick an available form
 from the seeded ``creatures`` catalogue — gated by Druid level per
 :func:`heroforge.logic.wild_shape.available_forms` — and toggle it active.  When
 active the form's size, physical ability scores and natural armor flow into the

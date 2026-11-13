@@ -31,27 +31,8 @@ _DRUID_CLASS = "druid"
 
 
 # ---------------------------------------------------------------------------
-# Size helpers
+# Creature accessors
 # ---------------------------------------------------------------------------
-
-_SIZE_ORDER = [
-    "Fine",
-    "Diminutive",
-    "Tiny",
-    "Small",
-    "Medium",
-    "Large",
-    "Huge",
-    "Gargantuan",
-    "Colossal",
-]
-
-
-def _size_rank(size: str) -> int:
-    try:
-        return _SIZE_ORDER.index(size)
-    except ValueError:
-        return _SIZE_ORDER.index("Medium")
 
 
 def _creature_type(creature: Creature | Mapping[str, Any]) -> str:
@@ -118,20 +99,68 @@ def druid_wild_shape_level(classes: Iterable[tuple[str, int]]) -> int:
     )
 
 
+# Minimum Druid level at which Wild Shape unlocks each size of a form type
+# (PHB p37 Druid table; workbook ``'Class Abilities'!H33:J41``
+# ``TblWildshapeSizes`` and ``M33:N46`` ``TblWildshapeForms``).  Plant forms
+# (12th level) follow the same size restrictions as animals; elementals have
+# their own progression.  Types absent from this table (e.g. magical beasts,
+# which only the Magical Beast Wild Shape feat grants) are never available
+# from Druid levels alone.
+_ANIMAL_SIZE_LEVELS: Mapping[str, int] = {
+    "Small": 5,
+    "Medium": 5,
+    "Large": 8,
+    "Tiny": 11,
+    "Huge": 15,
+}
+_ELEMENTAL_SIZE_LEVELS: Mapping[str, int] = {
+    "Small": 16,
+    "Medium": 16,
+    "Large": 16,
+    "Huge": 20,
+}
+FORM_UNLOCK_LEVELS: Mapping[str, tuple[int, Mapping[str, int]]] = {
+    "animal": (5, _ANIMAL_SIZE_LEVELS),
+    "plant": (12, _ANIMAL_SIZE_LEVELS),
+    "elemental": (16, _ELEMENTAL_SIZE_LEVELS),
+}
+"""Creature type → (type unlock level, size → unlock level) for Wild Shape."""
+
+
+def form_unlock_level(creature: Creature | Mapping[str, Any]) -> int | None:
+    """Return the Druid level at which *creature* becomes a Wild Shape form.
+
+    The form must be of an allowed type (animal, plant or elemental) and size
+    (PHB p37); the result is the later of the type's and the size's unlock
+    level.  Returns ``None`` when Druid levels alone never allow the form.
+    """
+    entry = FORM_UNLOCK_LEVELS.get(_creature_type(creature))
+    if entry is None:
+        return None
+    type_level, size_levels = entry
+    size_level = size_levels.get(_creature_size(creature).capitalize())
+    if size_level is None:
+        return None
+    return max(type_level, size_level)
+
+
 def available_forms(
     druid_level: int,
     all_creatures: Sequence[Creature] | Sequence[Mapping[str, Any]],
 ) -> list[Any]:
     """Return the creatures the druid can assume with Wild Shape.
 
-    Unlocking by Druid level (PHB p37):
-    - Level  5: Small and Medium Animals
-    - Level  6: Large Animals
-    - Level  7: Tiny Animals
-    - Level  8: Plants (Small–Medium)
-    - Level  9: Huge Animals
-    - Level 11: Elementals (Small–Large)
-    - Level 12: Small and Medium Magical Beasts
+    Unlocking by Druid level (PHB p37; see :data:`FORM_UNLOCK_LEVELS`):
+
+    - Level  5: Small and Medium animals
+    - Level  8: Large animals
+    - Level 11: Tiny animals
+    - Level 12: plants, with the same size limits as animals
+    - Level 15: Huge animals (and plants)
+    - Level 16: Small, Medium and Large elementals
+    - Level 20: Huge elementals
+
+    Magical beasts are never available from Druid levels alone.
 
     Args:
         druid_level:   The character's Druid class level.
@@ -142,43 +171,11 @@ def available_forms(
         Filtered list of creatures the druid may Wild Shape into, preserving
         the input order.
     """
-    if druid_level < 5:
-        return []
-
     result: list[Any] = []
     for creature in all_creatures:
-        ctype = _creature_type(creature)
-        rank = _size_rank(_creature_size(creature))
-
-        if ctype == "animal":
-            # Small (rank 3) and Medium (rank 4) from level 5
-            if druid_level >= 5 and 3 <= rank <= 4:
-                result.append(creature)
-            # Large (rank 5) from level 6
-            elif druid_level >= 6 and rank == 5:
-                result.append(creature)
-            # Tiny (rank 2) from level 7
-            elif druid_level >= 7 and rank == 2:
-                result.append(creature)
-            # Huge (rank 6) from level 9
-            elif druid_level >= 9 and rank == 6:
-                result.append(creature)
-
-        elif ctype == "plant":
-            # Small and Medium plants from level 8
-            if druid_level >= 8 and 3 <= rank <= 4:
-                result.append(creature)
-
-        elif ctype == "elemental":
-            # Small–Large elementals from level 11
-            if druid_level >= 11 and 3 <= rank <= 5:
-                result.append(creature)
-
-        elif ctype in ("magical beast", "magical_beast"):
-            # Small and Medium magical beasts from level 12
-            if druid_level >= 12 and 3 <= rank <= 4:
-                result.append(creature)
-
+        unlock = form_unlock_level(creature)
+        if unlock is not None and druid_level >= unlock:
+            result.append(creature)
     return result
 
 

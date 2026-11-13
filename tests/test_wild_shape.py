@@ -72,31 +72,48 @@ class TestAvailableForms:
         names = {c["name"] for c in available_forms(5, catalogue)}
         assert names == {"Wolf"}
 
-    def test_large_animals_at_6(self, catalogue: list[dict]) -> None:
-        names = {c["name"] for c in available_forms(6, catalogue)}
+    def test_large_animals_at_8(self, catalogue: list[dict]) -> None:
+        assert "Dire Bear" not in {c["name"] for c in available_forms(7, catalogue)}
+        names = {c["name"] for c in available_forms(8, catalogue)}
         assert "Dire Bear" in names
-        assert "Hawk" not in names  # Tiny unlocks at 7
+        assert "Hawk" not in names  # Tiny unlocks at 11
 
-    def test_tiny_animals_at_7(self, catalogue: list[dict]) -> None:
-        names = {c["name"] for c in available_forms(7, catalogue)}
-        assert "Hawk" in names
+    def test_tiny_animals_at_11(self, catalogue: list[dict]) -> None:
+        assert "Hawk" not in {c["name"] for c in available_forms(10, catalogue)}
+        assert "Hawk" in {c["name"] for c in available_forms(11, catalogue)}
 
-    def test_plants_at_8(self, catalogue: list[dict]) -> None:
-        assert "Shambler" not in {c["name"] for c in available_forms(7, catalogue)}
-        assert "Shambler" in {c["name"] for c in available_forms(8, catalogue)}
+    def test_plants_at_12(self, catalogue: list[dict]) -> None:
+        assert "Shambler" not in {c["name"] for c in available_forms(11, catalogue)}
+        assert "Shambler" in {c["name"] for c in available_forms(12, catalogue)}
 
-    def test_huge_animals_at_9(self, catalogue: list[dict]) -> None:
-        assert "Elephant" in {c["name"] for c in available_forms(9, catalogue)}
+    def test_plants_share_animal_sizes(self, catalogue: list[dict]) -> None:
+        # PHB p37: plant forms follow the animal size restrictions.
+        catalogue.append(_creature("Treant", "Huge", "Plant"))
+        assert "Treant" not in {c["name"] for c in available_forms(14, catalogue)}
+        assert "Treant" in {c["name"] for c in available_forms(15, catalogue)}
 
-    def test_elementals_at_11(self, catalogue: list[dict]) -> None:
+    def test_huge_animals_at_15(self, catalogue: list[dict]) -> None:
+        assert "Elephant" not in {c["name"] for c in available_forms(14, catalogue)}
+        assert "Elephant" in {c["name"] for c in available_forms(15, catalogue)}
+
+    def test_elementals_at_16(self, catalogue: list[dict]) -> None:
         assert "Air Elemental" not in {
-            c["name"] for c in available_forms(10, catalogue)
+            c["name"] for c in available_forms(15, catalogue)
         }
-        assert "Air Elemental" in {c["name"] for c in available_forms(11, catalogue)}
+        assert "Air Elemental" in {c["name"] for c in available_forms(16, catalogue)}
 
-    def test_magical_beasts_at_12(self, catalogue: list[dict]) -> None:
-        assert "Griffon" not in {c["name"] for c in available_forms(11, catalogue)}
-        assert "Griffon" in {c["name"] for c in available_forms(12, catalogue)}
+    def test_huge_elementals_at_20(self, catalogue: list[dict]) -> None:
+        catalogue.append(_creature("Huge Fire Elemental", "Huge", "Elemental"))
+        names19 = {c["name"] for c in available_forms(19, catalogue)}
+        assert "Huge Fire Elemental" not in names19
+        assert "Huge Fire Elemental" in {
+            c["name"] for c in available_forms(20, catalogue)
+        }
+
+    def test_magical_beasts_never(self, catalogue: list[dict]) -> None:
+        # Only the Magical Beast Wild Shape feat grants these (workbook
+        # TblWildshapeForms), never druid level alone.
+        assert "Griffon" not in {c["name"] for c in available_forms(20, catalogue)}
 
 
 class TestStatReplacement:
@@ -280,10 +297,10 @@ class TestWildShapeTab:
         names = {c.name for c in tab._available_forms()}
         assert names == {"Wolf"}  # Medium only at level 5
 
-        model.character.classes = [("Druid", 9)]
+        model.character.classes = [("Druid", 12)]
         tab._refresh_availability()
         names = {c.name for c in tab._available_forms()}
-        assert {"Wolf", "Dire Bear", "Hawk"} <= names
+        assert {"Wolf", "Dire Bear", "Hawk"} <= names  # Large 8, Tiny 11
 
     def test_active_form_changes_derived_stats(self, model: object) -> None:
         from heroforge.ui.tabs.wild_shape import WildShapeTab
