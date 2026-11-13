@@ -399,6 +399,32 @@ class TestRecheckRespectsLimits:
         assert notices == []
 
 
+class TestLimitLabelRefresh:
+    """The limit label follows class and feat changes made on other tabs."""
+
+    def test_refreshes_when_class_levels_change(self, model: Any) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        tab = BinderVestigesTab(model)
+        assert tab._limit_label.text().startswith("No binder level")
+        model.character.classes = [("Binder", 5)]
+        model.class_levels_changed.emit()
+        assert tab._limit_label.text().startswith("Binder level 5:")
+
+    def test_refreshes_when_feats_change(self, model: Any) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        model.character.classes = [("Binder", 9)]
+        tab = BinderVestigesTab(model)
+        assert "up to level 4," in tab._limit_label.text()
+        model.feat_added.emit("Improved Binding")
+        assert "up to level 5," in tab._limit_label.text()
+        # Removing a feat is announced through derived_stats_changed.
+        model.character.feats = []
+        model.derived_stats_changed.emit()
+        assert "up to level 4," in tab._limit_label.text()
+
+
 class TestEligorNaturalArmor:
     """Eligor's Resiliance: an enhancement bonus to natural armor (Armor!T27)."""
 

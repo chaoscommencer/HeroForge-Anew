@@ -54,6 +54,10 @@ class BinderVestigesTab(QWidget):
         if model:
             model.character_reset.connect(self._sync_from_model)
             model.character_loaded.connect(lambda _id: self._sync_from_model())
+            # Class-level changes, added feats and removed feats all announce
+            # derived_stats_changed; the label update emits nothing, so this
+            # cannot loop through _sync_to_model's own emit.
+            model.derived_stats_changed.connect(self._update_limit_label)
             self._sync_from_model()
 
     def _build_ui(self) -> None:
