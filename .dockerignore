@@ -51,3 +51,22 @@ tests/
 
 # Container definitions themselves
 .devcontainer/
+
+# Secrets and local credentials. No Dockerfile COPYs these, but excluding them
+# keeps them out of the build context entirely, so a future broad COPY (or a
+# build cache shared with a registry) can never capture them. Covers every image
+# built from the repository root: Dockerfile.heroforge-app, Dockerfile.display,
+# Dockerfile.graphify and .devcontainer/Dockerfile.devcontainer-default.
+.env
+.env.*
+secrets/
+*.pem
+*.key
+
+# Agent / editor configuration (may hold tokens, MCP server settings or local
+# permissions) and character saves (personal data)
+.claude/
+.mcp.json
+.vscode/
+.idea/
+*.hfc
