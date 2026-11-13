@@ -22,6 +22,12 @@ circumstance — e.g. *Stonefoot Stance*'s +2 AC that only counts against larger
 creatures — carry a non-empty :attr:`StanceEffect.condition` and are therefore
 never folded into a derived stat, exactly as the situational Hawk/Owl familiar
 bonuses are excluded in :mod:`heroforge.logic.familiar`.
+
+Every effect carries a PHB bonus type, and
+:func:`heroforge.logic.derived_stats.compute_derived_stats` stacks the
+unconditional ones (see :func:`stance_bonus_specs`) together with active buffs
+and equipped magic items (PHB p176), so a stance never adds to a same-type
+bonus from another source.
 """
 
 from __future__ import annotations
@@ -29,9 +35,10 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
-# Effect categories.  ``ac`` targets Armor Class (``target`` is the AC bonus
-# type used by :func:`heroforge.logic.combat.aggregate_ac_bonuses`); ``save``
-# targets a saving throw (``target`` is the save name).
+from heroforge.logic import buffs
+
+# Effect categories.  ``ac`` targets Armor Class; ``save`` targets a saving
+# throw (``target`` is the save name).
 KIND_AC = "ac"
 KIND_SAVE = "save"
 
@@ -52,13 +59,15 @@ class StanceEffect:
         stance_name: The stance's name (e.g. ``"Punishing Stance"``).
         value:       Signed size of the effect (e.g. ``-2`` for a penalty).
         kind:        One of :data:`KIND_AC`, :data:`KIND_SAVE`.
-        target:      For :data:`KIND_SAVE` the saving-throw name
-                     (``"Fortitude"``/``"Reflex"``/``"Will"``); for
-                     :data:`KIND_AC` the AC bonus type (``"dodge"``,
-                     ``"untyped"``, …).
+        target:      The affected stat: ``"AC"`` for :data:`KIND_AC`, or the
+                     saving-throw name (``"Fortitude"``/``"Reflex"``/
+                     ``"Will"``) for :data:`KIND_SAVE`.
         condition:   A situational qualifier (e.g. ``"against larger
                      creatures"``).  When non-empty the effect is conditional
                      and is *not* applied mechanically.
+        bonus_type:  The PHB p176 bonus type (``"untyped"``, ``"dodge"``,
+                     ``"morale"``, …) used to stack the effect with buffs and
+                     magic items.
     """
 
     stance_name: str
@@ -66,6 +75,7 @@ class StanceEffect:
     kind: str
     target: str = ""
     condition: str = ""
+    bonus_type: str = "untyped"
 
     @property
     def conditional(self) -> bool:
@@ -81,33 +91,51 @@ STANCE_EFFECTS: tuple[StanceEffect, ...] = (
     # you have -2 to AC" (workbook Maneuvers & Stances row 88).  The extra 1d6
     # damage is not a tracked derived stat; the −2 AC is always on while the
     # stance is held.  The stance carries no saving-throw penalty.
-    StanceEffect("Punishing Stance", -2, KIND_AC, "untyped"),
+    StanceEffect("Punishing Stance", -2, KIND_AC, "AC"),
     # Stone Dragon — Stonefoot Stance (ToB p67): +2 AC, but only against
     # creatures larger than you.
-    StanceEffect("Stonefoot Stance", 2, KIND_AC, "untyped", "against larger creatures"),
+    StanceEffect("Stonefoot Stance", 2, KIND_AC, "AC", "against larger creatures"),
     # Stone Dragon — Roots of the Mountain is deliberately absent: its effects
     # ("+10 bonus on checks against bull rush, trip, and others, and gain DR
     # 2/-", workbook row 167) touch neither AC nor a saving throw.
     # Diamond Mind — Stance of Clarity (ToB p62): "Gain +2 AC against one fo[e],
     # -2 against all others" (workbook row 66).  ToB types the bonus as insight.
     StanceEffect(
-        "Stance of Clarity", 2, KIND_AC, "insight", "against one chosen opponent"
+        "Stance of Clarity",
+        2,
+        KIND_AC,
+        "AC",
+        "against one chosen opponent",
+        bonus_type="insight",
     ),
-    StanceEffect(
-        "Stance of Clarity", -2, KIND_AC, "untyped", "against all other opponents"
-    ),
+    StanceEffect("Stance of Clarity", -2, KIND_AC, "AC", "against all other opponents"),
     # Iron Heart — Absolute Steel Stance (ToB p69): +2 dodge AC, but only while
     # you move at least 10 feet in a round.
     StanceEffect(
-        "Absolute Steel Stance", 2, KIND_AC, "dodge", "while moving 10 ft. or more"
+        "Absolute Steel Stance",
+        2,
+        KIND_AC,
+        "AC",
+        "while moving 10 ft. or more",
+        bonus_type="dodge",
     ),
     # White Raven — Bolstering Voice (ToB p84): "Allies gain +2 bonus on Will
     # saves, +4 against fear" (workbook row 211).  It benefits allies, not the
     # initiator, so it is catalogued as conditional and never applied here.
     StanceEffect(
-        "Bolstering Voice", 2, KIND_SAVE, "Will", "for allies only (+4 against fear)"
+        "Bolstering Voice",
+        2,
+        KIND_SAVE,
+        "Will",
+        "for allies only (+4 against fear)",
+        bonus_type="morale",
     ),
 )
+
+
+def _catalogue(effects: Iterable[StanceEffect] | None) -> Iterable[StanceEffect]:
+    """Return *effects*, or the current :data:`STANCE_EFFECTS` when ``None``."""
+    return STANCE_EFFECTS if effects is None else effects
 
 
 def describe_effect(effect: StanceEffect) -> str:
@@ -160,7 +188,7 @@ def active_stance_names(
 
 def active_stance_effects(
     maneuvers: Iterable[Mapping[str, object]],
-    effects: Iterable[StanceEffect] = STANCE_EFFECTS,
+    effects: Iterable[StanceEffect] | None = None,
 ) -> list[StanceEffect]:
     """Return the catalogued effects of every active stance in *maneuvers*.
 
@@ -178,60 +206,99 @@ def active_stance_effects(
         unconditional).
     """
     active = set(active_stance_names(maneuvers))
-    return [effect for effect in effects if effect.stance_name in active]
+    return [effect for effect in _catalogue(effects) if effect.stance_name in active]
+
+
+def stance_bonus_specs(
+    maneuvers: Iterable[Mapping[str, object]],
+    effects: Iterable[StanceEffect] | None = None,
+) -> list[dict[str, object]]:
+    """Return the active stances' unconditional effects as typed bonus specs.
+
+    Each spec is a ``{"source", "target", "bonus_type", "value"}`` dict in the
+    same shape as an equipped magic item's bonus specs
+    (:func:`heroforge.logic.equipment.item_bonus_specs`), so
+    :func:`heroforge.logic.derived_stats.compute_derived_stats` can stack them
+    with active buffs and items by bonus type (PHB p176).  Conditional effects
+    are skipped.
+
+    Args:
+        maneuvers: The character's ``maneuvers`` collection.
+        effects:   Structured stance-effect records to search (defaults to
+            :data:`STANCE_EFFECTS`).
+
+    Returns:
+        One spec per unconditional effect of every active stance.
+    """
+    return [
+        {
+            "source": effect.stance_name,
+            "target": effect.target,
+            "bonus_type": effect.bonus_type or "untyped",
+            "value": effect.value,
+        }
+        for effect in active_stance_effects(maneuvers, effects)
+        if not effect.conditional and effect.kind in (KIND_AC, KIND_SAVE)
+    ]
 
 
 def stance_save_bonuses(
     maneuvers: Iterable[Mapping[str, object]],
-    effects: Iterable[StanceEffect] = STANCE_EFFECTS,
+    effects: Iterable[StanceEffect] | None = None,
 ) -> dict[str, int]:
-    """Return the unconditional saving-throw bonuses from active stances.
+    """Return the net unconditional saving-throw bonuses from active stances.
 
     Conditional effects (those with a non-empty ``condition``) are skipped so
     situational bonuses never feed a computed total.  The result is keyed by the
     short save keys (``"fort"``, ``"ref"``, ``"will"``) used by
     :mod:`heroforge.logic.saving_throws` and the derived-stats pipeline.
 
+    This reports the stances on their own; the derived-stats pipeline stacks
+    them together with buffs and items instead (see :func:`stance_bonus_specs`).
+
     Args:
         maneuvers: The character's ``maneuvers`` collection.
-        effects:   Structured stance-effect records to search.
+        effects:   Structured stance-effect records to search (defaults to
+            :data:`STANCE_EFFECTS`).
 
     Returns:
-        Mapping of save key → net bonus (empty when nothing applies).  Values
-        accumulate additively when several active stances share a save target.
+        Mapping of save key → net bonus (empty when nothing applies).  Several
+        active stances' effects on one save combine under the PHB p176 stacking
+        rules: same-type bonuses overlap, while penalties and untyped, dodge,
+        circumstance and racial bonuses add up.
     """
-    result: dict[str, int] = {}
+    records: list[tuple[str, str, str, int]] = []
     for effect in active_stance_effects(maneuvers, effects):
         if effect.kind != KIND_SAVE or effect.conditional:
             continue
         key = _SAVE_KEYS.get(effect.target)
         if key is not None:
-            result[key] = result.get(key, 0) + effect.value
-    return result
+            records.append(
+                (effect.stance_name, effect.bonus_type, key, int(effect.value))
+            )
+    return {k: v for k, v in buffs.aggregate_bonuses(records).items() if v}
 
 
 def stance_ac_bonuses(
     maneuvers: Iterable[Mapping[str, object]],
-    effects: Iterable[StanceEffect] = STANCE_EFFECTS,
+    effects: Iterable[StanceEffect] | None = None,
 ) -> list[tuple[str, int]]:
     """Return the unconditional AC effects from active stances.
 
     Conditional effects are skipped.  The result is a list of
     ``(bonus_type, value)`` tuples suitable for
-    :func:`heroforge.logic.combat.aggregate_armor_class` (and hence the
-    ``ac_bonuses`` argument of
-    :func:`heroforge.logic.derived_stats.compute_derived_stats`).
+    :func:`heroforge.logic.combat.aggregate_armor_class`.
 
     Args:
         maneuvers: The character's ``maneuvers`` collection.
-        effects:   Structured stance-effect records to search.
+        effects:   Structured stance-effect records to search (defaults to
+            :data:`STANCE_EFFECTS`).
 
     Returns:
         ``(bonus_type, value)`` tuples (empty when nothing applies).
     """
-    result: list[tuple[str, int]] = []
-    for effect in active_stance_effects(maneuvers, effects):
-        if effect.kind != KIND_AC or effect.conditional:
-            continue
-        result.append((effect.target or "untyped", effect.value))
-    return result
+    return [
+        (effect.bonus_type or "untyped", effect.value)
+        for effect in active_stance_effects(maneuvers, effects)
+        if effect.kind == KIND_AC and not effect.conditional
+    ]

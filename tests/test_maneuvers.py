@@ -8,8 +8,13 @@ derived-stats pipeline.
 from __future__ import annotations
 
 from heroforge.logic.derived_stats import compute_derived_stats
+import pytest
+
 from heroforge.logic.maneuvers import (
+    KIND_AC,
+    KIND_SAVE,
     STANCE_EFFECTS,
+    StanceEffect,
     active_stance_effects,
     active_stance_names,
     describe_effect,
@@ -36,7 +41,9 @@ def test_active_stance_names_only_readied() -> None:
 def test_active_stance_effects_matches_catalogue() -> None:
     maneuvers = [_maneuver("Punishing Stance", True)]
     effects = active_stance_effects(maneuvers)
-    assert {e.target for e in effects} == {"untyped"}
+    assert {(e.kind, e.target, e.bonus_type) for e in effects} == {
+        (KIND_AC, "AC", "untyped")
+    }
     # An active stance that is not in the catalogue contributes nothing.
     assert active_stance_effects([_maneuver("Iron Guard's Glare", True)]) == []
 
@@ -69,8 +76,6 @@ def test_conditional_stances_are_excluded() -> None:
 
 
 def test_stance_save_bonuses_accumulate() -> None:
-    from heroforge.logic.maneuvers import KIND_SAVE, StanceEffect
-
     custom = (
         *STANCE_EFFECTS,
         # Two unconditional Reflex effects on Punishing Stance.
@@ -101,7 +106,7 @@ def test_catalogue_matches_workbook_text() -> None:
     # Row 66: "Gain +2 AC against one fo[e], -2 against all others"; ToB types
     # the bonus as insight.
     clarity = sorted(
-        (e.value, e.target, e.condition)
+        (e.value, e.bonus_type, e.condition)
         for e in STANCE_EFFECTS
         if e.stance_name == "Stance of Clarity"
     )
@@ -118,10 +123,10 @@ def test_derived_stats_apply_punishing_stance() -> None:
     base.classes = [("Warblade", 5)]
     baseline = compute_derived_stats(base)
 
+    # compute_derived_stats reads the active stances from character.maneuvers,
+    # as it does buffs and equipped magic items.
     base.maneuvers = [_maneuver("Punishing Stance", True)]
-    saves = stance_save_bonuses(base.maneuvers)
-    ac = stance_ac_bonuses(base.maneuvers)
-    stanced = compute_derived_stats(base, save_bonuses=saves, ac_bonuses=ac)
+    stanced = compute_derived_stats(base)
 
     assert stanced.armor_class == baseline.armor_class - 2
     assert stanced.touch_ac == baseline.touch_ac - 2
@@ -130,3 +135,74 @@ def test_derived_stats_apply_punishing_stance() -> None:
     assert stanced.reflex == baseline.reflex
     assert stanced.fortitude == baseline.fortitude
     assert stanced.will == baseline.will
+
+
+@pytest.fixture()
+def custom_catalogue(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+    """Return a setter that swaps the stance catalogue the pipeline reads."""
+    import heroforge.logic.maneuvers as maneuvers_module
+
+    def install(*effects: StanceEffect) -> None:
+        monkeypatch.setattr(maneuvers_module, "STANCE_EFFECTS", effects)
+
+    return install
+
+
+def _buff(name: str, bonus_type: str, target: str, amount: int) -> dict:  # type: ignore[type-arg]
+    return {
+        "id": name,
+        "name": name,
+        "bonus_type": bonus_type,
+        "target_stat": target,
+        "amount": amount,
+    }
+
+
+def test_stance_bonuses_stack_with_buffs_by_type(custom_catalogue) -> None:  # type: ignore[no-untyped-def]
+    """Stance bonuses share the PHB p176 stacking with buffs and items."""
+    custom_catalogue(
+        StanceEffect("Test Stance", 2, KIND_SAVE, "Will", bonus_type="morale"),
+        StanceEffect("Test Stance", 1, KIND_AC, "AC", bonus_type="deflection"),
+        StanceEffect("Test Stance", 1, KIND_AC, "AC", bonus_type="dodge"),
+        StanceEffect("Test Stance", 1, KIND_SAVE, "Reflex"),
+    )
+    character = Character(name="Warblade", ability_scores={"DEX": 10})
+    character.classes = [("Warblade", 5)]
+    character.buffs = [
+        _buff("Heroism", "morale", "Will", 2),
+        _buff("Shield of Faith", "deflection", "AC", 2),
+        _buff("Haste", "dodge", "AC", 1),
+        _buff("Luck", "luck", "Reflex", 1),
+    ]
+    buffed = compute_derived_stats(character)
+
+    character.maneuvers = [_maneuver("Test Stance", True)]
+    stanced = compute_derived_stats(character)
+
+    # +2 morale on Will does not stack with Heroism's +2 morale.
+    assert stanced.will == buffed.will
+    # +1 deflection is overlapped by Shield of Faith's +2; +1 dodge stacks.
+    assert stanced.armor_class == buffed.armor_class + 1
+    # Untyped bonuses always stack.
+    assert stanced.reflex == buffed.reflex + 1
+
+
+def test_stance_bonus_stacks_with_magic_item_by_type(custom_catalogue) -> None:  # type: ignore[no-untyped-def]
+    """A larger stance bonus replaces, not adds to, an item's same-type bonus."""
+    custom_catalogue(
+        StanceEffect("Test Stance", 3, KIND_SAVE, "Fortitude", bonus_type="resistance"),
+    )
+    character = Character(name="Warblade")
+    character.equipment = [
+        {
+            "item_name": "Cloak of Resistance +1",
+            "slot": "Shoulders",
+            "equipped": True,
+            "bonuses": [{"bonus_type": "resistance", "target": "Saves", "value": 1}],
+        }
+    ]
+    worn = compute_derived_stats(character)
+    character.maneuvers = [_maneuver("Test Stance", True)]
+    stanced = compute_derived_stats(character)
+    assert stanced.fortitude == worn.fortitude + 2  # max(3, 1), not 3 + 1
+    assert stanced.reflex == worn.reflex

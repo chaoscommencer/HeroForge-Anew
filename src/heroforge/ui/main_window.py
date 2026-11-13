@@ -39,7 +39,6 @@ from heroforge.logic.familiar import (
 )
 from heroforge.logic.familiar import save_bonuses as familiar_save_bonuses
 from heroforge.logic.legacy_import import import_hfg
-from heroforge.logic.maneuvers import stance_ac_bonuses, stance_save_bonuses
 from heroforge.models.character import Character
 from heroforge.models.options import point_buy_budget as _options_point_buy_budget
 from heroforge.ui.dialogs.custom_class import CustomClassDialog
@@ -384,19 +383,10 @@ class CharacterModel(QObject):
             if race is not None and race.base_land_speed > 0
             else DEFAULT_LAND_SPEED
         )
-        # Apply active Tome of Battle stance effects (Excel tab 8b): merge their
-        # unconditional saving-throw and AC bonuses into the derived totals.
-        maneuvers = self._character.maneuvers
-        stance_saves = stance_save_bonuses(maneuvers)
-        if stance_saves:
-            combined_saves: dict[str, int] = dict(familiar_saves)
-            for key, value in stance_saves.items():
-                combined_saves[key] = combined_saves.get(key, 0) + value
-            familiar_saves = combined_saves
-        ac_bonuses = list(ac_bonuses) + stance_ac_bonuses(maneuvers)
         hp_flat, hp_per_level = self._hit_point_bonuses()
-        # Magic-item bonus specs on character.equipment are stacked together
-        # with active buffs inside compute_derived_stats (PHB p176).
+        # Magic-item bonus specs on character.equipment and the effects of the
+        # active Tome of Battle stances on character.maneuvers are stacked
+        # together with active buffs inside compute_derived_stats (PHB p176).
         return compute_derived_stats(
             self._character,
             progressions,
