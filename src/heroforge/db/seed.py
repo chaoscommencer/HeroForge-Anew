@@ -1010,8 +1010,8 @@ _INCARNUM_ESSENTIA_RANGE = "AN1:AS22"
 _INCARNUM_MELDS_RANGE = "AT1:AW22"
 _INCARNUM_BINDS_RANGE = "AX1:BA22"
 
-#: Chakra-unlock formulas live in columns Z (Incarnate), AA (Soulborn) and
-#: AB (Totemist), rows 30-39, each of the form
+#: Chakra-unlock formulas live in columns Z (Incarnate), AA (Soulborn),
+#: AB (Totemist) and AC (Spinemeld Warrior), rows 30-39, each of the form
 #: ``=IF(OR(...,<ClassLvl>>=N,...),"<Chakra>","")``.  The Totem chakra for
 #: Totemist is the separate formula in ``AE29``.  Mapping each class to the
 #: column holding its own unlock rule and the level variable used in that rule
@@ -1022,6 +1022,7 @@ _INCARNUM_CHAKRA_COLUMNS: dict[str, tuple[str, str]] = {
     "Incarnate": ("Z", "IncLvl"),
     "Soulborn": ("AA", "SbnLvl"),
     "Totemist": ("AB", "TotmLvl"),
+    "Spinemeld Warrior": ("AC", "SpWLvl"),
 }
 _INCARNUM_CHAKRA_ROWS = range(30, 40)
 _INCARNUM_TOTEM_CELL = "AE29"

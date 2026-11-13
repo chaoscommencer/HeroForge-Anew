@@ -844,6 +844,36 @@ class TestIncarnumProgressionSeed:
         assert rows[("Incarnate", "Crown")] == 2
         assert rows[("Totemist", "Totem")] == 2
 
+    @requires_workbook
+    def test_spinemeld_warrior_arms_chakra_seeded(self, incarnum_db: Path) -> None:
+        conn = get_connection(incarnum_db)
+        try:
+            rows = [
+                (r["chakra"], r["min_level"])
+                for r in conn.execute(
+                    "SELECT chakra, min_level FROM incarnum_chakra "
+                    "WHERE class_name = 'Spinemeld Warrior'"
+                )
+            ]
+        finally:
+            conn.close()
+        # Soulmelds!AC33 opens the Arms chakra at Spinemeld Warrior 7th level;
+        # the class opens no other chakra on its own.
+        assert rows == [("Arms", 7)]
+
+    @requires_workbook
+    def test_spinemeld_warrior_can_bind_arms_at_7th(self, incarnum_db: Path) -> None:
+        from heroforge.db.data_access import GameDataRepository
+        from heroforge.logic.incarnum import compute_incarnum, unlocked_chakras
+
+        progressions = GameDataRepository(incarnum_db).incarnum_progressions()
+        summary = compute_incarnum(
+            [("Spinemeld Warrior", 7)], character_level=7, progressions=progressions
+        )
+        assert summary.chakra_binds_available == 1
+        assert unlocked_chakras({"Spinemeld Warrior": 7}, progressions) == {"Arms"}
+        assert unlocked_chakras({"Spinemeld Warrior": 6}, progressions) == set()
+
     def test_missing_workbook_leaves_table_untouched(self, tmp_path: Path) -> None:
         from heroforge.db.schema import initialize_database
 
