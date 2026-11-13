@@ -29,7 +29,7 @@ from heroforge.db.character_repo import (
 )
 from heroforge.db.data_access import ArmorItem, GameDataRepository
 from heroforge.env_paths import dir_from_env
-from heroforge.logic import race_templates, vestiges
+from heroforge.logic import race_templates
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
 from heroforge.logic.equipment import DEFAULT_LAND_SPEED, speed_ignores_encumbrance
 from heroforge.logic.familiar import (
@@ -384,20 +384,11 @@ class CharacterModel(QObject):
             if race is not None and race.base_land_speed > 0
             else DEFAULT_LAND_SPEED
         )
-        # Apply always-on granted-ability bonuses from bound binder vestiges
-        # (Tome of Magic): ability-score adjustments stack with the race/template
-        # adjustments, and AC bonuses join the typed AC sources.
-        bound_vestiges = vestiges.bound_vestige_names(self._character)
-        vestige_abilities = vestiges.ability_adjustments(bound_vestiges)
-        if vestige_abilities:
-            adjustments = dict(adjustments)
-            for ability, value in vestige_abilities.items():
-                adjustments[ability] = adjustments.get(ability, 0) + value
-        ac_bonuses = list(ac_bonuses) + vestiges.ac_bonuses(bound_vestiges)
         hp_flat, hp_per_level = self._hit_point_bonuses()
-        # Magic-item bonus specs on character.equipment and the effects of the
-        # active Tome of Battle stances on character.maneuvers are stacked
-        # together with active buffs inside compute_derived_stats (PHB p176).
+        # Magic-item bonus specs on character.equipment, the effects of the
+        # active Tome of Battle stances on character.maneuvers and the always-on
+        # effects of bound vestiges on character.vestiges are stacked together
+        # with active buffs inside compute_derived_stats (PHB p176).
         return compute_derived_stats(
             self._character,
             progressions,

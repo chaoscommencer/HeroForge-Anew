@@ -107,44 +107,69 @@ class TestBoundVestigeNames:
         assert vestiges.bound_vestige_names(char) == ["Paimon"]
 
 
-class TestEffects:
-    def test_ability_adjustments(self) -> None:
-        assert vestiges.ability_adjustments(["Eligor"]) == {"STR": 4}
-        assert vestiges.ability_adjustments(["Paimon"]) == {"DEX": 4}
+def _bound(*names: str, binder: int = 15, **kwargs: object) -> Character:
+    """Return a Binder of level *binder* with every vestige in *names* bound."""
+    return Character(
+        classes=[("Binder", binder)] if binder else [],
+        vestiges=[
+            {"vestige_name": name, "level": None, "bound": True} for name in names
+        ],
+        **kwargs,  # type: ignore[arg-type]
+    )
 
-    def test_ability_adjustments_accumulate(self) -> None:
-        assert vestiges.ability_adjustments(["Eligor", "Paimon"]) == {
-            "STR": 4,
-            "DEX": 4,
+
+class TestVestigeBonusSpecs:
+    def test_eligor_and_paimon_specs(self) -> None:
+        specs = vestiges.vestige_bonus_specs(_bound("Eligor", "Paimon"))
+        assert {(s["target"], s["bonus_type"], s["value"]) for s in specs} == {
+            ("STR", "untyped", 4),
+            ("AC", "natural", 3),
+            ("DEX", "untyped", 4),
         }
-
-    def test_ac_bonuses(self) -> None:
-        assert vestiges.ac_bonuses(["Eligor"]) == [("natural", 3)]
+        assert {s["source"] for s in specs} == {"Eligor", "Paimon"}
 
     def test_case_insensitive(self) -> None:
-        assert vestiges.ability_adjustments(["eligor"]) == {"STR": 4}
+        specs = vestiges.vestige_bonus_specs(_bound("eligor"))
+        assert ("STR", 4) in {(s["target"], s["value"]) for s in specs}
+
+    def test_suppressed_vestige_has_no_effect(self) -> None:
+        char = Character(
+            classes=[("Binder", 15)],
+            vestiges=[{"vestige_name": "Eligor", "level": 7, "bound": False}],
+        )
+        assert vestiges.vestige_bonus_specs(char) == []
 
     def test_unknown_vestige_has_no_effect(self) -> None:
-        assert vestiges.ability_adjustments(["Amon"]) == {}
-        assert vestiges.ac_bonuses(["Amon"]) == []
+        assert vestiges.vestige_bonus_specs(_bound("Amon")) == []
 
 
 class TestEffectsFeedDerivedStats:
     def test_ability_bonus_changes_modifier(self) -> None:
-        base = Character(ability_scores={"STR": 10, "DEX": 14})
-        bound = vestiges.bound_vestige_names(
-            Character(vestiges=[{"vestige_name": "Eligor", "bound": True}])
+        stats = compute_derived_stats(
+            _bound("Eligor", ability_scores={"STR": 10, "DEX": 14})
         )
-        adjustments = vestiges.ability_adjustments(bound)
-        stats = compute_derived_stats(base, ability_adjustments=adjustments)
         # +4 STR raises STR to 14 (+2 modifier) from the baseline +0.
         assert stats.effective_ability_scores["STR"] == 14
         assert stats.ability_modifiers["STR"] == 2
 
+    def test_untyped_bonus_stacks_with_enhancement_buff(self) -> None:
+        # Eligor's untyped +4 stacks with Bull's Strength's +4 enhancement
+        # (PHB p176), through the same typed-bonus path as buffs and items.
+        buff = {
+            "id": "b1",
+            "bonus_type": "enhancement",
+            "target_stat": "STR",
+            "amount": 4,
+        }
+        stats = compute_derived_stats(
+            _bound("Eligor", ability_scores={"STR": 10}, buffs=[buff])
+        )
+        assert stats.effective_ability_scores["STR"] == 18
+
     def test_natural_armor_bonus_raises_ac(self) -> None:
-        base = Character(ability_scores={"DEX": 10})
-        without = compute_derived_stats(base)
+        without = compute_derived_stats(_bound(ability_scores={"DEX": 10}))
         with_vestige = compute_derived_stats(
-            base, ac_bonuses=vestiges.ac_bonuses(["Eligor"])
+            _bound("Eligor", ability_scores={"DEX": 10})
         )
         assert with_vestige.armor_class == without.armor_class + 3
+        assert with_vestige.touch_ac == without.touch_ac

@@ -37,13 +37,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from heroforge.models.character import Character
 
-# Effect categories.  ``ability`` targets one of the six ability scores (keyed
-# ``"STR"`` … ``"CHA"``); ``ac`` targets Armor Class and carries the AC bonus
-# type (e.g. ``"natural"``) as its target so it aggregates correctly with other
-# AC sources (PHB p150–151).
-KIND_ABILITY = "ability"
-KIND_AC = "ac"
-
 
 @dataclass(frozen=True)
 class VestigeEffect:
@@ -51,17 +44,18 @@ class VestigeEffect:
 
     Attributes:
         vestige_name: The granting vestige's name (e.g. ``"Eligor"``).
+        target:       The affected stat, in the vocabulary of a buff's
+                      ``target_stat``: an ability key (``"STR"`` …) or ``"AC"``.
+        bonus_type:   The PHB p176 bonus type (e.g. ``"untyped"``,
+                      ``"natural"``), which decides how the bonus stacks with
+                      buffs, magic items and stances.
         value:        Numeric size of the bonus (e.g. ``4``).
-        kind:         One of :data:`KIND_ABILITY`, :data:`KIND_AC`.
-        target:       The affected ability key (``"STR"`` …) for ``ability``
-                      effects, or the AC bonus type (``"natural"`` …) for ``ac``
-                      effects.
     """
 
     vestige_name: str
-    value: int
-    kind: str
     target: str
+    bonus_type: str
+    value: int
 
 
 # The canonical always-on vestige bonuses that feed the derived-stats pipeline,
@@ -70,15 +64,16 @@ class VestigeEffect:
 #
 #   * Eligor's Strength   (E4587): "+4 bonus to strength".
 #   * Eligor's Resiliance [sic] (E4588): "+3 enhancement bonus to natural armor".
-#   * Paimon's Dexterity  (E4625-ish): "+4 bonus to Dexterity".
+#   * Paimon's Dexterity  (E4665): "+4 bonus to Dexterity".
 #
 # Only constant, unconditional bonuses to an ability score or AC appear here;
 # situational, activated, or level-scaled abilities are excluded because they
-# are not always applied.
+# are not always applied.  The ability bonuses carry no type in the source text,
+# so they are untyped and stack with everything (PHB p176).
 STANDARD_VESTIGE_EFFECTS: tuple[VestigeEffect, ...] = (
-    VestigeEffect("Eligor", 4, KIND_ABILITY, "STR"),
-    VestigeEffect("Eligor", 3, KIND_AC, "natural"),
-    VestigeEffect("Paimon", 4, KIND_ABILITY, "DEX"),
+    VestigeEffect("Eligor", "STR", "untyped", 4),
+    VestigeEffect("Eligor", "AC", "natural", 3),
+    VestigeEffect("Paimon", "DEX", "untyped", 4),
 )
 
 
@@ -221,41 +216,35 @@ def bound_vestige_names(character: Character) -> list[str]:
     return names
 
 
-def _effects_for(
-    names: Iterable[str],
-    kind: str,
-    effects: Iterable[VestigeEffect],
-) -> list[VestigeEffect]:
-    bound = {n.strip().lower() for n in names}
-    return [e for e in effects if e.kind == kind and e.vestige_name.lower() in bound]
-
-
-def ability_adjustments(
-    names: Iterable[str],
+def vestige_bonus_specs(
+    character: Character,
     effects: Iterable[VestigeEffect] = STANDARD_VESTIGE_EFFECTS,
-) -> dict[str, int]:
-    """Return the total ability-score adjustments granted by the bound *names*.
+) -> list[dict[str, object]]:
+    """Return the bound vestiges' always-on effects as typed bonus specs.
 
-    Keyed by the ability abbreviation (``"STR"`` …); values accumulate when
-    several bound vestiges target the same ability.
+    Each spec is a ``{"source", "target", "bonus_type", "value"}`` dict in the
+    same shape as an active stance's
+    (:func:`heroforge.logic.maneuvers.stance_bonus_specs`) and an equipped magic
+    item's bonus specs, so
+    :func:`heroforge.logic.derived_stats.compute_derived_stats` stacks them with
+    buffs, items and stances by bonus type (PHB p176).
+
+    Args:
+        character: The character whose ``vestiges`` collection is read.
+        effects:   Structured vestige-effect records to search (defaults to
+            :data:`STANDARD_VESTIGE_EFFECTS`).
+
+    Returns:
+        One spec per effect of every bound vestige.
     """
-    result: dict[str, int] = {}
-    for effect in _effects_for(names, KIND_ABILITY, effects):
-        result[effect.target] = result.get(effect.target, 0) + effect.value
-    return result
-
-
-def ac_bonuses(
-    names: Iterable[str],
-    effects: Iterable[VestigeEffect] = STANDARD_VESTIGE_EFFECTS,
-) -> list[tuple[str, int]]:
-    """Return ``(bonus_type, value)`` AC bonuses granted by the bound *names*.
-
-    Each tuple matches the format consumed by
-    :func:`heroforge.logic.derived_stats.compute_derived_stats` so vestige AC
-    bonuses aggregate by type alongside armor, shield, and natural-armor sources.
-    """
+    bound = {name.lower() for name in bound_vestige_names(character)}
     return [
-        (effect.target, effect.value)
-        for effect in _effects_for(names, KIND_AC, effects)
+        {
+            "source": effect.vestige_name,
+            "target": effect.target,
+            "bonus_type": effect.bonus_type,
+            "value": effect.value,
+        }
+        for effect in effects
+        if effect.vestige_name.lower() in bound
     ]
