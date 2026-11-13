@@ -25,10 +25,10 @@ specs that :func:`heroforge.logic.derived_stats.compute_derived_stats` stacks
 with buffs, items, stances and vestiges (PHB p176).
 
 Only the auras whose effect maps onto a value the application currently derives
-(saving throws, Armor Class, and melee/ranged attack) contribute a numeric
-bonus; the remaining auras affect rolls the derived-stats snapshot does not yet
-model (damage, speed, ability checks, skill checks, situational defences) and are
-catalogued for display and selection only.
+(saving throws, Armor Class, melee/ranged attack and initiative) contribute a
+numeric bonus; the remaining auras affect rolls the derived-stats snapshot does
+not yet model (damage, speed, ability and skill checks, damage reduction,
+situational defences) and are catalogued for display and selection only.
 """
 
 from __future__ import annotations
@@ -59,6 +59,7 @@ TARGET_SAVES = "saves"  # all three saving throws
 TARGET_AC = "ac"
 TARGET_MELEE = "melee"
 TARGET_RANGED = "ranged"
+TARGET_INITIATIVE = "initiative"
 TARGET_NONE = ""
 
 
@@ -91,22 +92,22 @@ class MarshalAura:
 
 
 # The canonical aura catalogue.  Names and Minor/Major typing mirror the
-# workbook's *Marshal Auras* sheet; the ``target`` and ``description`` capture
-# the *Miniatures Handbook* (and *Dragon Magic*) rules text for each aura.
+# workbook's *Marshal Auras* sheet; each ``description`` is the static wording
+# of the aura's text in ``Tables!O321:O354`` ("X" is the aura's bonus), and the
+# ``target`` is the derived stat that text names, if any.
 STANDARD_MARSHAL_AURAS: tuple[MarshalAura, ...] = (
     # --- Minor auras (bonus = marshal's Charisma modifier) -----------------
     MarshalAura(
         "Accurate Strike",
         MINOR,
         TARGET_NONE,
-        description="Bonus on rolls made to confirm critical hits.",
+        description="Bonus on rolls to confirm critical hits.",
     ),
     MarshalAura(
         "Art of War",
         MINOR,
         TARGET_NONE,
-        description="Bonus on bull rush, disarm, feint, overrun, sunder, "
-        "and trip attempts.",
+        description="Bonus on disarm, trip, bull rush, and sunder attempts.",
     ),
     MarshalAura(
         "Demand Fortitude",
@@ -118,7 +119,7 @@ STANDARD_MARSHAL_AURAS: tuple[MarshalAura, ...] = (
         "Determined Caster",
         MINOR,
         TARGET_NONE,
-        description="Bonus on caster level checks to overcome spell resistance.",
+        description="Bonus on rolls to overcome spell resistance.",
     ),
     MarshalAura(
         "Force of Will",
@@ -130,13 +131,13 @@ STANDARD_MARSHAL_AURAS: tuple[MarshalAura, ...] = (
         "Master of Opportunity",
         MINOR,
         TARGET_NONE,
-        description="Bonus to Armor Class against attacks of opportunity.",
+        description="Bonus to AC against attacks of opportunity.",
     ),
     MarshalAura(
         "Master of Tactics",
         MINOR,
         TARGET_NONE,
-        description="Bonus on damage rolls when flanking an opponent.",
+        description="Bonus on damage rolls when flanking.",
     ),
     MarshalAura(
         "Motivate Charisma",
@@ -148,20 +149,20 @@ STANDARD_MARSHAL_AURAS: tuple[MarshalAura, ...] = (
         "Motivate Constitution",
         MINOR,
         TARGET_NONE,
-        description="Bonus on Constitution checks.",
+        description="Bonus on Constitution checks and Constitution-based skill checks.",
     ),
     MarshalAura(
         "Motivate Dexterity",
         MINOR,
-        TARGET_NONE,
-        description="Bonus on Dexterity checks and Dexterity-based skill checks.",
+        TARGET_INITIATIVE,
+        description="Bonus on Dexterity checks, Dexterity-based skill checks and "
+        "initiative checks.",
     ),
     MarshalAura(
         "Motivate Intelligence",
         MINOR,
         TARGET_NONE,
-        description="Bonus on Intelligence checks and Intelligence-based "
-        "skill checks.",
+        description="Bonus on Intelligence checks and Intelligence-based skill checks.",
     ),
     MarshalAura(
         "Motivate Strength",
@@ -179,7 +180,7 @@ STANDARD_MARSHAL_AURAS: tuple[MarshalAura, ...] = (
         "Over the Top",
         MINOR,
         TARGET_NONE,
-        description="Bonus on damage rolls made when charging.",
+        description="Bonus on damage rolls while charging.",
     ),
     MarshalAura(
         "Watchful Eye",
@@ -192,7 +193,7 @@ STANDARD_MARSHAL_AURAS: tuple[MarshalAura, ...] = (
         "Hardy Soldiers",
         MAJOR,
         TARGET_NONE,
-        description="Grants damage reduction against weapon attacks.",
+        description="Grants DR X/-.",
     ),
     MarshalAura(
         "Motivate Ardor",
@@ -210,19 +211,19 @@ STANDARD_MARSHAL_AURAS: tuple[MarshalAura, ...] = (
         "Motivate Care",
         MAJOR,
         TARGET_AC,
-        description="Bonus to Armor Class.",
+        description="Bonus to AC.",
     ),
     MarshalAura(
         "Motivate Urgency",
         MAJOR,
         TARGET_NONE,
-        description="Increases base land speed.",
+        description="Base land speed increases by 5×X feet.",
     ),
     MarshalAura(
         "Resilient Troops",
         MAJOR,
         TARGET_SAVES,
-        description="Bonus on all saving throws.",
+        description="Bonus on all saves.",
     ),
     MarshalAura(
         "Steady Hand",
@@ -235,63 +236,64 @@ STANDARD_MARSHAL_AURAS: tuple[MarshalAura, ...] = (
         "Energy (Draconic)",
         MAJOR,
         TARGET_NONE,
-        description="Bonus on damage rolls with energy attacks.",
+        description="Bonus on the save DC of effects of the chosen energy type.",
     ),
     MarshalAura(
         "Insight (Draconic)",
         MAJOR,
         TARGET_NONE,
-        description="Bonus on Knowledge checks.",
+        description="Bonus on Decipher Script, Knowledge, and Spellcraft checks.",
     ),
     MarshalAura(
         "Power (Draconic)",
         MAJOR,
         TARGET_NONE,
-        description="Bonus on Strength checks and Strength-based skill checks.",
+        description="Bonus on caster level checks made to overcome spell "
+        "resistance and manifester level checks made to overcome power resistance.",
     ),
     MarshalAura(
         "Presence (Draconic)",
         MAJOR,
         TARGET_NONE,
-        description="Bonus on Charisma-based skill checks.",
+        description="Bonus on Bluff, Diplomacy, and Intimidate checks.",
     ),
     MarshalAura(
         "Resistance (Draconic)",
         MAJOR,
         TARGET_NONE,
-        description="Bonus on saving throws against a chosen energy type.",
+        description="Grants resistance 5×X to the chosen energy type.",
     ),
     MarshalAura(
         "Resolve (Draconic)",
         MAJOR,
         TARGET_NONE,
-        description="Bonus on saving throws against fear and mind-affecting "
-        "effects.",
+        description="Bonus on Concentration checks and on saves against fear, "
+        "paralysis, and sleep effects.",
     ),
     MarshalAura(
         "Senses (Draconic)",
         MAJOR,
-        TARGET_NONE,
-        description="Bonus on Listen and Spot checks.",
+        TARGET_INITIATIVE,
+        description="Bonus on Listen checks, Spot checks, and initiative checks.",
     ),
     MarshalAura(
         "Stamina (Draconic)",
         MAJOR,
-        TARGET_NONE,
-        description="Bonus on Fortitude saves against fatigue, exhaustion, "
-        "and similar effects.",
+        TARGET_FORT,
+        description="Bonus on Constitution checks and Fortitude saves.",
     ),
     MarshalAura(
         "Swiftness (Draconic)",
         MAJOR,
         TARGET_NONE,
-        description="Increases base land speed.",
+        description="Bonus on Climb, Jump, and Swim checks; climb, fly, and swim "
+        "speeds increase by 5×X feet.",
     ),
     MarshalAura(
         "Toughness (Draconic)",
         MAJOR,
         TARGET_NONE,
-        description="Grants temporary hit points.",
+        description="Grants damage reduction X/magic.",
     ),
 )
 

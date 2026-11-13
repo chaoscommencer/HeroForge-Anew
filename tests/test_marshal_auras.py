@@ -60,6 +60,36 @@ class TestCatalogue:
     def test_thirty_two_auras(self) -> None:
         assert len(STANDARD_MARSHAL_AURAS) == 32
 
+    @pytest.mark.parametrize(
+        ("name", "description"),
+        [
+            (
+                "Power (Draconic)",
+                "Bonus on caster level checks made to overcome spell resistance "
+                "and manifester level checks made to overcome power resistance.",
+            ),
+            ("Toughness (Draconic)", "Grants damage reduction X/magic."),
+            ("Hardy Soldiers", "Grants DR X/-."),
+            (
+                "Insight (Draconic)",
+                "Bonus on Decipher Script, Knowledge, and Spellcraft checks.",
+            ),
+            (
+                "Presence (Draconic)",
+                "Bonus on Bluff, Diplomacy, and Intimidate checks.",
+            ),
+            (
+                "Stamina (Draconic)",
+                "Bonus on Constitution checks and Fortitude saves.",
+            ),
+        ],
+    )
+    def test_descriptions_follow_workbook(self, name: str, description: str) -> None:
+        # Static wording of Tables!O321:O354.
+        aura = get_aura(name)
+        assert aura is not None
+        assert aura.description == description
+
     def test_minor_and_major_counts(self) -> None:
         minor = [a for a in STANDARD_MARSHAL_AURAS if a.aura_type == MINOR]
         major = [a for a in STANDARD_MARSHAL_AURAS if a.aura_type == MAJOR]
@@ -219,6 +249,25 @@ class TestAurasFeedDerivedStats:
         base = compute_derived_stats(_marshal(cha=12)).reflex
         stats = compute_derived_stats(character, ability_adjustments={"CHA": 2})
         assert stats.reflex - base == 2
+
+    def test_stamina_raises_fortitude(self) -> None:
+        # Tables!O352: "+X on Constitution checks and Fortitude saves."
+        before = compute_derived_stats(_marshal(level=7))
+        after = compute_derived_stats(_marshal(level=7, auras=("Stamina (Draconic)",)))
+        assert after.fortitude - before.fortitude == 2
+        assert after.reflex == before.reflex
+
+    def test_senses_raises_initiative(self) -> None:
+        # Tables!O351: "+X on Listen checks, Spot checks, and initiative checks."
+        before = compute_derived_stats(_marshal(level=14))
+        after = compute_derived_stats(_marshal(level=14, auras=("Senses (Draconic)",)))
+        assert after.initiative - before.initiative == 3
+
+    def test_motivate_dexterity_raises_initiative(self) -> None:
+        # Tables!O330: "+ChaMod on ... initiative checks."
+        before = compute_derived_stats(_marshal(cha=14))
+        after = compute_derived_stats(_marshal(cha=14, auras=("Motivate Dexterity",)))
+        assert after.initiative - before.initiative == 2
 
 
 # ---------------------------------------------------------------------------
