@@ -95,7 +95,9 @@ def effective_bonus(bonuses: dict[str, dict[str, int]], stat: str) -> int:
 
     For each bonus type:
     - Stackable types (dodge, circumstance, racial, untyped): sum all bonuses.
-    - Non-stackable types: take only the highest value.
+    - Non-stackable types: take only the highest positive value.
+    - Penalties (negative amounts) always stack, whatever their type, matching
+      :func:`heroforge.logic.combat.aggregate_ac_bonuses`.
 
     Reference: PHB p176.
 
@@ -117,10 +119,13 @@ def effective_bonus(bonuses: dict[str, dict[str, int]], stat: str) -> int:
 
     total = 0
     for btype, amounts in by_type.items():
+        # The non-stacking rule limits bonuses only; penalties always stack.
+        total += sum(a for a in amounts if a < 0)
+        positives = [a for a in amounts if a > 0]
         if btype in STACKABLE_BONUS_TYPES:
-            total += sum(amounts)
-        else:
-            total += max(amounts)
+            total += sum(positives)
+        elif positives:
+            total += max(positives)
     return total
 
 
@@ -132,8 +137,8 @@ def aggregate_bonuses(
     Each record is an independent bonus source.  Records are grouped by target
     *stat* and the net bonus for each stat is computed with the standard
     stacking rules (see :func:`effective_bonus`): stackable types (dodge,
-    circumstance, racial, untyped) sum, while every other named type contributes
-    only its single largest value.
+    circumstance, racial, untyped) sum, every other named type contributes
+    only its single largest bonus, and penalties always stack.
 
     Reference: PHB p176.
 

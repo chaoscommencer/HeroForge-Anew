@@ -66,6 +66,19 @@ class TestEffectiveBonus:
     def test_unknown_stat_is_zero(self) -> None:
         assert effective_bonus({}, "attack") == 0
 
+    def test_typed_penalty_stacks_with_same_type_bonus(self) -> None:
+        # Penalties always stack, even with a bonus of the same type (PHB p176).
+        bonuses: dict[str, dict[str, int]] = {}
+        apply_buff(bonuses, "Inspire Courage", "morale", "attack", 2)
+        apply_buff(bonuses, "Despair", "morale", "attack", -1)
+        assert effective_bonus(bonuses, "attack") == 1
+
+    def test_same_type_penalties_stack(self) -> None:
+        bonuses: dict[str, dict[str, int]] = {}
+        apply_buff(bonuses, "Curse A", "enhancement", "attack", -2)
+        apply_buff(bonuses, "Curse B", "enhancement", "attack", -4)
+        assert effective_bonus(bonuses, "attack") == -6
+
 
 class TestAggregateBonuses:
     def test_groups_by_stat(self) -> None:
@@ -105,6 +118,17 @@ class TestAggregateBonuses:
             ]
         )
         assert net == {"ac": 2}
+
+    def test_typed_penalties_always_stack(self) -> None:
+        net = aggregate_bonuses(
+            [
+                ("courage", "morale", "melee", 2),
+                ("despair", "morale", "melee", -1),
+                ("curse_a", "enhancement", "melee", -2),
+                ("curse_b", "enhancement", "melee", -4),
+            ]
+        )
+        assert net == {"melee": 2 - 1 - 2 - 4}
 
     def test_empty_records(self) -> None:
         assert aggregate_bonuses([]) == {}

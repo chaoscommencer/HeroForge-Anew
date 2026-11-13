@@ -269,6 +269,19 @@ class TestBuffApplication:
         stats = compute_derived_stats(char)
         assert stats.melee_attack == 3
 
+    def test_typed_penalty_matches_on_attack_and_ac(self) -> None:
+        # A same-type penalty stacks on attack exactly as it does on AC.
+        char = Character()
+        char.buffs = [
+            _buff("Inspire Courage", "morale", "attack", 2),
+            _buff("Despair", "morale", "attack", -1),
+            _buff("Courage AC", "morale", "AC", 2),
+            _buff("Despair AC", "morale", "AC", -1),
+        ]
+        stats = compute_derived_stats(char)
+        assert stats.melee_attack == 1
+        assert stats.armor_class == 11
+
     def test_dodge_ac_buffs_stack(self) -> None:
         char = Character()
         char.buffs = [
