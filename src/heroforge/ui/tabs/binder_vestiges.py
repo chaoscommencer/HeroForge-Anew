@@ -182,13 +182,15 @@ class BinderVestigesTab(QWidget):
                 "binder level. Suppress or remove one first.",
             )
             return
-        catalogue = self._model.game_data().list_vestiges()
-        levels = {v.name: v.vestige_level for v in catalogue}
+        levels = {
+            v.name: vestiges.vestige_level_for(v.name, v.vestige_level)
+            for v in self._model.game_data().list_vestiges()
+        }
         existing = self._names()
         options = [
-            v.name
-            for v in catalogue
-            if v.name not in existing and vestiges.can_bind(v.vestige_level, level)
+            name
+            for name, vestige_level in levels.items()
+            if name not in existing and vestiges.can_bind(vestige_level, level)
         ]
         name = pick_from_catalog(self, "Bind Vestige", "Vestige:", options)
         if name:
@@ -215,9 +217,9 @@ class BinderVestigesTab(QWidget):
                 name = str(entry.get("vestige_name", "")).strip()
                 if not name:
                     continue
-                vestige_level = entry.get("level")
-                if vestige_level is None:
-                    vestige_level = catalogue.get(name)
+                vestige_level = entry.get("level") or vestiges.vestige_level_for(
+                    name, catalogue.get(name)
+                )
                 bound = bool(entry.get("bound", True))
                 self._list.addItem(self._make_item(name, vestige_level, bound))
         self._list.blockSignals(False)

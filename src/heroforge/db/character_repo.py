@@ -394,7 +394,12 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
                 (
                     cid,
                     str(vestige.get("vestige_name", "")),
-                    int(vestige.get("level", 0)),
+                    # An unknown vestige level is stored as NULL, not 0.
+                    (
+                        None
+                        if vestige.get("level") is None
+                        else buff_amount(vestige.get("level"))
+                    ),
                     1 if vestige.get("bound", True) else 0,
                 )
                 for vestige in character.vestiges

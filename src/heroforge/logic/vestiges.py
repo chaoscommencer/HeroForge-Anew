@@ -77,11 +77,13 @@ STANDARD_VESTIGE_EFFECTS: tuple[VestigeEffect, ...] = (
 )
 
 
-# Offline fallback mapping of vestige name → the vestige's own level (1–8),
-# transcribed from the ``Binder Vestiges`` sheet (column ``S``).  The runtime
-# source is the seeded ``vestiges`` table via
+# Fallback mapping of vestige name → the vestige's own level (1–8), transcribed
+# from the ``Binder Vestiges`` sheet (column ``S``).  The runtime source is the
+# seeded ``vestiges`` table via
 # :meth:`heroforge.db.data_access.GameDataRepository.list_vestiges`; this table
-# is only consulted when that data is unavailable (a fresh, unseeded checkout).
+# is consulted through :func:`vestige_level_for` whenever that source has no
+# level for a vestige (an unseeded checkout, or a database whose
+# ``vestige_level`` column was migrated in but not yet re-seeded).
 STANDARD_VESTIGE_LEVELS: dict[str, int] = {
     "Amon": 1,
     "Aym": 1,
@@ -128,6 +130,23 @@ STANDARD_VESTIGE_LEVELS: dict[str, int] = {
     "Halphax": 8,
     "Orthos": 8,
 }
+
+_STANDARD_LEVELS_BY_KEY: dict[str, int] = {
+    name.lower(): level for name, level in STANDARD_VESTIGE_LEVELS.items()
+}
+
+
+def vestige_level_for(name: str, catalogue_level: int | None = None) -> int | None:
+    """Return the level of the vestige *name*, or ``None`` when it is unknown.
+
+    *catalogue_level* (the seeded catalogue's ``vestige_level``) wins when it is
+    set; otherwise the name is looked up, case-insensitively, in
+    :data:`STANDARD_VESTIGE_LEVELS`.  A vestige outside that table (e.g. a
+    homebrew one) has no known level.
+    """
+    if catalogue_level:
+        return catalogue_level
+    return _STANDARD_LEVELS_BY_KEY.get(name.strip().lower())
 
 
 # Classes whose levels count toward effective binder level.  The Binder is the
