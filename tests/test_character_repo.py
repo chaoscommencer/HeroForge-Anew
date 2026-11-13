@@ -225,7 +225,6 @@ class TestSaveLoadRoundTrip:
         char = _sample_character()
         cid = save_character(conn, char)
         loaded = load_character(conn, cid)
-
         assert loaded.name == char.name
         assert loaded.player == char.player
         assert loaded.campaign == char.campaign
@@ -274,6 +273,25 @@ class TestSaveLoadRoundTrip:
         assert loaded.custom_items == char.custom_items
         assert loaded.lg_records == char.lg_records
         assert loaded.game_log == char.game_log
+
+    def test_round_trip_preserves_buff_bonus_fields(
+        self, conn: sqlite3.Connection
+    ) -> None:
+        char = _sample_character()
+        char.buffs = [
+            {
+                "id": str(uuid.uuid4()),
+                "name": "Bless",
+                "bonus_type": "morale",
+                "target_stat": "attack",
+                "amount": 1,
+            },
+            # A plain tracking buff round-trips to exactly {"id", "name"}.
+            {"id": str(uuid.uuid4()), "name": "Heroism"},
+        ]
+        cid = save_character(conn, char)
+        loaded = load_character(conn, cid)
+        assert loaded.buffs == char.buffs
 
     def test_writes_related_rows(self, conn: sqlite3.Connection) -> None:
         char = _sample_character()
@@ -368,6 +386,70 @@ class TestHfcFile:
         loaded = load_character_from_file(path)
         assert [a["weapon_name"] for a in loaded.attacks] == ["Longsword"]
         assert loaded.attacks[0]["hand"] == ""
+
+    def test_file_saved_before_buff_bonus_columns_loads(self, tmp_path: Path) -> None:
+        char = _sample_character()
+        path = tmp_path / "old-buffs.hfc"
+        save_character_to_file(char, path)
+        conn = sqlite3.connect(path)
+        for column in ("bonus_type", "target_stat", "amount"):
+            conn.execute(f"ALTER TABLE character_buffs DROP COLUMN {column}")
+        conn.commit()
+        conn.close()
+
+        loaded = load_character_from_file(path)
+        assert loaded.buffs == char.buffs
+
+    def test_old_buff_table_upgraded_then_saves(self, tmp_path: Path) -> None:
+        path = tmp_path / "old-buffs.hfc"
+        conn = initialize_character_database(path)
+        for column in ("bonus_type", "target_stat", "amount"):
+            conn.execute(f"ALTER TABLE character_buffs DROP COLUMN {column}")
+        conn.commit()
+        conn.close()
+
+        conn = initialize_character_database(path)
+        try:
+            char = _sample_character()
+            char.buffs = [
+                {
+                    "id": str(uuid.uuid4()),
+                    "name": "Bless",
+                    "bonus_type": "morale",
+                    "target_stat": "attack",
+                    "amount": 1,
+                }
+            ]
+            cid = save_character(conn, char)
+            assert load_character(conn, cid).buffs == char.buffs
+        finally:
+            conn.close()
+
+    def test_file_with_non_numeric_buff_amount_loads(self, tmp_path: Path) -> None:
+        char = _sample_character()
+        char.buffs = [
+            {
+                "id": str(uuid.uuid4()),
+                "name": "Bless",
+                "bonus_type": "morale",
+                "target_stat": "attack",
+                "amount": 1,
+            }
+        ]
+        path = tmp_path / "corrupt.hfc"
+        save_character_to_file(char, path)
+        conn = sqlite3.connect(path)
+        conn.execute("UPDATE character_buffs SET amount = 'abc'")
+        conn.commit()
+        conn.close()
+
+        loaded = load_character_from_file(path)
+        # The unusable amount is dropped; the buff itself is kept.
+        assert loaded.buffs == [
+            {k: v for k, v in char.buffs[0].items() if k != "amount"}
+        ]
+        # And the loaded character can be saved again.
+        save_character_to_file(loaded, tmp_path / "resaved.hfc")
 
     def test_save_and_load_file(self, tmp_path: Path) -> None:
         char = _sample_character()

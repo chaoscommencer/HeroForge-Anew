@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from heroforge.db.schema import get_connection, initialize_character_database
+from heroforge.logic.buffs import buff_amount
 from heroforge.models.character import Character
 
 
@@ -243,8 +244,19 @@ def save_character(conn: sqlite3.Connection, character: Character) -> int:
         )
         cur.executemany(
             "INSERT INTO character_buffs "
-            "(id, character_id, buff_name) VALUES (?, ?, ?)",
-            [(buff["id"], cid, buff["name"]) for buff in character.buffs],
+            "(id, character_id, buff_name, bonus_type, target_stat, amount) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    buff["id"],
+                    cid,
+                    buff["name"],
+                    (str(buff["bonus_type"]) if buff.get("bonus_type") else None),
+                    (str(buff["target_stat"]) if buff.get("target_stat") else None),
+                    buff_amount(buff.get("amount")),
+                )
+                for buff in character.buffs
+            ],
         )
         cur.executemany(
             "INSERT INTO character_languages " "(character_id, language) VALUES (?, ?)",
@@ -671,17 +683,37 @@ def load_character(conn: sqlite3.Connection, character_id: int) -> Character:
         ).fetchall()
     ]
 
-    character.buffs = [
-        {"id": br["id"], "name": br["buff_name"]}
-        for br in conn.execute(
-            # id is a UUID (TEXT), not sequential, so ORDER BY rowid preserves
-            # the original insertion order.  rowid is always available on
-            # standard SQLite tables (this table is not WITHOUT ROWID).
-            "SELECT id, buff_name FROM character_buffs "
-            "WHERE character_id = ? ORDER BY rowid",
-            (character_id,),
-        ).fetchall()
-    ]
+    # Files saved before the typed-bonus columns existed load their buffs as
+    # plain tracking entries (no bonus type, target or amount).
+    buff_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(character_buffs)").fetchall()
+    }
+    buff_bonus_columns = ", ".join(
+        column if column in buff_columns else f"NULL AS {column}"
+        for column in ("bonus_type", "target_stat", "amount")
+    )
+    character.buffs = []
+    for br in conn.execute(
+        # id is a UUID (TEXT), not sequential, so ORDER BY rowid preserves
+        # the original insertion order.  rowid is always available on
+        # standard SQLite tables (this table is not WITHOUT ROWID).
+        f"SELECT id, buff_name, {buff_bonus_columns} "
+        "FROM character_buffs WHERE character_id = ? ORDER BY rowid",
+        (character_id,),
+    ).fetchall():
+        buff: dict[str, str | int] = {"id": br["id"], "name": br["buff_name"]}
+        # Only surface the typed-bonus fields when they carry data so that a
+        # plain tracking buff round-trips to exactly {"id", "name"}.
+        if br["bonus_type"]:
+            buff["bonus_type"] = br["bonus_type"]
+        if br["target_stat"]:
+            buff["target_stat"] = br["target_stat"]
+        # A corrupted (non-numeric) amount is dropped rather than surfaced.
+        amount = buff_amount(br["amount"])
+        if amount:
+            buff["amount"] = amount
+        character.buffs.append(buff)
 
     character.languages = [
         lr["language"]

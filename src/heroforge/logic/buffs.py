@@ -5,6 +5,8 @@ Reference: PHB p176 (Bonus Types and Stacking).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 # Bonus types that stack with themselves and with everything else.
 STACKABLE_BONUS_TYPES: set[str] = {"dodge", "circumstance", "racial", "untyped"}
 
@@ -93,7 +95,9 @@ def effective_bonus(bonuses: dict[str, dict[str, int]], stat: str) -> int:
 
     For each bonus type:
     - Stackable types (dodge, circumstance, racial, untyped): sum all bonuses.
-    - Non-stackable types: take only the highest value.
+    - Non-stackable types: take only the highest positive value.
+    - Penalties (negative amounts) always stack, whatever their type, matching
+      :func:`heroforge.logic.combat.aggregate_ac_bonuses`.
 
     Reference: PHB p176.
 
@@ -115,11 +119,60 @@ def effective_bonus(bonuses: dict[str, dict[str, int]], stat: str) -> int:
 
     total = 0
     for btype, amounts in by_type.items():
+        # The non-stacking rule limits bonuses only; penalties always stack.
+        total += sum(a for a in amounts if a < 0)
+        positives = [a for a in amounts if a > 0]
         if btype in STACKABLE_BONUS_TYPES:
-            total += sum(amounts)
-        else:
-            total += max(amounts)
+            total += sum(positives)
+        elif positives:
+            total += max(positives)
     return total
+
+
+def buff_amount(value: object) -> int:
+    """Return a buff's ``amount`` as an ``int``, or ``0`` if it is unusable.
+
+    Save files are untrusted input and SQLite stores a non-numeric value in an
+    ``INTEGER`` column as text, so the amount may arrive as ``"abc"``,
+    ``"2.5"`` or ``None``.  Numeric values are truncated toward zero; anything
+    else (including NaN and infinity) yields ``0`` so the buff contributes
+    nothing instead of breaking every derived-stat consumer.
+    """
+    if value is None or isinstance(value, bool):
+        return 0
+    try:
+        return int(float(value))  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def aggregate_bonuses(
+    records: Iterable[tuple[str, str, str, int]],
+) -> dict[str, int]:
+    """Collapse buff ``(source, bonus_type, stat, amount)`` records into nets.
+
+    Each record is an independent bonus source.  Records are grouped by target
+    *stat* and the net bonus for each stat is computed with the standard
+    stacking rules (see :func:`effective_bonus`): stackable types (dodge,
+    circumstance, racial, untyped) sum, every other named type contributes
+    only its single largest bonus, and penalties always stack.
+
+    Reference: PHB p176.
+
+    Args:
+        records: Iterable of ``(source, bonus_type, stat, amount)`` tuples.
+                 *source* only needs to be unique per record so that two equal
+                 sources do not collapse into one before stacking is evaluated.
+
+    Returns:
+        Mapping of ``stat`` → net effective bonus.
+    """
+    tracking: dict[str, dict[str, int]] = {}
+    for index, (source, bonus_type, stat, amount) in enumerate(records):
+        # Combine the caller-supplied source with the record index so identical
+        # sources stay distinct and same-type non-stacking bonuses take the max.
+        apply_buff(tracking, f"{source}#{index}", bonus_type, stat, int(amount))
+    return {stat: effective_bonus(tracking, stat) for stat in tracking}
 
 
 def temporary_hp_total(temp_hp_grants: list[int]) -> int:
