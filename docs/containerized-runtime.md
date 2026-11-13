@@ -373,7 +373,7 @@ prerequisites that the script installs and configures:
 - **`slirp4netns`** — rootless user-mode networking.
 - **`podman-compose`** — in the dev container this is baked into the `/opt/venv`
   virtualenv at image-build time (gated by `INSTALL_PODMAN_DEPS`); the script
-  installs it (hash-pinned, via `pipx` when available else `pip --user`) only as
+  installs it (hash-pinned, into its own virtualenv) only as
   a fallback for standalone/bare-host use or an `INSTALL_PODMAN_DEPS=false` build.
 
 **Caveat:** this is rootless Podman nested inside a *privileged* docker-in-docker

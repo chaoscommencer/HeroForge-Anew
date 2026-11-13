@@ -181,22 +181,28 @@ fi
 # requirements-podman-compose.txt (--require-hashes), skips pip's download cache
 # (--no-cache-dir) and refuses sdists (--only-binary=:all:) so no build backend
 # runs at install time, matching the supply-chain posture used elsewhere in the
-# repo. pipx (preferred for isolation) cannot consume a hashed `-r` file via
-# `pipx install`, so we create the venv and then re-install the whole closure
-# with `pipx runpip ... --require-hashes`, the same two-step integrity gate as
-# Dockerfile.graphify.
+# repo. It goes into its own virtualenv (isolated from the system Python), and
+# both installs into that venv are verified: first the hash-pinned pip from
+# requirements-pip.txt, then podman-compose and its dependencies. (pipx was used
+# before, but `pipx install podman-compose` resolves an unpinned, unverified copy
+# first, so a plain venv is used instead.) The console script is linked into
+# ~/.local/bin.
+REQ_PIP="${REPO_ROOT}/requirements-pip.txt"
 REQ_PODMAN_COMPOSE="${REPO_ROOT}/requirements-podman-compose.txt"
+PODMAN_COMPOSE_VENV="${XDG_DATA_HOME:-${HOME}/.local/share}/heroforge/podman-compose-venv"
 if ! command -v podman-compose >/dev/null 2>&1; then
-    if command -v pipx >/dev/null 2>&1; then
-        echo "Installing podman-compose via pipx (hash-pinned) ..."
-        pipx install --pip-args='--only-binary=:all:' podman-compose
-        pipx runpip podman-compose install --no-cache-dir --only-binary=:all: \
-            --require-hashes -r "${REQ_PODMAN_COMPOSE}" --force-reinstall
-    else
-        echo "Installing podman-compose via pip (--user, hash-pinned) ..."
-        python3 -m pip install --user --no-cache-dir --only-binary=:all: \
-            --require-hashes -r "${REQ_PODMAN_COMPOSE}"
-    fi
+    echo "Installing podman-compose into ${PODMAN_COMPOSE_VENV} (hash-pinned) ..."
+    python3 -m venv "${PODMAN_COMPOSE_VENV}"
+    "${PODMAN_COMPOSE_VENV}/bin/python" -m pip install --no-cache-dir --only-binary=:all: \
+        --require-hashes -r "${REQ_PIP}"
+    "${PODMAN_COMPOSE_VENV}/bin/python" -m pip install --no-cache-dir --only-binary=:all: \
+        --require-hashes -r "${REQ_PODMAN_COMPOSE}"
+    mkdir -p "${HOME}/.local/bin"
+    ln -sf "${PODMAN_COMPOSE_VENV}/bin/podman-compose" "${HOME}/.local/bin/podman-compose"
+    case ":${PATH}:" in
+        *":${HOME}/.local/bin:"*) ;;
+        *) echo "note: add ~/.local/bin to PATH to use podman-compose." ;;
+    esac
 else
     echo "podman-compose already installed (baked into the image or present) — skipping."
 fi
