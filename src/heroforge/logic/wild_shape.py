@@ -13,6 +13,7 @@ through save/load like the Animal Companion and Familiar (Excel tab 9d).
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -28,6 +29,8 @@ PHYSICAL_ABILITIES: tuple[str, ...] = ("STR", "DEX", "CON")
 
 # Class whose levels grant and govern Wild Shape (PHB p37).
 _DRUID_CLASS = "druid"
+
+_LEADING_INT = re.compile(r"\s*(\d+)")
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +50,20 @@ def _creature_size(creature: Creature | Mapping[str, Any]) -> str:
     if isinstance(creature, Mapping):
         return str(creature.get("size", "Medium")).strip()
     return str(getattr(creature, "size", "Medium")).strip()
+
+
+def creature_hit_dice(creature: Creature | Mapping[str, Any]) -> int | None:
+    """Return the number of Hit Dice of *creature*, or ``None`` if unrecorded.
+
+    Reads the leading integer of the ``hit_dice`` text, so both the seeded
+    plain count (``"12"``) and a full expression (``"12d8+51"``) work.
+    """
+    if isinstance(creature, Mapping):
+        text = str(creature.get("hit_dice", "") or "")
+    else:
+        text = str(getattr(creature, "hit_dice", "") or "")
+    match = _LEADING_INT.match(text)
+    return int(match.group(1)) if match else None
 
 
 def _creature_ability_scores(
@@ -160,12 +177,16 @@ def available_forms(
     - Level 16: Small, Medium and Large elementals
     - Level 20: Huge elementals
 
-    Magical beasts are never available from Druid levels alone.
+    Magical beasts are never available from Druid levels alone.  The form's
+    Hit Dice cannot exceed the Druid level, and a form with no recorded Hit
+    Dice is never offered (PHB p37; workbook ``WildShapeHDLimit`` and the
+    ``'Creature Info'`` "Wild Shape Available" column).
 
     Args:
         druid_level:   The character's Druid class level.
-        all_creatures: Creature catalogue entries (objects exposing ``type``
-                       and ``size`` attributes, or mappings with those keys).
+        all_creatures: Creature catalogue entries (objects exposing ``type``,
+                       ``size`` and ``hit_dice`` attributes, or mappings with
+                       those keys).
 
     Returns:
         Filtered list of creatures the druid may Wild Shape into, preserving
@@ -174,8 +195,12 @@ def available_forms(
     result: list[Any] = []
     for creature in all_creatures:
         unlock = form_unlock_level(creature)
-        if unlock is not None and druid_level >= unlock:
-            result.append(creature)
+        if unlock is None or druid_level < unlock:
+            continue
+        hit_dice = creature_hit_dice(creature)
+        if hit_dice is None or hit_dice > druid_level:
+            continue
+        result.append(creature)
     return result
 
 

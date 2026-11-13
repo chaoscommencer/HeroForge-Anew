@@ -28,13 +28,16 @@ from heroforge.logic.wild_shape import (
 # ---------------------------------------------------------------------------
 
 
-def _creature(name: str, size: str, ctype: str, **scores: int) -> dict:
+def _creature(
+    name: str, size: str, ctype: str, hit_dice: str = "1", **scores: int
+) -> dict:
     base = {"STR": 10, "DEX": 10, "CON": 10, "INT": 10, "WIS": 10, "CHA": 10}
     base.update(scores)
     return {
         "name": name,
         "size": size,
         "type": ctype,
+        "hit_dice": hit_dice,
         "ability_scores": base,
         "natural_armor": 0,
     }
@@ -56,13 +59,13 @@ class TestAvailableForms:
     @pytest.fixture()
     def catalogue(self) -> list[dict]:
         return [
-            _creature("Hawk", "Tiny", "Animal"),
-            _creature("Wolf", "Medium", "Animal"),
-            _creature("Dire Bear", "Large", "Animal"),
-            _creature("Elephant", "Huge", "Animal"),
-            _creature("Shambler", "Medium", "Plant"),
-            _creature("Air Elemental", "Large", "Elemental"),
-            _creature("Griffon", "Medium", "Magical Beast"),
+            _creature("Hawk", "Tiny", "Animal", "1"),
+            _creature("Wolf", "Medium", "Animal", "2"),
+            _creature("Brown Bear", "Large", "Animal", "6"),
+            _creature("Elephant", "Huge", "Animal", "11"),
+            _creature("Shambler", "Medium", "Plant", "8"),
+            _creature("Air Elemental", "Large", "Elemental", "8"),
+            _creature("Griffon", "Medium", "Magical Beast", "7"),
         ]
 
     def test_no_forms_below_level_5(self, catalogue: list[dict]) -> None:
@@ -73,9 +76,9 @@ class TestAvailableForms:
         assert names == {"Wolf"}
 
     def test_large_animals_at_8(self, catalogue: list[dict]) -> None:
-        assert "Dire Bear" not in {c["name"] for c in available_forms(7, catalogue)}
+        assert "Brown Bear" not in {c["name"] for c in available_forms(7, catalogue)}
         names = {c["name"] for c in available_forms(8, catalogue)}
-        assert "Dire Bear" in names
+        assert "Brown Bear" in names
         assert "Hawk" not in names  # Tiny unlocks at 11
 
     def test_tiny_animals_at_11(self, catalogue: list[dict]) -> None:
@@ -88,7 +91,7 @@ class TestAvailableForms:
 
     def test_plants_share_animal_sizes(self, catalogue: list[dict]) -> None:
         # PHB p37: plant forms follow the animal size restrictions.
-        catalogue.append(_creature("Treant", "Huge", "Plant"))
+        catalogue.append(_creature("Treant", "Huge", "Plant", "7"))
         assert "Treant" not in {c["name"] for c in available_forms(14, catalogue)}
         assert "Treant" in {c["name"] for c in available_forms(15, catalogue)}
 
@@ -107,6 +110,26 @@ class TestAvailableForms:
         names19 = {c["name"] for c in available_forms(19, catalogue)}
         assert "Huge Fire Elemental" not in names19
         assert "Huge Fire Elemental" in {
+            c["name"] for c in available_forms(20, catalogue)
+        }
+
+    def test_hit_dice_capped_by_druid_level(self, catalogue: list[dict]) -> None:
+        # PHB p37 / workbook WildShapeHDLimit: the form's HD <= druid level.
+        catalogue.append(_creature("Dire Bear", "Large", "Animal", "12"))
+        for level in range(8, 12):
+            names = {c["name"] for c in available_forms(level, catalogue)}
+            assert "Dire Bear" not in names, level
+        assert "Dire Bear" in {c["name"] for c in available_forms(12, catalogue)}
+
+    def test_hit_dice_parses_leading_integer(self, catalogue: list[dict]) -> None:
+        catalogue.append(_creature("Dire Bear", "Large", "Animal", "12d8+51"))
+        assert "Dire Bear" not in {c["name"] for c in available_forms(11, catalogue)}
+        assert "Dire Bear" in {c["name"] for c in available_forms(12, catalogue)}
+
+    def test_forms_without_hit_dice_excluded(self, catalogue: list[dict]) -> None:
+        # Workbook 'Creature Info' CD column requires LEN(HD)>0.
+        catalogue.append(_creature("Mystery Cat", "Medium", "Animal", ""))
+        assert "Mystery Cat" not in {
             c["name"] for c in available_forms(20, catalogue)
         }
 
