@@ -89,6 +89,9 @@ _COLUMN_MIGRATIONS: dict[str, dict[str, str]] = {
     "vestiges": {
         "vestige_level": "ALTER TABLE vestiges ADD COLUMN vestige_level INTEGER",
     },
+    "creatures": {
+        "natural_attacks": "ALTER TABLE creatures ADD COLUMN natural_attacks TEXT",
+    },
 }
 
 

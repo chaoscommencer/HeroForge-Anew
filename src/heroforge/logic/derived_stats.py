@@ -37,6 +37,11 @@ from heroforge.logic import (
 )
 from heroforge.logic.ability_scores import ability_modifier
 from heroforge.logic.health import hit_dice_sequence, max_hit_points
+from heroforge.logic.natural_attacks import (
+    NaturalAttack,
+    NaturalAttackLine,
+    natural_attack_lines,
+)
 
 if TYPE_CHECKING:
     from heroforge.models.character import Character
@@ -247,6 +252,9 @@ class DerivedStats:
     """Land speed in feet after worn armor and load (PHB p162)."""
     run_multiplier: int = 4
     """Run multiplier: ×4, or ×3 in heavy armor or under a heavy load."""
+    natural_attacks: tuple[NaturalAttackLine, ...] = ()
+    """Natural attacks (e.g. an active Wild Shape form's) with their attack
+    bonus and damage resolved at the current size and Strength (MM p312)."""
 
 
 def _class_levels(character: Character) -> dict[str, int]:
@@ -273,6 +281,8 @@ def compute_derived_stats(
     base_speed: int = 30,
     armor_type: str | None = None,
     speed_ignores_encumbrance: bool = False,
+    natural_attacks: Sequence[NaturalAttack] = (),
+    hit_point_ability_adjustments: Mapping[str, int] | None = None,
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
@@ -335,6 +345,16 @@ def compute_derived_stats(
                        (:func:`heroforge.logic.equipment.encumbered_speed`).
         speed_ignores_encumbrance: Keep the full speed in armor and under load
                        (e.g. a dwarf, PHB p14).
+        natural_attacks: Natural attacks to resolve into
+                       :attr:`DerivedStats.natural_attacks` (an active Wild
+                       Shape form's), using the final size, Strength and melee
+                       attack bonus.
+        hit_point_ability_adjustments: Ability adjustments to use for the
+                       Constitution behind the computed hit points instead of
+                       *ability_adjustments*.  While wild shaped the workbook
+                       keeps hit points on the druid's own Constitution
+                       (``IgnoreTempConForHP``), so the form's Constitution
+                       changes Fortitude but not maximum hit points.
 
     Returns:
         An immutable :class:`DerivedStats` snapshot.
@@ -379,9 +399,19 @@ def compute_derived_stats(
 
     hit_die_lookup = {name: prog.hit_die for name, prog in progressions.items()}
     hit_dice = hit_dice_sequence(character.classes, hit_die_lookup)
+    hp_con_mod = con_mod
+    if hit_point_ability_adjustments is not None:
+        hp_con_mod = ability_modifier(
+            max(
+                1,
+                int(base_scores.get("CON", 10))
+                + int(hit_point_ability_adjustments.get("CON", 0))
+                + buff_net.get("CON", 0),
+            )
+        )
     computed_hit_points = max_hit_points(
         hit_dice,
-        con_mod,
+        hp_con_mod,
         flat_bonus=hp_flat_bonus,
         per_level_bonus=hp_per_level_bonus,
     )
@@ -404,6 +434,13 @@ def compute_derived_stats(
         ignore_encumbrance=speed_ignores_encumbrance,
     )
 
+    melee = combat.melee_attack(
+        bab,
+        str_mod,
+        size=size,
+        misc=buff_net.get("melee", 0),
+    )
+
     combined_ac_bonuses = list(ac_bonuses or ())
     combined_ac_bonuses.extend(buff_ac)
     ac = combat.aggregate_armor_class(
@@ -418,12 +455,7 @@ def compute_derived_stats(
         effective_character_level=character.total_level + level_adjustment,
         size=size,
         base_attack_bonus=bab,
-        melee_attack=combat.melee_attack(
-            bab,
-            str_mod,
-            size=size,
-            misc=buff_net.get("melee", 0),
-        ),
+        melee_attack=melee,
         ranged_attack=combat.ranged_attack(
             bab,
             dex_mod,
@@ -454,4 +486,13 @@ def compute_derived_stats(
         load_check_penalty=load_check_penalty,
         speed=speed,
         run_multiplier=run_multiplier,
+        natural_attacks=tuple(
+            natural_attack_lines(
+                natural_attacks,
+                size=size,
+                melee_attack=melee,
+                str_mod=str_mod,
+                feats=character.feats,
+            )
+        ),
     )

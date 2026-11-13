@@ -27,7 +27,7 @@ from heroforge.db.character_repo import (
     load_character_from_file,
     save_character_to_file,
 )
-from heroforge.db.data_access import ArmorItem, GameDataRepository
+from heroforge.db.data_access import ArmorItem, Creature, GameDataRepository
 from heroforge.env_paths import dir_from_env
 from heroforge.logic import race_templates
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
@@ -39,6 +39,18 @@ from heroforge.logic.familiar import (
 )
 from heroforge.logic.familiar import save_bonuses as familiar_save_bonuses
 from heroforge.logic.legacy_import import import_hfg
+from heroforge.logic.wild_shape import (
+    active_form_name as wild_shape_active_form_name,
+)
+from heroforge.logic.wild_shape import (
+    available_forms as wild_shape_available_forms,
+)
+from heroforge.logic.wild_shape import (
+    druid_wild_shape_level,
+)
+from heroforge.logic.wild_shape import (
+    form_effects as wild_shape_form_effects,
+)
 from heroforge.models.character import Character
 from heroforge.models.options import point_buy_budget as _options_point_buy_budget
 from heroforge.ui.dialogs.custom_class import CustomClassDialog
@@ -79,6 +91,7 @@ from heroforge.ui.tabs.spells import SpellsTab
 from heroforge.ui.tabs.stats_and_character_details import StatsAndCharacterDetailsTab
 from heroforge.ui.tabs.table_tent import TableTentTab
 from heroforge.ui.tabs.traits_and_flaws import TraitsAndFlawsTab
+from heroforge.ui.tabs.wild_shape import WildShapeTab
 
 logger = logging.getLogger(__name__)
 
@@ -377,10 +390,29 @@ class CharacterModel(QObject):
             if self._game_data.available and self._character.templates
             else []
         )
-        adjustments = race_templates.ability_adjustments(race, templates)
+        adjustments = dict(race_templates.ability_adjustments(race, templates))
         level_adjustment = race_templates.total_level_adjustment(race, templates)
         size = race.size if race is not None else "Medium"
         natural_armor = race.natural_armor if race is not None else 0
+        # Wild Shape (PHB p37): while a form is active the druid gains the new
+        # form's size, physical ability scores, natural armor and land speed,
+        # retaining their own mental scores.  The form's physical scores are
+        # applied as additive deltas on top of the base scores so they
+        # *replace* the character's STR/DEX/CON (and the race's adjustments to
+        # them) in the derived stats; typed bonuses still stack on top.
+        form = self._wild_shape_form()
+        shape = (
+            wild_shape_form_effects(self._character.ability_scores, form)
+            if form is not None
+            else None
+        )
+        # Hit points keep the druid's own Constitution while wild shaped
+        # (workbook IgnoreTempConForHP / DefaultConMod).
+        hp_adjustments = dict(adjustments) if shape is not None else None
+        if shape is not None:
+            size = shape.size
+            natural_armor = shape.natural_armor
+            adjustments.update(shape.ability_adjustments)
         worn_armor = self._worn_armor()
         ac_bonuses, max_dex = self._armor_class_sources(natural_armor, worn_armor)
         # Medium/heavy body armor slows the wearer (PHB p122); the seeded races
@@ -393,6 +425,10 @@ class CharacterModel(QObject):
             if race is not None and race.base_land_speed > 0
             else DEFAULT_LAND_SPEED
         )
+        if shape is not None:
+            # The form's movement replaces the race's; worn armor and load
+            # still slow it below.
+            base_speed = shape.land_speed
         hp_flat, hp_per_level = self._hit_point_bonuses()
         # Magic-item bonus specs on character.equipment, the effects of the
         # active Tome of Battle stances on character.maneuvers and the always-on
@@ -414,6 +450,8 @@ class CharacterModel(QObject):
             base_speed=base_speed,
             armor_type=armor_type,
             speed_ignores_encumbrance=speed_ignores_encumbrance(self._character.race),
+            natural_attacks=shape.natural_attacks if shape is not None else (),
+            hit_point_ability_adjustments=hp_adjustments,
         )
 
     def _weight_catalog(self) -> dict[str, float]:
@@ -441,6 +479,24 @@ class CharacterModel(QObject):
             if name and weight:
                 weights[name] = weight
         return weights
+
+    def _wild_shape_form(self) -> Creature | None:
+        """Return the active Wild Shape form's creature entry, if any.
+
+        Resolves the ``wild_shape`` companion entry's selected creature against
+        the seeded catalogue when the form is flagged active (PHB p37).  Returns
+        ``None`` when no form is active, the game data is unavailable, or the
+        character's Druid levels no longer allow the form (e.g. after losing
+        levels, or a save whose active form outranks its Druid level).
+        """
+        name = wild_shape_active_form_name(self._character.companions)
+        if not name or not self._game_data.available:
+            return None
+        form = self._game_data.get_creature(name)
+        if form is None:
+            return None
+        level = druid_wild_shape_level(self._character.classes)
+        return form if wild_shape_available_forms(level, [form]) else None
 
     def _armor_class_sources(
         self, natural_armor: int, worn_armor: Sequence[tuple[str, ArmorItem]]
@@ -637,6 +693,7 @@ class MainWindow(QMainWindow):
         ("Psionics", PsionicsTab),
         ("Animal Companion", AnimalCompanionTab),
         ("Familiar", FamiliarTab),
+        ("Wild Shape", WildShapeTab),
         ("Character Sheet", CharacterSheetTab),
         ("Table Tent", TableTentTab),
         ("Game Log", GameLogTab),
