@@ -197,3 +197,33 @@ class TestUnverifiablePrerequisites:
         assert not _enabled(item)
         assert "[?] CAST:Arcane:3" in item.toolTip()
         assert "[ ] +6 BAB" in item.toolTip()
+
+
+class TestUnrecordedPrerequisites:
+    def test_class_without_prereq_rows_is_flagged_not_reported_as_met(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+
+        tab = PrestigeClassesTab(model=model)
+        lore = _item(tab, "Loremaster")
+        # Still selectable (the data may simply be missing) ...
+        assert _enabled(lore)
+        # ... but clearly marked as unverified rather than qualifying.
+        assert "not recorded" in lore.toolTip()
+        assert "verify manually" in lore.toolTip()
+        assert lore.font().italic()
+
+        tab._avail_list.setCurrentItem(lore)
+        assert "verify manually" in tab._prereq_label.text()
+
+    def test_met_class_is_not_flagged(self, model: object) -> None:
+        from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+
+        model.character.classes = [("Fighter", 6)]
+        model.character.skills["Knowledge (Arcana)"] = 4.0
+        tab = PrestigeClassesTab(model=model)
+        archer = _item(tab, "Arcane Archer")
+        assert _enabled(archer)
+        assert archer.toolTip() == ""
+        assert not archer.font().italic()

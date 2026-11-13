@@ -53,6 +53,9 @@ _STATUS_MARKERS: dict[PrereqStatus, str] = {
     PrereqStatus.UNVERIFIED: "[?]",
 }
 
+# Shown for prestige classes with no recorded prerequisite data.
+_UNRECORDED_TEXT = "Prerequisites not recorded - verify manually."
+
 
 class PrestigeClassesTab(QWidget):
     """Prestige class selection and level tracking (Excel tab 3)."""
@@ -97,8 +100,9 @@ class PrestigeClassesTab(QWidget):
         avail_layout = QVBoxLayout(avail_box)
         avail_layout.addWidget(
             QLabel(
-                "Prestige classes (qualifying classes are enabled; hover an "
-                "unavailable class to see its unmet prerequisites):"
+                "Prestige classes (qualifying classes are enabled; italic "
+                "classes have prerequisites that must be verified manually; "
+                "hover a class to see its prerequisites):"
             )
         )
         self._avail_list = QListWidget()
@@ -228,7 +232,14 @@ class PrestigeClassesTab(QWidget):
 
             flags = item.flags()
             font = item.font()
-            if unmet:
+            if item.text() not in self._prereq_map:
+                # No prerequisite data is recorded for this class (most
+                # supplement prestige classes): keep it selectable, but do not
+                # present it as qualifying.
+                item.setFlags(flags | Qt.ItemFlag.ItemIsEnabled)
+                item.setToolTip(_UNRECORDED_TEXT)
+                font.setItalic(True)
+            elif unmet:
                 item.setFlags(flags & ~Qt.ItemFlag.ItemIsEnabled)
                 item.setToolTip("Prerequisites not met:\n" + "\n".join(lines))
                 font.setItalic(False)
@@ -259,7 +270,7 @@ class PrestigeClassesTab(QWidget):
         if prereqs:
             self._prereq_label.setText("Prerequisites: " + "; ".join(prereqs))
         else:
-            self._prereq_label.setText("Prerequisites: none recorded.")
+            self._prereq_label.setText(f"Prerequisites: {_UNRECORDED_TEXT}")
 
     # ------------------------------------------------------------------
     # Add / remove rows
