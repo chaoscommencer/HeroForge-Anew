@@ -18,31 +18,55 @@ from heroforge.models.class_ import Class
 # ---------------------------------------------------------------------------
 
 # Prestige-class prerequisites for the core DMG prestige classes, expressed in
-# the grammar understood by :func:`check_prestige_prerequisites` (ability
-# scores, base attack bonus, skill ranks, feat names, and class/character
-# levels).  Skill names use the Skills tab's spelling (``Knowledge (Arcana)``);
-# matching is case-insensitive either way.  The original workbook encodes each
+# the grammar understood by :func:`check_prestige_prerequisites`: ability
+# scores, base attack bonus, skill ranks, feat names, class/character levels,
+# and the ``ALIGN:`` / ``RACE:`` / ``CAST:<Arcane|Divine>:<spell level>`` tags.
+# Skill names use the Skills tab's spelling (``Knowledge (Arcana)``); matching
+# is case-insensitive either way.  The original workbook encodes each
 # prerequisite as a per-cell spreadsheet formula evaluated against the live
 # character sheet rather than as textual data, so there is no source file to
-# seed from; this mapping is the
-# single structured source of truth the application owns (mirroring
-# :data:`heroforge.logic.familiar.STANDARD_FAMILIAR_BONUSES`).  Only the
-# machine-checkable portion of each prestige class's requirements is listed;
-# narrative requirements (alignment, race, "ability to cast 3rd-level arcane
-# spells", and similar) are intentionally omitted because the prerequisite
-# grammar cannot represent them.
+# seed from; this mapping is the single structured source of truth the
+# application owns (mirroring
+# :data:`heroforge.logic.familiar.STANDARD_FAMILIAR_BONUSES`).
+#
+# Only requirements the grammar can express are listed.  Choice-based ones
+# ("any two Knowledge skills", "Spell Focus in two schools", "any metamagic
+# feat", "elf or half-elf", "know seven divination spells") and special
+# requirements (e.g. "must have killed someone") are noted in comments and
+# left for the player to verify.  Loremaster has no expressible requirement
+# and is therefore omitted, so the tab shows it as "not recorded".  CAST: tags
+# are shown as unverified until the model tracks castable spell levels.
 #
 # Reference: DMG p176-203 (Prestige Classes).
 STANDARD_PRESTIGE_PREREQUISITES: dict[str, tuple[str, ...]] = {
-    "Arcane Archer": ("+6 BAB", "Point Blank Shot", "Precise Shot"),
+    # Also: race elf or half-elf.
+    "Arcane Archer": ("+6 BAB", "Point Blank Shot", "Precise Shot", "CAST:Arcane:1"),
+    # Also: able to cast mage hand; sneak attack +2d6.
     "Arcane Trickster": (
+        "ALIGN:Nonlawful",
         "Decipher Script 7 ranks",
         "Disable Device 7 ranks",
         "Escape Artist 7 ranks",
         "Knowledge (Arcana) 4 ranks",
+        "CAST:Arcane:3",
     ),
-    "Assassin": ("Disguise 4 ranks", "Hide 8 ranks", "Move Silently 8 ranks"),
+    # Also: Spell Focus in two schools; know 5th-level spells of five schools.
+    "Archmage": (
+        "Knowledge (Arcana) 15 ranks",
+        "Spellcraft 15 ranks",
+        "Skill Focus (Spellcraft)",
+        "CAST:Arcane:7",
+    ),
+    # Also: must kill someone for no other reason than to join.
+    "Assassin": (
+        "ALIGN:Evil",
+        "Disguise 4 ranks",
+        "Hide 8 ranks",
+        "Move Silently 8 ranks",
+    ),
+    # Also: peaceful contact with an evil outsider.
     "Blackguard": (
+        "ALIGN:Evil",
         "+6 BAB",
         "Cleave",
         "Improved Sunder",
@@ -50,6 +74,8 @@ STANDARD_PRESTIGE_PREREQUISITES: dict[str, tuple[str, ...]] = {
         "Hide 5 ranks",
         "Knowledge (Religion) 2 ranks",
     ),
+    # Also: any nondragon race; speak Draconic; cast arcane spells without
+    # preparation.
     "Dragon Disciple": ("Knowledge (Arcana) 8 ranks",),
     "Duelist": (
         "+6 BAB",
@@ -59,11 +85,33 @@ STANDARD_PRESTIGE_PREREQUISITES: dict[str, tuple[str, ...]] = {
         "Perform 3 ranks",
         "Tumble 5 ranks",
     ),
-    "Dwarven Defender": ("+7 BAB", "Dodge", "Endurance", "Toughness"),
+    "Dwarven Defender": (
+        "RACE:Dwarf",
+        "ALIGN:Lawful",
+        "+7 BAB",
+        "Dodge",
+        "Endurance",
+        "Toughness",
+    ),
+    # Also: proficiency with all martial weapons.
+    "Eldritch Knight": ("CAST:Arcane:3",),
+    # Also: any metamagic feat.
+    "Hierophant": ("Knowledge (Religion) 15 ranks", "CAST:Divine:7"),
     "Horizon Walker": ("Endurance", "Knowledge (Geography) 8 ranks"),
     "Mystic Theurge": (
         "Knowledge (Arcana) 6 ranks",
         "Knowledge (Religion) 6 ranks",
+        "CAST:Arcane:2",
+        "CAST:Divine:2",
+    ),
+    # Also: any three metamagic or item creation feats; homeland Thay; no
+    # existing membership in another wizard school.
+    "Red Wizard": (
+        "RACE:Human",
+        "ALIGN:Nonlawful",
+        "Spellcraft 8 ranks",
+        "Tattoo Focus",
+        "CAST:Arcane:3",
     ),
     "Shadowdancer": (
         "Combat Reflexes",
@@ -74,7 +122,8 @@ STANDARD_PRESTIGE_PREREQUISITES: dict[str, tuple[str, ...]] = {
         # DMG: Perform (dance) 5 ranks; the Skills tab has a single "Perform".
         "Perform 5 ranks",
     ),
-    "Thaumaturgist": ("Spell Focus (Conjuration)",),
+    # Also: able to cast lesser planar ally.
+    "Thaumaturgist": ("Spell Focus (Conjuration)", "CAST:Divine:4"),
 }
 
 

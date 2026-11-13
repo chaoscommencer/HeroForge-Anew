@@ -365,6 +365,50 @@ class TestStandardPrestigePrerequisites:
         assert "Perform 3 ranks" in STANDARD_PRESTIGE_PREREQUISITES["Duelist"]
         assert "Perform 5 ranks" in STANDARD_PRESTIGE_PREREQUISITES["Shadowdancer"]
 
+    def test_remaining_core_dmg_classes_have_checkable_prerequisites(self) -> None:
+        expected = {
+            "Archmage": (
+                "Knowledge (Arcana) 15 ranks",
+                "Spellcraft 15 ranks",
+                "Skill Focus (Spellcraft)",
+                "CAST:Arcane:7",
+            ),
+            "Eldritch Knight": ("CAST:Arcane:3",),
+            "Hierophant": ("Knowledge (Religion) 15 ranks", "CAST:Divine:7"),
+            "Red Wizard": ("RACE:Human", "ALIGN:Nonlawful", "Spellcraft 8 ranks"),
+        }
+        for name, prereqs in expected.items():
+            assert name in STANDARD_PRESTIGE_PREREQUISITES, name
+            for prereq in prereqs:
+                assert prereq in STANDARD_PRESTIGE_PREREQUISITES[name], (name, prereq)
+
+    def test_narrative_tags_recorded_for_existing_classes(self) -> None:
+        data = STANDARD_PRESTIGE_PREREQUISITES
+        assert "ALIGN:Evil" in data["Assassin"]
+        assert "ALIGN:Evil" in data["Blackguard"]
+        assert "RACE:Dwarf" in data["Dwarven Defender"]
+        assert "ALIGN:Lawful" in data["Dwarven Defender"]
+        assert "CAST:Arcane:2" in data["Mystic Theurge"]
+        assert "CAST:Divine:2" in data["Mystic Theurge"]
+
+    def test_lawful_good_paladin_does_not_qualify_for_blackguard(self) -> None:
+        prereqs = list(STANDARD_PRESTIGE_PREREQUISITES["Blackguard"])
+        feats = ["Cleave", "Improved Sunder", "Power Attack"]
+        skills = {"Hide": 5.0, "Knowledge (Religion)": 2.0}
+        common = (6, {}, skills, feats, 6, {"Paladin": 6})
+        assert (
+            check_prestige_prerequisites(
+                prereqs, *common, character_alignment="Lawful Good"
+            )
+            is False
+        )
+        assert (
+            check_prestige_prerequisites(
+                prereqs, *common, character_alignment="Neutral Evil"
+            )
+            is True
+        )
+
 
 class TestCustomClassContent:
     def test_round_trips_through_content(self) -> None:
