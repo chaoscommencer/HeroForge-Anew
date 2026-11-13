@@ -10,16 +10,18 @@ from pathlib import Path
 import pytest
 
 from heroforge.db.schema import initialize_database
+from heroforge.logic.derived_stats import compute_derived_stats
 from heroforge.logic.marshal import (
     MAJOR,
     MINOR,
     STANDARD_MARSHAL_AURAS,
-    AuraBonuses,
-    apply_aura_bonuses,
+    aura_bonus_specs,
     get_aura,
     major_aura_value,
+    marshal_level,
     minor_aura_value,
 )
+from heroforge.models.character import Character
 
 # ---------------------------------------------------------------------------
 # Pure-logic tests (no Qt required)
@@ -66,59 +68,103 @@ class TestCatalogue:
         assert get_aura("Not An Aura") is None
 
 
-class TestApplyAuraBonuses:
-    def test_minor_save_auras_scale_with_charisma(self) -> None:
-        bonuses = apply_aura_bonuses(
-            ["Demand Fortitude", "Watchful Eye", "Force of Will"],
-            charisma_modifier=3,
-            marshal_level=4,
-        )
-        assert bonuses.save_bonuses == {"fort": 3, "ref": 3, "will": 3}
-        assert bonuses.ac_bonuses == ()
-        assert dict(bonuses.attack_bonuses) == {}
+def _marshal(level: int = 6, cha: int = 10, auras: tuple[str, ...] = ()) -> Character:
+    """Build a Marshal of *level* with Charisma *cha* projecting *auras*."""
+    character = Character()
+    character.classes = [("Marshal", level)]
+    character.ability_scores["CHA"] = cha
+    character.marshal_auras = [
+        {"aura_name": name, "aura_type": _aura_type(name), "active": True}
+        for name in auras
+    ]
+    return character
 
-    def test_major_save_aura_covers_all_saves(self) -> None:
-        bonuses = apply_aura_bonuses(
-            ["Resilient Troops"], charisma_modifier=0, marshal_level=8
-        )
-        assert bonuses.save_bonuses == {"fort": 4, "ref": 4, "will": 4}
 
-    def test_minor_and_major_save_auras_stack(self) -> None:
-        bonuses = apply_aura_bonuses(
-            ["Demand Fortitude", "Resilient Troops"],
-            charisma_modifier=2,
-            marshal_level=10,
-        )
-        # Demand Fortitude (Cha +2) + Resilient Troops (half of 10 = +5).
-        assert bonuses.save_bonuses["fort"] == 7
-        assert bonuses.save_bonuses["ref"] == 5
-        assert bonuses.save_bonuses["will"] == 5
+def _aura_type(name: str) -> str:
+    aura = get_aura(name)
+    return aura.aura_type if aura is not None else ""
 
-    def test_ac_and_attack_auras(self) -> None:
-        bonuses = apply_aura_bonuses(
-            ["Motivate Care", "Motivate Attack", "Steady Hand"],
-            charisma_modifier=5,
-            marshal_level=6,
-        )
-        assert bonuses.ac_bonuses == (("", 3),)
-        assert dict(bonuses.attack_bonuses) == {"melee": 3, "ranged": 3}
+
+def _spec_values(character: Character, cha_mod: int) -> dict[str, int]:
+    """Map each aura spec's target to its value."""
+    return {
+        str(spec["target"]): int(spec["value"])  # type: ignore[call-overload]
+        for spec in aura_bonus_specs(character, cha_mod)
+    }
+
+
+class TestMarshalLevel:
+    def test_sums_marshal_levels(self) -> None:
+        character = Character()
+        character.classes = [("Marshal", 3), ("Fighter", 2), ("marshal", 1)]
+        assert marshal_level(character) == 4
+
+    def test_no_marshal_levels(self) -> None:
+        assert marshal_level(Character()) == 0
+
+
+class TestAuraBonusSpecs:
+    def test_specs_are_circumstance_bonuses(self) -> None:
+        specs = aura_bonus_specs(_marshal(auras=("Demand Fortitude",)), 3)
+        assert specs == [
+            {
+                "source": "Demand Fortitude",
+                "target": "fort",
+                "bonus_type": "circumstance",
+                "value": 3,
+            }
+        ]
+
+    def test_inactive_auras_are_skipped(self) -> None:
+        character = _marshal()
+        character.marshal_auras = [
+            {"aura_name": "Demand Fortitude", "aura_type": MINOR, "active": False}
+        ]
+        assert aura_bonus_specs(character, 3) == []
 
     def test_unmodelled_aura_contributes_nothing(self) -> None:
-        bonuses = apply_aura_bonuses(
-            ["Accurate Strike", "Motivate Urgency", "Insight (Draconic)"],
-            charisma_modifier=4,
-            marshal_level=6,
-        )
-        assert bonuses == AuraBonuses()
+        character = _marshal(auras=("Accurate Strike",))
+        assert aura_bonus_specs(character, 4) == []
 
     def test_unknown_aura_ignored(self) -> None:
-        bonuses = apply_aura_bonuses(["Bogus Aura"], 4, 6)
-        assert bonuses == AuraBonuses()
+        character = _marshal()
+        character.marshal_auras = [{"aura_name": "Bogus Aura", "active": True}]
+        assert aura_bonus_specs(character, 4) == []
 
     def test_zero_value_minor_aura_omitted(self) -> None:
         # A non-positive Charisma modifier yields no minor-aura bonus.
-        bonuses = apply_aura_bonuses(["Demand Fortitude"], -1, 6)
-        assert bonuses.save_bonuses == {}
+        assert aura_bonus_specs(_marshal(auras=("Demand Fortitude",)), -1) == []
+
+
+class TestAurasFeedDerivedStats:
+    """Active auras reach compute_derived_stats without the UI model."""
+
+    def test_major_aura_raises_armor_class(self) -> None:
+        before = compute_derived_stats(_marshal(level=6))
+        after = compute_derived_stats(_marshal(level=6, auras=("Motivate Care",)))
+        assert after.armor_class - before.armor_class == 3
+
+    def test_minor_aura_uses_buffed_charisma(self) -> None:
+        character = _marshal(cha=12, auras=("Force of Will",))  # Cha +1
+        base_will = compute_derived_stats(_marshal(cha=12)).will
+        assert compute_derived_stats(character).will - base_will == 1
+        # Eagle's Splendor (+4 enhancement to Cha) raises the modifier to +3.
+        character.buffs = [
+            {
+                "id": "eagle",
+                "name": "Eagle's Splendor",
+                "bonus_type": "enhancement",
+                "target_stat": "CHA",
+                "amount": 4,
+            }
+        ]
+        assert compute_derived_stats(character).will - base_will == 3
+
+    def test_minor_aura_uses_racial_charisma(self) -> None:
+        character = _marshal(cha=12, auras=("Watchful Eye",))
+        base = compute_derived_stats(_marshal(cha=12)).reflex
+        stats = compute_derived_stats(character, ability_adjustments={"CHA": 2})
+        assert stats.reflex - base == 2
 
 
 # ---------------------------------------------------------------------------

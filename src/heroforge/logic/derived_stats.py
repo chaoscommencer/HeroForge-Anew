@@ -31,6 +31,7 @@ from heroforge.logic import (
     combat,
     equipment,
     maneuvers,
+    marshal,
     saving_throws,
     vestiges,
 )
@@ -104,8 +105,9 @@ def _canonical_buff_targets(target: str) -> tuple[str, ...]:
 
 def _buff_bonus_sources(
     character: Character,
+    ability_adjustments: Mapping[str, int] | None = None,
 ) -> tuple[dict[str, int], list[tuple[str, int]]]:
-    """Aggregate the typed bonuses of buffs, items, stances and vestiges.
+    """Aggregate the typed bonuses of buffs, items, stances, vestiges and auras.
 
     Returns ``(net, ac_bonuses)`` where *net* maps canonical derived-stat keys
     (ability scores plus ``melee``/``ranged``/``fort``/``ref``/``will``/
@@ -119,6 +121,12 @@ def _buff_bonus_sources(
     (:func:`heroforge.logic.vestiges.vestige_bonus_specs`) are stacked
     together, so a Bull's Strength (+4 enhancement) and Gauntlets of ogre power
     (+2 enhancement) give +4, not +6.
+
+    The circumstance bonuses of the active marshal auras
+    (:func:`heroforge.logic.marshal.aura_bonus_specs`) join the same stack.
+    Minor auras are sized by the Charisma modifier after *ability_adjustments*
+    (race and templates) and the other sources' Charisma bonuses; no aura
+    targets an ability score, so they cannot change that modifier.
 
     Reference: PHB p176 (bonus types and stacking).
     """
@@ -163,6 +171,21 @@ def _buff_bonus_sources(
     for spec in vestiges.vestige_bonus_specs(character):
         add(
             f"vestige:{spec['source']}",
+            spec["bonus_type"],
+            spec["target"],
+            buffs.buff_amount(spec["value"]),
+        )
+    if not marshal.active_aura_names(character):
+        return buffs.aggregate_bonuses(records), ac_bonuses
+    charisma = max(
+        1,
+        int(character.ability_scores.get("CHA", 10))
+        + int((ability_adjustments or {}).get("CHA", 0))
+        + buffs.aggregate_bonuses(records).get("CHA", 0),
+    )
+    for spec in marshal.aura_bonus_specs(character, ability_modifier(charisma)):
+        add(
+            f"aura:{spec['source']}",
             spec["bonus_type"],
             spec["target"],
             buffs.buff_amount(spec["value"]),
@@ -250,7 +273,6 @@ def compute_derived_stats(
     base_speed: int = 30,
     armor_type: str | None = None,
     speed_ignores_encumbrance: bool = False,
-    attack_bonuses: Mapping[str, int] | None = None,
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
@@ -260,7 +282,9 @@ def compute_derived_stats(
     unconditional effects of the active stances in
     :attr:`~heroforge.models.character.Character.maneuvers` and the always-on
     effects of the bound vestiges in
-    :attr:`~heroforge.models.character.Character.vestiges` are aggregated
+    :attr:`~heroforge.models.character.Character.vestiges` and the active
+    marshal auras in
+    :attr:`~heroforge.models.character.Character.marshal_auras` are aggregated
     together with the bonus-type stacking rules (PHB p176) and folded in:
     ability-score buffs adjust the effective scores, AC buffs join the
     armor-class aggregation by type, and the remaining typed bonuses are added to
@@ -311,18 +335,14 @@ def compute_derived_stats(
                        (:func:`heroforge.logic.equipment.encumbered_speed`).
         speed_ignores_encumbrance: Keep the full speed in armor and under load
                        (e.g. a dwarf, PHB p14).
-        attack_bonuses: Optional miscellaneous attack-roll bonuses keyed
-                       ``"melee"`` and ``"ranged"`` (e.g. an active marshal aura).
-                       Missing keys are treated as ``0``.
 
     Returns:
         An immutable :class:`DerivedStats` snapshot.
     """
     progressions = progressions or {}
     save_bonuses = save_bonuses or {}
-    attack_bonuses = attack_bonuses or {}
     adjustments = ability_adjustments or {}
-    buff_net, buff_ac = _buff_bonus_sources(character)
+    buff_net, buff_ac = _buff_bonus_sources(character, adjustments)
     base_scores = character.ability_scores
     scores = {
         a: max(
@@ -402,13 +422,13 @@ def compute_derived_stats(
             bab,
             str_mod,
             size=size,
-            misc=buff_net.get("melee", 0) + attack_bonuses.get("melee", 0),
+            misc=buff_net.get("melee", 0),
         ),
         ranged_attack=combat.ranged_attack(
             bab,
             dex_mod,
             size=size,
-            misc=buff_net.get("ranged", 0) + attack_bonuses.get("ranged", 0),
+            misc=buff_net.get("ranged", 0),
         ),
         grapple=(
             combat.grapple_modifier(bab, str_mod, size=size)

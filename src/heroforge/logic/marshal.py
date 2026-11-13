@@ -18,12 +18,10 @@ roll or statistic it modifies — is not present in that data table; it lived in
 the workbook's calculation formulas instead.  Following the same convention used
 for the standard familiars (:data:`heroforge.logic.familiar.STANDARD_FAMILIAR_BONUSES`),
 this module captures that mechanical mapping once, as a structured
-:class:`MarshalAura` catalogue, and is the single source of truth used by
-
-* the database seeder (to enrich the ``marshal_auras`` table's ``bonus_type`` and
-  ``description`` columns, which the workbook leaves blank), and
-* the derived-stats pipeline, which applies the bonuses of the character's
-  *active* auras.
+:class:`MarshalAura` catalogue.  The Marshal Auras tab uses it for tooltips, and
+:func:`aura_bonus_specs` turns the character's *active* auras into typed bonus
+specs that :func:`heroforge.logic.derived_stats.compute_derived_stats` stacks
+with buffs, items, stances and vestiges (PHB p176).
 
 Only the auras whose effect maps onto a value the application currently derives
 (saving throws, Armor Class, and melee/ranged attack) contribute a numeric
@@ -34,12 +32,21 @@ catalogued for display and selection only.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from heroforge.models.character import Character
 
 #: The two aura categories from the *Miniatures Handbook*.
 MINOR = "Minor"
 MAJOR = "Major"
+
+#: Aura bonuses are circumstance bonuses (*Miniatures Handbook* p12).
+AURA_BONUS_TYPE = "circumstance"
+
+_MARSHAL = "marshal"
 
 # Machine-readable effect targets.  ``""`` marks an aura whose effect the
 # derived-stats snapshot does not (yet) model; such auras contribute no numeric
@@ -65,16 +72,15 @@ class MarshalAura:
         target:      Machine-readable effect key (one of the ``TARGET_*``
                      constants).  :data:`TARGET_NONE` for auras whose effect the
                      derived-stats snapshot does not model.
-        bonus_type:  The D&D bonus type for stacking purposes.  Marshal auras are
-                     untyped (empty string), so they stack with typed bonuses.
-        description: Human-readable rules text shown in the UI and seeded into the
-                     ``marshal_auras`` table's ``description`` column.
+        bonus_type:  The PHB p176 bonus type used for stacking.  Aura bonuses
+                     are circumstance bonuses (*Miniatures Handbook* p12).
+        description: Human-readable rules text shown as the aura's tooltip.
     """
 
     name: str
     aura_type: str
     target: str = TARGET_NONE
-    bonus_type: str = ""
+    bonus_type: str = AURA_BONUS_TYPE
     description: str = ""
 
     @property
@@ -324,71 +330,68 @@ def aura_value(aura: MarshalAura, charisma_modifier: int, marshal_level: int) ->
     return major_aura_value(marshal_level)
 
 
-@dataclass(frozen=True)
-class AuraBonuses:
-    """The derived-stat bonuses contributed by a character's active auras.
+def marshal_level(character: Character) -> int:
+    """Return the character's marshal level (``MrsLvl``, ``'Class Info'!E60``).
 
-    Attributes:
-        save_bonuses:   Saving-throw bonuses keyed by the short save keys
-                        ``"fort"``, ``"ref"``, ``"will"`` (the same keys the
-                        derived-stats pipeline expects).
-        ac_bonuses:     ``(bonus_type, value)`` Armor Class sources.
-        attack_bonuses: Attack-roll bonuses keyed ``"melee"`` and ``"ranged"``.
+    The total levels the character has in the *Marshal* class.
     """
+    return sum(
+        lvl for name, lvl in character.classes if name.strip().lower() == _MARSHAL
+    )
 
-    save_bonuses: Mapping[str, int] = field(default_factory=dict)
-    ac_bonuses: tuple[tuple[str, int], ...] = ()
-    attack_bonuses: Mapping[str, int] = field(default_factory=dict)
+
+def active_aura_names(character: Character) -> list[str]:
+    """Return the names of the auras the character is projecting, in order."""
+    return [
+        str(entry.get("aura_name") or "")
+        for entry in getattr(character, "marshal_auras", None) or []
+        if entry.get("active") and entry.get("aura_name")
+    ]
 
 
-def apply_aura_bonuses(
-    active_auras: Iterable[str],
+def aura_bonus_specs(
+    character: Character,
     charisma_modifier: int,
-    marshal_level: int,
-    *,
     catalog: Iterable[MarshalAura] = STANDARD_MARSHAL_AURAS,
-) -> AuraBonuses:
-    """Compute the derived-stat bonuses from a character's active auras.
+) -> list[dict[str, object]]:
+    """Return the active auras' modelled effects as typed bonus specs.
+
+    Each spec is a ``{"source", "target", "bonus_type", "value"}`` dict in the
+    same shape as an active stance's
+    (:func:`heroforge.logic.maneuvers.stance_bonus_specs`) and a bound
+    vestige's (:func:`heroforge.logic.vestiges.vestige_bonus_specs`), so
+    :func:`heroforge.logic.derived_stats.compute_derived_stats` stacks them with
+    buffs, items, stances and vestiges by bonus type (PHB p176).  Aura bonuses
+    are circumstance bonuses (*Miniatures Handbook* p12).
 
     Args:
-        active_auras:      Names of the auras the character is currently
-                           projecting (its *active* selections).
-        charisma_modifier: The marshal's Charisma modifier, sizing minor auras.
-        marshal_level:     The marshal's marshal class level, sizing major auras.
+        character:         The character whose ``marshal_auras`` and class
+            levels are read.
+        charisma_modifier: The marshal's effective Charisma modifier, sizing
+            minor auras.
         catalog:           The aura catalogue to resolve names against.
 
     Returns:
-        An :class:`AuraBonuses` aggregating every active aura whose effect the
-        derived-stats pipeline models.  Auras that are unknown or whose effect is
-        not modelled (:data:`TARGET_NONE`) contribute nothing.
-
-    Reference: *Miniatures Handbook* p11–12.
+        One spec per active aura whose effect the derived stats model.  Unknown
+        auras, unmodelled effects (:data:`TARGET_NONE`) and zero values are
+        skipped.
     """
     by_name = {a.name: a for a in catalog}
-    saves: dict[str, int] = {}
-    ac: list[tuple[str, int]] = []
-    attacks: dict[str, int] = {}
-
-    for name in active_auras:
+    level = marshal_level(character)
+    specs: list[dict[str, object]] = []
+    for name in active_aura_names(character):
         aura = by_name.get(name)
         if aura is None or not aura.affects_derived_stats:
             continue
-        value = aura_value(aura, charisma_modifier, marshal_level)
+        value = aura_value(aura, charisma_modifier, level)
         if value == 0:
             continue
-        target = aura.target
-        if target == TARGET_SAVES:
-            for key in (TARGET_FORT, TARGET_REF, TARGET_WILL):
-                saves[key] = saves.get(key, 0) + value
-        elif target in (TARGET_FORT, TARGET_REF, TARGET_WILL):
-            saves[target] = saves.get(target, 0) + value
-        elif target == TARGET_AC:
-            ac.append((aura.bonus_type, value))
-        elif target in (TARGET_MELEE, TARGET_RANGED):
-            attacks[target] = attacks.get(target, 0) + value
-
-    return AuraBonuses(
-        save_bonuses=saves,
-        ac_bonuses=tuple(ac),
-        attack_bonuses=attacks,
-    )
+        specs.append(
+            {
+                "source": aura.name,
+                "target": aura.target,
+                "bonus_type": aura.bonus_type,
+                "value": value,
+            }
+        )
+    return specs

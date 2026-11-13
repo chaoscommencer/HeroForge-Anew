@@ -29,9 +29,7 @@ from heroforge.db.character_repo import (
 )
 from heroforge.db.data_access import ArmorItem, GameDataRepository
 from heroforge.env_paths import dir_from_env
-from heroforge.logic import marshal as marshal_logic
 from heroforge.logic import race_templates
-from heroforge.logic.ability_scores import ability_modifier
 from heroforge.logic.derived_stats import DerivedStats, compute_derived_stats
 from heroforge.logic.equipment import DEFAULT_LAND_SPEED, speed_ignores_encumbrance
 from heroforge.logic.familiar import (
@@ -399,20 +397,12 @@ class CharacterModel(QObject):
         # Magic-item bonus specs on character.equipment, the effects of the
         # active Tome of Battle stances on character.maneuvers and the always-on
         # effects of bound vestiges on character.vestiges are stacked together
-        # with active buffs inside compute_derived_stats (PHB p176).
-        #
-        # Apply the bonuses of any active marshal auras (Miniatures Handbook
-        # p11–12).  Minor auras scale with the marshal's Charisma modifier and
-        # major auras with the marshal's marshal level, so both are computed
-        # from the same race/template-adjusted scores used above.
-        aura_bonuses = self._marshal_aura_bonuses(adjustments)
-        save_bonuses = self._merge_save_bonuses(familiar_saves, aura_bonuses)
-        ac_bonuses = ac_bonuses + list(aura_bonuses.ac_bonuses)
-
+        # with active buffs and active marshal auras on character.marshal_auras
+        # inside compute_derived_stats (PHB p176).
         return compute_derived_stats(
             self._character,
             progressions,
-            save_bonuses=save_bonuses,
+            save_bonuses=familiar_saves,
             ability_adjustments=adjustments,
             level_adjustment=level_adjustment,
             size=size,
@@ -424,7 +414,6 @@ class CharacterModel(QObject):
             base_speed=base_speed,
             armor_type=armor_type,
             speed_ignores_encumbrance=speed_ignores_encumbrance(self._character.race),
-            attack_bonuses=aura_bonuses.attack_bonuses,
         )
 
     def _weight_catalog(self) -> dict[str, float]:
@@ -452,45 +441,6 @@ class CharacterModel(QObject):
             if name and weight:
                 weights[name] = weight
         return weights
-
-    def _marshal_aura_bonuses(
-        self, ability_adjustments: Mapping[str, int]
-    ) -> marshal_logic.AuraBonuses:
-        """Aggregate the derived-stat bonuses from the character's active auras.
-
-        The marshal's Charisma modifier (sizing minor auras) is taken from the
-        race/template-adjusted Charisma score, and the marshal level (sizing
-        major auras) is the total levels in the *Marshal* class.
-        """
-        active = [
-            entry.get("aura_name", "")
-            for entry in self._character.marshal_auras
-            if entry.get("active") and entry.get("aura_name")
-        ]
-        if not active:
-            return marshal_logic.AuraBonuses()
-        cha_score = max(
-            1,
-            int(self._character.ability_scores.get("CHA", 10))
-            + int(ability_adjustments.get("CHA", 0)),
-        )
-        cha_mod = ability_modifier(cha_score)
-        marshal_level = sum(
-            lvl
-            for name, lvl in self._character.classes
-            if name.strip().lower() == "marshal"
-        )
-        return marshal_logic.apply_aura_bonuses(active, cha_mod, marshal_level)
-
-    @staticmethod
-    def _merge_save_bonuses(
-        familiar_saves: Mapping[str, int], aura_bonuses: marshal_logic.AuraBonuses
-    ) -> dict[str, int]:
-        """Combine familiar and marshal-aura saving-throw bonuses by save key."""
-        merged: dict[str, int] = dict(familiar_saves)
-        for key, value in aura_bonuses.save_bonuses.items():
-            merged[key] = merged.get(key, 0) + value
-        return merged
 
     def _armor_class_sources(
         self, natural_armor: int, worn_armor: Sequence[tuple[str, ArmorItem]]
