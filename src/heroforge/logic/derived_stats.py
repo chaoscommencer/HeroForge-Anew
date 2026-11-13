@@ -26,7 +26,14 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from heroforge.logic import buffs, combat, equipment, maneuvers, saving_throws
+from heroforge.logic import (
+    buffs,
+    combat,
+    equipment,
+    maneuvers,
+    saving_throws,
+    vestiges,
+)
 from heroforge.logic.ability_scores import ability_modifier
 from heroforge.logic.health import hit_dice_sequence, max_hit_points
 
@@ -98,7 +105,7 @@ def _canonical_buff_targets(target: str) -> tuple[str, ...]:
 def _buff_bonus_sources(
     character: Character,
 ) -> tuple[dict[str, int], list[tuple[str, int]]]:
-    """Aggregate the typed bonuses of buffs, magic items and active stances.
+    """Aggregate the typed bonuses of buffs, items, stances and vestiges.
 
     Returns ``(net, ac_bonuses)`` where *net* maps canonical derived-stat keys
     (ability scores plus ``melee``/``ranged``/``fort``/``ref``/``will``/
@@ -106,8 +113,10 @@ def _buff_bonus_sources(
     *ac_bonuses* is a list of ``(bonus_type, amount)`` pairs routed through the
     armor-class aggregator so AC bonuses stack with armor/shield sources by type.
 
-    Buffs, magic items and the unconditional effects of active Tome of Battle
-    stances (:func:`heroforge.logic.maneuvers.stance_bonus_specs`) are stacked
+    Buffs, magic items, the unconditional effects of active Tome of Battle
+    stances (:func:`heroforge.logic.maneuvers.stance_bonus_specs`) and the
+    always-on effects of bound Tome of Magic vestiges
+    (:func:`heroforge.logic.vestiges.vestige_bonus_specs`) are stacked
     together, so a Bull's Strength (+4 enhancement) and Gauntlets of ogre power
     (+2 enhancement) give +4, not +6.
 
@@ -147,6 +156,13 @@ def _buff_bonus_sources(
     ):
         add(
             f"stance:{spec['source']}",
+            spec["bonus_type"],
+            spec["target"],
+            buffs.buff_amount(spec["value"]),
+        )
+    for spec in vestiges.vestige_bonus_specs(character):
+        add(
+            f"vestige:{spec['source']}",
             spec["bonus_type"],
             spec["target"],
             buffs.buff_amount(spec["value"]),
@@ -239,9 +255,11 @@ def compute_derived_stats(
 
     The character's active :attr:`~heroforge.models.character.Character.buffs`,
     the bonus specs of equipped magic items in
-    :attr:`~heroforge.models.character.Character.equipment` and the
+    :attr:`~heroforge.models.character.Character.equipment`, the
     unconditional effects of the active stances in
-    :attr:`~heroforge.models.character.Character.maneuvers` are aggregated
+    :attr:`~heroforge.models.character.Character.maneuvers` and the always-on
+    effects of the bound vestiges in
+    :attr:`~heroforge.models.character.Character.vestiges` are aggregated
     together with the bonus-type stacking rules (PHB p176) and folded in:
     ability-score buffs adjust the effective scores, AC buffs join the
     armor-class aggregation by type, and the remaining typed bonuses are added to

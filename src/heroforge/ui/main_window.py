@@ -51,6 +51,7 @@ from heroforge.ui.dialogs.template_info import TemplateInfoDialog
 from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
 from heroforge.ui.tabs.armor import ArmorTab
 from heroforge.ui.tabs.attacks import AttacksTab
+from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
 from heroforge.ui.tabs.buffs import BuffsTab
 from heroforge.ui.tabs.character_sheet import CharacterSheetTab
 from heroforge.ui.tabs.classes import ClassesTab
@@ -384,9 +385,10 @@ class CharacterModel(QObject):
             else DEFAULT_LAND_SPEED
         )
         hp_flat, hp_per_level = self._hit_point_bonuses()
-        # Magic-item bonus specs on character.equipment and the effects of the
-        # active Tome of Battle stances on character.maneuvers are stacked
-        # together with active buffs inside compute_derived_stats (PHB p176).
+        # Magic-item bonus specs on character.equipment, the effects of the
+        # active Tome of Battle stances on character.maneuvers and the always-on
+        # effects of bound vestiges on character.vestiges are stacked together
+        # with active buffs inside compute_derived_stats (PHB p176).
         return compute_derived_stats(
             self._character,
             progressions,
@@ -619,6 +621,7 @@ class MainWindow(QMainWindow):
         ("Magic Equipment", MagicEquipmentTab),
         ("Buffs", BuffsTab),
         ("Soulmelds", SoulmeldsTab),
+        ("Binder Vestiges", BinderVestigesTab),
         ("Spells", SpellsTab),
         ("Psionics", PsionicsTab),
         ("Animal Companion", AnimalCompanionTab),

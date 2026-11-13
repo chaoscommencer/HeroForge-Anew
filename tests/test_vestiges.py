@@ -1,0 +1,512 @@
+"""Tests for binder vestige logic (Tome of Magic; Excel tab 8d)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from heroforge.db.schema import initialize_database
+from heroforge.logic import vestiges
+from heroforge.logic.combat import NATURAL_ARMOR_ENHANCEMENT
+from heroforge.logic.derived_stats import compute_derived_stats
+from heroforge.models.character import Character
+
+
+@pytest.fixture()
+def vestige_db(tmp_path: Path) -> Path:
+    """Return a game database whose vestige catalogue has some unknown levels."""
+    db_path = tmp_path / "game.db"
+    conn = initialize_database(db_path)
+    conn.executemany(
+        "INSERT INTO vestiges (name, level, vestige_level) VALUES (?, ?, ?)",
+        [
+            ("Amon", 20, None),
+            ("Leraje", 20, 1),
+            ("Paimon", 26, 3),
+            ("Eligor", 30, None),
+        ],
+    )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+@pytest.fixture()
+def model(qapp: object, vestige_db: Path) -> Any:
+    from heroforge.db.data_access import GameDataRepository
+    from heroforge.ui.main_window import CharacterModel
+
+    return CharacterModel(game_data=GameDataRepository(str(vestige_db)))
+
+
+def _capture_picker(monkeypatch: pytest.MonkeyPatch, choice: str | None) -> list[str]:
+    """Replace the tab's catalogue picker; return the list it was offered."""
+    from heroforge.ui.tabs import binder_vestiges as tab_module
+
+    offered: list[str] = []
+
+    def fake_pick(_parent: object, _title: str, _label: str, options: Any) -> Any:
+        offered.extend(options)
+        return choice
+
+    monkeypatch.setattr(tab_module, "pick_from_catalog", fake_pick)
+    return offered
+
+
+class TestBinderLevel:
+    def test_sums_binder_class_levels(self) -> None:
+        char = Character(classes=[("Binder", 5), ("Fighter", 2)])
+        assert vestiges.binder_level(char) == 5
+
+    def test_case_insensitive_class_name(self) -> None:
+        char = Character(classes=[("binder", 3)])
+        assert vestiges.binder_level(char) == 3
+
+    def test_non_binder_without_feat_is_zero(self) -> None:
+        char = Character(classes=[("Fighter", 10)])
+        assert vestiges.binder_level(char) == 0
+
+    def test_bind_vestige_feat_grants_level_one(self) -> None:
+        char = Character(classes=[("Fighter", 10)], feats=["Bind Vestige"])
+        assert vestiges.binder_level(char) == 1
+
+    def test_improved_bind_vestige_feat_grants_level_five(self) -> None:
+        char = Character(
+            classes=[("Fighter", 10)],
+            feats=["Bind Vestige", "Improved Bind Vestige"],
+        )
+        assert vestiges.binder_level(char) == 5
+
+    def test_binder_levels_outrank_feat_fallback(self) -> None:
+        char = Character(classes=[("Binder", 4)], feats=["Bind Vestige"])
+        assert vestiges.binder_level(char) == 4
+
+    @pytest.mark.parametrize(
+        ("prestige", "levels", "expected"),
+        [
+            ("Anima Mage", 3, 8),
+            ("Knight of the Sacred Seal", 3, 8),
+            ("Scion of Dantalion", 3, 8),
+            # Tenebrous Apostate advances binding at every level but the 1st.
+            ("Tenebrous Apostate", 3, 7),
+            ("Tenebrous Apostate", 1, 5),
+        ],
+    )
+    def test_pact_magic_prestige_levels_stack_with_binder(
+        self, prestige: str, levels: int, expected: int
+    ) -> None:
+        # effBinLvl, Class Abilities!E4538.
+        char = Character(classes=[("Binder", 5), (prestige, levels)])
+        assert vestiges.binder_level(char) == expected
+
+    def test_prestige_levels_need_binder_levels(self) -> None:
+        char = Character(classes=[("Fighter", 5), ("Anima Mage", 3)])
+        assert vestiges.binder_level(char) == 0
+
+
+class TestMaxVestigeLevel:
+    @pytest.mark.parametrize(
+        ("level", "expected"),
+        [
+            (0, 0),
+            (1, 1),
+            (2, 1),
+            (3, 2),
+            (5, 3),
+            (7, 4),
+            (10, 5),
+            (12, 6),
+            (15, 7),
+            (17, 8),
+            (20, 8),
+        ],
+    )
+    def test_progression(self, level: int, expected: int) -> None:
+        assert vestiges.max_vestige_level(level) == expected
+
+
+class TestMaxVestigesBound:
+    @pytest.mark.parametrize(
+        ("level", "expected"),
+        [
+            (0, 0),
+            (1, 1),
+            (7, 1),
+            (8, 2),
+            (13, 2),
+            (14, 3),
+            (19, 3),
+            (20, 4),
+        ],
+    )
+    def test_progression(self, level: int, expected: int) -> None:
+        assert vestiges.max_vestiges_bound(level) == expected
+
+
+class TestCanBind:
+    def test_within_limit(self) -> None:
+        assert vestiges.can_bind(1, 1) is True
+
+    def test_above_limit(self) -> None:
+        # A 2nd-level vestige needs binder level 3.
+        assert vestiges.can_bind(2, 1) is False
+        assert vestiges.can_bind(2, 3) is True
+
+    def test_unknown_level_allowed_for_binder(self) -> None:
+        assert vestiges.can_bind(None, 1) is True
+        assert vestiges.can_bind(None, 0) is False
+
+
+class TestBoundVestigeNames:
+    def test_only_bound_entries(self) -> None:
+        char = Character(
+            vestiges=[
+                {"vestige_name": "Eligor", "level": 7, "bound": True},
+                {"vestige_name": "Paimon", "level": 3, "bound": False},
+                {"vestige_name": "", "level": 1, "bound": True},
+            ]
+        )
+        assert vestiges.bound_vestige_names(char) == ["Eligor"]
+
+    def test_missing_bound_key_defaults_true(self) -> None:
+        char = Character(vestiges=[{"vestige_name": "Paimon", "level": 3}])
+        assert vestiges.bound_vestige_names(char) == ["Paimon"]
+
+
+def _bound(*names: str, binder: int = 15, **kwargs: object) -> Character:
+    """Return a Binder of level *binder* with every vestige in *names* bound."""
+    return Character(
+        classes=[("Binder", binder)] if binder else [],
+        vestiges=[
+            {"vestige_name": name, "level": None, "bound": True} for name in names
+        ],
+        **kwargs,  # type: ignore[arg-type]
+    )
+
+
+class TestVestigeBonusSpecs:
+    def test_eligor_and_paimon_specs(self) -> None:
+        specs = vestiges.vestige_bonus_specs(_bound("Eligor", "Paimon"))
+        assert {(s["target"], s["bonus_type"], s["value"]) for s in specs} == {
+            ("STR", "untyped", 4),
+            ("AC", NATURAL_ARMOR_ENHANCEMENT, 3),
+            ("DEX", "untyped", 4),
+        }
+        assert {s["source"] for s in specs} == {"Eligor", "Paimon"}
+
+    def test_case_insensitive(self) -> None:
+        specs = vestiges.vestige_bonus_specs(_bound("eligor"))
+        assert ("STR", 4) in {(s["target"], s["value"]) for s in specs}
+
+    def test_suppressed_vestige_has_no_effect(self) -> None:
+        char = Character(
+            classes=[("Binder", 15)],
+            vestiges=[{"vestige_name": "Eligor", "level": 7, "bound": False}],
+        )
+        assert vestiges.vestige_bonus_specs(char) == []
+
+    def test_unknown_vestige_has_no_effect(self) -> None:
+        assert vestiges.vestige_bonus_specs(_bound("Amon")) == []
+
+
+class TestEffectsFeedDerivedStats:
+    def test_ability_bonus_changes_modifier(self) -> None:
+        stats = compute_derived_stats(
+            _bound("Eligor", ability_scores={"STR": 10, "DEX": 14})
+        )
+        # +4 STR raises STR to 14 (+2 modifier) from the baseline +0.
+        assert stats.effective_ability_scores["STR"] == 14
+        assert stats.ability_modifiers["STR"] == 2
+
+    def test_untyped_bonus_stacks_with_enhancement_buff(self) -> None:
+        # Eligor's untyped +4 stacks with Bull's Strength's +4 enhancement
+        # (PHB p176), through the same typed-bonus path as buffs and items.
+        buff = {
+            "id": "b1",
+            "bonus_type": "enhancement",
+            "target_stat": "STR",
+            "amount": 4,
+        }
+        stats = compute_derived_stats(
+            _bound("Eligor", ability_scores={"STR": 10}, buffs=[buff])
+        )
+        assert stats.effective_ability_scores["STR"] == 18
+
+    def test_natural_armor_bonus_raises_ac(self) -> None:
+        without = compute_derived_stats(_bound(ability_scores={"DEX": 10}))
+        with_vestige = compute_derived_stats(
+            _bound("Eligor", ability_scores={"DEX": 10})
+        )
+        assert with_vestige.armor_class == without.armor_class + 3
+        assert with_vestige.touch_ac == without.touch_ac
+
+
+class TestActiveVestiges:
+    """Effects apply only within the binder's limits (workbook BinLvl>=1 gates)."""
+
+    def test_no_binder_level_means_no_effects(self) -> None:
+        fighter = Character(
+            classes=[("Fighter", 5)],
+            ability_scores={"STR": 10},
+            vestiges=[{"vestige_name": "Eligor", "level": 7, "bound": True}],
+        )
+        assert vestiges.active_vestige_names(fighter) == []
+        stats = compute_derived_stats(fighter)
+        baseline = compute_derived_stats(Character(classes=[("Fighter", 5)]))
+        assert stats.effective_ability_scores["STR"] == 10
+        assert stats.armor_class == baseline.armor_class
+
+    def test_vestige_above_max_level_is_inactive(self) -> None:
+        # A 3rd-level binder may bind vestiges up to level 2; Eligor is 7th.
+        assert vestiges.active_vestige_names(_bound("Eligor", binder=3)) == []
+        stats = compute_derived_stats(
+            _bound("Eligor", binder=3, ability_scores={"STR": 10})
+        )
+        assert stats.effective_ability_scores["STR"] == 10
+
+    def test_only_the_allowed_number_of_vestiges_is_active(self) -> None:
+        # A 7th-level binder holds one vestige at a time.
+        assert vestiges.active_vestige_names(_bound("Amon", "Paimon", binder=7)) == [
+            "Amon"
+        ]
+        stats = compute_derived_stats(
+            _bound("Amon", "Paimon", binder=7, ability_scores={"DEX": 10})
+        )
+        assert stats.effective_ability_scores["DEX"] == 10
+
+    def test_within_limits_all_bound_vestiges_are_active(self) -> None:
+        char = _bound("Eligor", "Paimon", binder=15)
+        assert vestiges.active_vestige_names(char) == ["Eligor", "Paimon"]
+
+
+class TestImprovedBinding:
+    """Improved Binding: +2 binder level for the vestige-level limit (E4544)."""
+
+    def test_feat_adds_two_for_max_vestige_level(self) -> None:
+        plain = Character(classes=[("Binder", 9)])
+        feat = Character(classes=[("Binder", 9)], feats=["Improved Binding"])
+        assert vestiges.improved_binder_level(plain) == 9
+        assert vestiges.improved_binder_level(feat) == 11
+        assert vestiges.max_vestige_level(vestiges.improved_binder_level(feat)) == 5
+
+    def test_feat_is_case_insensitive(self) -> None:
+        char = Character(classes=[("Binder", 9)], feats=["improved binding"])
+        assert vestiges.improved_binder_level(char) == 11
+
+    def test_feat_does_nothing_without_binder_level(self) -> None:
+        char = Character(classes=[("Fighter", 9)], feats=["Improved Binding"])
+        assert vestiges.improved_binder_level(char) == 0
+
+    def test_feat_does_not_raise_vestige_count(self) -> None:
+        # The feat raises the vestige level a Binder 7 may bind (4 to 5) but not
+        # how many vestiges it may hold at once (still one).
+        char = _bound("Amon", "Leraje", binder=7, feats=["Improved Binding"])
+        assert vestiges.active_vestige_names(char) == ["Amon"]
+
+    def test_feat_activates_higher_level_vestige(self) -> None:
+        # Acererak is a 5th-level vestige: Binder 9 alone may bind up to 4th.
+        assert vestiges.active_vestige_names(_bound("Acererak", binder=9)) == []
+        char = _bound("Acererak", binder=9, feats=["Improved Binding"])
+        assert vestiges.active_vestige_names(char) == ["Acererak"]
+
+    def test_picker_offers_higher_level_vestiges(
+        self, model: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        # A Binder 3 may bind up to 2nd-level vestiges; Improved Binding counts
+        # it as 5 for this, which allows Paimon (3rd) but not Eligor (7th).
+        model.character.classes = [("Binder", 3)]
+        model.character.feats = ["Improved Binding"]
+        tab = BinderVestigesTab(model)
+        offered = _capture_picker(monkeypatch, None)
+        tab._add()
+        assert "Paimon" in offered
+        assert "Eligor" not in offered
+
+
+class TestRecheckRespectsLimits:
+    """Re-checking a suppressed vestige must not exceed the binder limits."""
+
+    @pytest.fixture()
+    def notices(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        from PyQt6.QtWidgets import QMessageBox
+
+        shown: list[str] = []
+        monkeypatch.setattr(
+            QMessageBox,
+            "information",
+            lambda *args, **kwargs: shown.append(args[1] if len(args) > 1 else ""),
+        )
+        return shown
+
+    @staticmethod
+    def _set_checked(tab: Any, row: int, checked: bool) -> None:
+        from PyQt6.QtCore import Qt
+
+        item = tab._list.item(row)
+        assert item is not None
+        item.setCheckState(
+            Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        )
+
+    def test_recheck_over_bound_count_is_reverted(
+        self, model: Any, notices: list[str]
+    ) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        model.character.classes = [("Binder", 1)]  # one vestige at a time
+        tab = BinderVestigesTab(model)
+        assert tab.bind_vestige("Amon", 1)
+        self._set_checked(tab, 0, False)  # suppress Amon
+        assert tab.bind_vestige("Leraje", 1)
+        self._set_checked(tab, 0, True)  # try to re-bind Amon
+
+        assert [e["bound"] for e in model.character.vestiges] == [False, True]
+        assert len(notices) == 1
+        assert "1 currently bound" in tab._limit_label.text()
+
+    def test_recheck_above_max_level_is_reverted(
+        self, model: Any, notices: list[str]
+    ) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        # Bound while a Binder 15; the character now has only 3 Binder levels.
+        model.character.classes = [("Binder", 3)]
+        model.character.vestiges = [
+            {"vestige_name": "Eligor", "level": 7, "bound": False}
+        ]
+        tab = BinderVestigesTab(model)
+        self._set_checked(tab, 0, True)
+
+        assert model.character.vestiges[0]["bound"] is False
+        assert len(notices) == 1
+
+    def test_recheck_within_limits_is_kept(
+        self, model: Any, notices: list[str]
+    ) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        model.character.classes = [("Binder", 1)]
+        tab = BinderVestigesTab(model)
+        assert tab.bind_vestige("Amon", 1)
+        self._set_checked(tab, 0, False)
+        self._set_checked(tab, 0, True)
+
+        assert model.character.vestiges[0]["bound"] is True
+        assert notices == []
+
+
+class TestLimitLabelRefresh:
+    """The limit label follows class and feat changes made on other tabs."""
+
+    def test_refreshes_when_class_levels_change(self, model: Any) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        tab = BinderVestigesTab(model)
+        assert tab._limit_label.text().startswith("No binder level")
+        model.character.classes = [("Binder", 5)]
+        model.class_levels_changed.emit()
+        assert tab._limit_label.text().startswith("Binder level 5:")
+
+    def test_refreshes_when_feats_change(self, model: Any) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        model.character.classes = [("Binder", 9)]
+        tab = BinderVestigesTab(model)
+        assert "up to level 4," in tab._limit_label.text()
+        model.feat_added.emit("Improved Binding")
+        assert "up to level 5," in tab._limit_label.text()
+        # Removing a feat is announced through derived_stats_changed.
+        model.character.feats = []
+        model.derived_stats_changed.emit()
+        assert "up to level 4," in tab._limit_label.text()
+
+
+class TestEligorNaturalArmor:
+    """Eligor's Resiliance: an enhancement bonus to natural armor (Armor!T27)."""
+
+    def test_adds_to_racial_natural_armor(self) -> None:
+        # Racial natural armor +5 (e.g. a lizardfolk) plus Eligor's +3
+        # enhancement is +8 natural armor (Armor!T29 = SUM(T25:T28)).
+        racial = [("natural", 5)]
+        without = compute_derived_stats(_bound(), ac_bonuses=racial)
+        with_vestige = compute_derived_stats(_bound("Eligor"), ac_bonuses=racial)
+        assert with_vestige.armor_class == without.armor_class + 3
+        assert with_vestige.flat_footed_ac == without.flat_footed_ac + 3
+        assert with_vestige.touch_ac == without.touch_ac
+
+    @pytest.mark.parametrize(
+        ("binder", "expected"), [(15, 3), (16, 4), (19, 4), (20, 5)]
+    )
+    def test_scales_with_binder_level(self, binder: int, expected: int) -> None:
+        specs = vestiges.vestige_bonus_specs(_bound("Eligor", binder=binder))
+        assert [s["value"] for s in specs if s["target"] == "AC"] == [expected]
+
+    def test_does_not_stack_with_other_natural_armor_enhancement(self) -> None:
+        # An amulet of natural armor +2 is the same bonus type, so only the
+        # larger of the two enhancements applies (PHB p176).
+        amulet = {
+            "name": "Amulet of Natural Armor +2",
+            "target": "AC",
+            "bonus_type": NATURAL_ARMOR_ENHANCEMENT,
+            "value": 2,
+        }
+        alone = compute_derived_stats(_bound("Eligor"))
+        both = compute_derived_stats(_bound("Eligor", equipment=[amulet]))
+        assert both.armor_class == alone.armor_class
+
+
+class TestVestigeLevelFallback:
+    def test_catalogue_level_wins(self) -> None:
+        assert vestiges.vestige_level_for("Eligor", 5) == 5
+
+    def test_falls_back_to_standard_level(self) -> None:
+        assert vestiges.vestige_level_for("Eligor", None) == 7
+        assert vestiges.vestige_level_for(" eligor ", None) == 7
+
+    def test_unknown_vestige_has_no_level(self) -> None:
+        assert vestiges.vestige_level_for("Homebrew", None) is None
+
+    def test_picker_filters_unknown_catalogue_levels_by_standard_level(
+        self, model: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        model.character.classes = [("Binder", 1)]
+        tab = BinderVestigesTab(model)
+        offered = _capture_picker(monkeypatch, "Amon")
+        tab._add()
+        # Eligor (7th level, NULL in the catalogue) is not offered at level 1.
+        assert offered == ["Amon", "Leraje"]
+        assert model.character.vestiges == [
+            {"vestige_name": "Amon", "level": 1, "bound": True}
+        ]
+
+    def test_loaded_entry_without_level_shows_standard_level(self, model: Any) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        model.character.classes = [("Binder", 15)]
+        model.character.vestiges = [
+            {"vestige_name": "Eligor", "level": None, "bound": True}
+        ]
+        tab = BinderVestigesTab(model)
+        item = tab._list.item(0)
+        assert item is not None
+        assert item.text() == "Eligor  (level 7)"
+
+    def test_save_tolerates_unknown_level(self, tmp_path: Path) -> None:
+        from heroforge.db.character_repo import (
+            load_character_from_file,
+            save_character_to_file,
+        )
+
+        char = Character(
+            name="Binder",
+            vestiges=[{"vestige_name": "Homebrew", "level": None, "bound": True}],
+        )
+        path = tmp_path / "binder.hfc"
+        save_character_to_file(char, path)
+        assert load_character_from_file(path).vestiges == char.vestiges
