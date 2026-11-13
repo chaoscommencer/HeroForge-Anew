@@ -745,3 +745,44 @@ class TestFormNaturalAttacks:
         _activate(model, "Dire Bear")
         tab = WildShapeTab(model=model)
         assert tab._attacks_label.text() == "2 Claws, Bite"
+
+
+class TestFormHitPoints:
+    """Max HP keeps the druid's own Constitution (workbook IgnoreTempConForHP)."""
+
+    def test_form_constitution_does_not_change_max_hp(self, model: object) -> None:
+        model.character.classes = [("Druid", 12)]
+        model.character.ability_scores = {
+            "STR": 10,
+            "DEX": 10,
+            "CON": 14,
+            "INT": 10,
+            "WIS": 16,
+            "CHA": 10,
+        }
+        before = model.derived_stats()
+        _activate(model, "Dire Bear")
+        shaped = model.derived_stats()
+        assert shaped.effective_ability_scores["CON"] == 19
+        assert shaped.hit_points == before.hit_points
+        # The form's Constitution still drives Fortitude (+4 vs +2).
+        assert shaped.fortitude == before.fortitude + 2
+
+    def test_constitution_buff_still_counts_toward_hp(self, model: object) -> None:
+        model.character.classes = [("Druid", 12)]
+        model.character.buffs = [
+            {
+                "id": "b1",
+                "name": "Bear's Endurance",
+                "bonus_type": "enhancement",
+                "target_stat": "CON",
+                "amount": 4,
+            }
+        ]
+        before = model.derived_stats()
+        _activate(model, "Dire Bear")
+        shaped = model.derived_stats()
+        # Typed bonuses still stack on the form's score ...
+        assert shaped.effective_ability_scores["CON"] == 23
+        # ... and on the druid's own Constitution for hit points.
+        assert shaped.hit_points == before.hit_points

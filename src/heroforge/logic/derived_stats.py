@@ -282,6 +282,7 @@ def compute_derived_stats(
     armor_type: str | None = None,
     speed_ignores_encumbrance: bool = False,
     natural_attacks: Sequence[NaturalAttack] = (),
+    hit_point_ability_adjustments: Mapping[str, int] | None = None,
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
@@ -348,6 +349,12 @@ def compute_derived_stats(
                        :attr:`DerivedStats.natural_attacks` (an active Wild
                        Shape form's), using the final size, Strength and melee
                        attack bonus.
+        hit_point_ability_adjustments: Ability adjustments to use for the
+                       Constitution behind the computed hit points instead of
+                       *ability_adjustments*.  While wild shaped the workbook
+                       keeps hit points on the druid's own Constitution
+                       (``IgnoreTempConForHP``), so the form's Constitution
+                       changes Fortitude but not maximum hit points.
 
     Returns:
         An immutable :class:`DerivedStats` snapshot.
@@ -392,9 +399,19 @@ def compute_derived_stats(
 
     hit_die_lookup = {name: prog.hit_die for name, prog in progressions.items()}
     hit_dice = hit_dice_sequence(character.classes, hit_die_lookup)
+    hp_con_mod = con_mod
+    if hit_point_ability_adjustments is not None:
+        hp_con_mod = ability_modifier(
+            max(
+                1,
+                int(base_scores.get("CON", 10))
+                + int(hit_point_ability_adjustments.get("CON", 0))
+                + buff_net.get("CON", 0),
+            )
+        )
     computed_hit_points = max_hit_points(
         hit_dice,
-        con_mod,
+        hp_con_mod,
         flat_bonus=hp_flat_bonus,
         per_level_bonus=hp_per_level_bonus,
     )

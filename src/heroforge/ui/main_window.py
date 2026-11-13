@@ -406,6 +406,9 @@ class CharacterModel(QObject):
             if form is not None
             else None
         )
+        # Hit points keep the druid's own Constitution while wild shaped
+        # (workbook IgnoreTempConForHP / DefaultConMod).
+        hp_adjustments = dict(adjustments) if shape is not None else None
         if shape is not None:
             size = shape.size
             natural_armor = shape.natural_armor
@@ -448,6 +451,7 @@ class CharacterModel(QObject):
             armor_type=armor_type,
             speed_ignores_encumbrance=speed_ignores_encumbrance(self._character.race),
             natural_attacks=shape.natural_attacks if shape is not None else (),
+            hit_point_ability_adjustments=hp_adjustments,
         )
 
     def _weight_catalog(self) -> dict[str, float]:
