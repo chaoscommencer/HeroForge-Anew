@@ -546,6 +546,47 @@ class TestAttacksTab:
         assert damage_cell.text() == damage
         assert model.character.attacks[0]["damage"] == damage
 
+    def test_user_entered_damage_is_kept(self, model: object) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        weapon = next(
+            w for w in model.game_data().list_weapons() if w.name == "Longsword"
+        )
+        tab.add_weapon(weapon)
+        model.derived_stats_changed.emit()
+        damage_cell = tab._weapons_table.item(0, 2)
+        assert damage_cell is not None and damage_cell.text() == "1d8+4"
+
+        # The user accounts for a +1 enhancement by editing the cell by hand.
+        damage_cell.setText("1d8+5")
+        model.derived_stats_changed.emit()
+        assert tab._weapons_table.item(0, 2).text() == "1d8+5"
+        assert model.character.attacks[0]["damage"] == "1d8+5"
+
+        # Reloading the saved attacks keeps the hand-entered value too.
+        tab._sync_from_model()
+        assert tab._weapons_table.item(0, 2).text() == "1d8+5"
+
+    def test_computed_damage_follows_strength_changes(self, model: object) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        weapon = next(
+            w for w in model.game_data().list_weapons() if w.name == "Longsword"
+        )
+        tab.add_weapon(weapon)
+        model.derived_stats_changed.emit()
+        assert tab._weapons_table.item(0, 2).text() == "1d8+4"
+
+        model.ability_score_changed.emit("STR", 20)
+        assert tab._weapons_table.item(0, 2).text() == "1d8+5"
+        tab._sync_from_model()
+        model.ability_score_changed.emit("STR", 8)
+        assert tab._weapons_table.item(0, 2).text() == "1d8-1"
+
 
 # ---------------------------------------------------------------------------
 # Soulmelds / Psionics / Maneuvers

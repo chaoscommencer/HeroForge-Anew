@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QFormLayout,
     QGroupBox,
@@ -37,6 +38,11 @@ if TYPE_CHECKING:
     from heroforge.ui.main_window import CharacterModel
 
 
+#: Item data role holding the damage text this tab last computed for a row, so
+#: a refresh can tell a computed value (safe to replace) from one the user typed.
+_AUTO_DAMAGE_ROLE = Qt.ItemDataRole.UserRole
+
+
 def _signed(value: int) -> str:
     return f"+{value}" if value >= 0 else str(value)
 
@@ -49,6 +55,8 @@ class AttacksTab(QWidget):
     ) -> None:
         super().__init__(parent)
         self._model = model
+        self._game_weapons: dict[str, WeaponItem] | None = None
+        self._suspend_sync = False
         self._build_ui()
         if model:
             model.derived_stats_changed.connect(self._refresh_combat_stats)
@@ -87,6 +95,8 @@ class AttacksTab(QWidget):
         header = self._weapons_table.horizontalHeader()
         assert header is not None
         header.setStretchLastSection(True)
+        # Persist manual edits (e.g. a damage value the user types in) right away.
+        self._weapons_table.itemChanged.connect(self._on_item_changed)
         weapons_layout.addWidget(self._weapons_table)
         btn_row = QHBoxLayout()
         self._add_btn = QPushButton("Add Weapon")
@@ -126,40 +136,96 @@ class AttacksTab(QWidget):
         bonuses = iterative_attacks(first, stats.base_attack_bonus)
         return format_attack_line(bonuses)
 
-    def _damage_for(self, ranged: bool, dice: str) -> str:
-        """Compute a weapon's per-attack damage string from its dice and STR.
+    def _computed_damage(self, weapon: WeaponItem | None, ranged: bool) -> str | None:
+        """Return *weapon*'s damage as weapon dice plus Strength (PHB p134).
 
-        Melee attacks add the Strength damage bonus (PHB p138); ranged attacks
-        use the weapon dice as-is unless a bonus is supplied elsewhere.
+        Returns ``None`` when the weapon is unknown or its catalogue damage has
+        no ``NdM`` dice (e.g. ``ref:UnarmedStrikeDamage``), in which case the
+        row's damage text is left exactly as it is.
         """
-        base = weapon_base_dice(dice)
+        if weapon is None:
+            return None
+        base = weapon_base_dice(weapon.damage)
         if not base:
-            # No NdM dice (e.g. "ref:UnarmedStrikeDamage" or a flat "2"):
-            # nothing to recombine, so leave the text exactly as it is.
-            return dice
+            return None
         if ranged or self._model is None:
             return base
         str_mod = self._model.derived_stats().ability_modifiers.get("STR", 0)
         return weapon_damage(base, damage_bonus(str_mod))
 
+    def _update_damage_cell(
+        self, row: int, weapon: WeaponItem | None, computed: str | None
+    ) -> None:
+        """Replace a row's damage with *computed* unless the user typed it in.
+
+        The cell counts as computed (and so is refreshed) when it is empty,
+        still shows the bare catalogue dice, matches the value this tab last
+        wrote, or (for rows just loaded from a save) equals *computed* already.
+        Anything else is a hand-entered value, such as ``1d8+5`` for an
+        enhancement bonus, and is kept.
+        """
+        if computed is None or weapon is None:
+            return
+        item = self._weapons_table.item(row, 2)
+        current = item.text().strip() if item else ""
+        marker = item.data(_AUTO_DAMAGE_ROLE) if item else None
+        base = weapon_base_dice(weapon.damage)
+        is_auto = current in ("", base, marker) or (
+            marker is None and current == computed
+        )
+        if not is_auto:
+            return
+        new_item = QTableWidgetItem(computed)
+        new_item.setData(_AUTO_DAMAGE_ROLE, computed)
+        self._weapons_table.setItem(row, 2, new_item)
+
     def _recompute_attack_bonuses(self) -> None:
         """Recompute each weapon's attack-bonus and damage cells."""
-        for row in range(self._weapons_table.rowCount()):
-            range_item = self._weapons_table.item(row, 4)
-            text = range_item.text().strip() if range_item else ""
-            try:
-                ranged = int(text) > 0
-            except ValueError:
-                ranged = text not in ("", "—")
-            bonus = self._attack_bonus_for(ranged)
-            self._weapons_table.setItem(row, 1, QTableWidgetItem(bonus))
-            damage_item = self._weapons_table.item(row, 2)
-            dice = damage_item.text() if damage_item else ""
-            if dice:
-                self._weapons_table.setItem(
-                    row, 2, QTableWidgetItem(self._damage_for(ranged, dice))
+        catalog = self._weapon_catalog()
+        self._suspend_sync = True
+        try:
+            for row in range(self._weapons_table.rowCount()):
+                range_item = self._weapons_table.item(row, 4)
+                text = range_item.text().strip() if range_item else ""
+                try:
+                    ranged = int(text) > 0
+                except ValueError:
+                    ranged = text not in ("", "—")
+                bonus = self._attack_bonus_for(ranged)
+                self._weapons_table.setItem(row, 1, QTableWidgetItem(bonus))
+                name_item = self._weapons_table.item(row, 0)
+                weapon = catalog.get(name_item.text()) if name_item else None
+                self._update_damage_cell(
+                    row, weapon, self._computed_damage(weapon, ranged)
                 )
+        finally:
+            self._suspend_sync = False
         self._sync_to_model()
+
+    def _weapon_catalog(self) -> dict[str, WeaponItem]:
+        """Return the seeded weapons merged with the character's custom ones."""
+        from heroforge.db.data_access import WeaponItem
+
+        if self._model is None:
+            return {}
+        if self._game_weapons is None:
+            self._game_weapons = {
+                w.name: w for w in self._model.game_data().list_weapons()
+            }
+        catalog = dict(self._game_weapons)
+        for entry in self._model.character.custom_weapons:
+            name = entry.get("name", "")
+            if name and name not in catalog:
+                catalog[name] = WeaponItem(
+                    name=name,
+                    category=entry.get("category", ""),
+                    damage=entry.get("damage", ""),
+                    critical=entry.get("critical", ""),
+                    range_increment=int(entry.get("range_increment", 0) or 0),
+                    damage_type=entry.get("damage_type", ""),
+                    source="",
+                )
+        return catalog
 
     # ------------------------------------------------------------------
     # Weapon rows
@@ -201,11 +267,19 @@ class AttacksTab(QWidget):
         if self._model is not None:
             self._model.character.attacks = self._entries()
 
+    def _on_item_changed(self, _item: QTableWidgetItem) -> None:
+        if not self._suspend_sync:
+            self._sync_to_model()
+
     def _append_row(self, values: list[str]) -> None:
-        row = self._weapons_table.rowCount()
-        self._weapons_table.insertRow(row)
-        for col, value in enumerate(values):
-            self._weapons_table.setItem(row, col, QTableWidgetItem(value))
+        self._suspend_sync = True
+        try:
+            row = self._weapons_table.rowCount()
+            self._weapons_table.insertRow(row)
+            for col, value in enumerate(values):
+                self._weapons_table.setItem(row, col, QTableWidgetItem(value))
+        finally:
+            self._suspend_sync = False
 
     def add_weapon(self, weapon: WeaponItem | None = None, name: str = "") -> None:
         """Add a weapon row from a catalogue *weapon* or a bare *name*."""
@@ -232,24 +306,7 @@ class AttacksTab(QWidget):
         self._sync_to_model()
 
     def _add_weapon(self) -> None:
-        game_weapons = self._model.game_data().list_weapons() if self._model else []
-        catalog: dict[str, WeaponItem | None] = {w.name: w for w in game_weapons}
-        # Merge in character's custom weapons.
-        if self._model:
-            for entry in self._model.character.custom_weapons:
-                name = entry.get("name", "")
-                if name and name not in catalog:
-                    from heroforge.db.data_access import WeaponItem
-
-                    catalog[name] = WeaponItem(
-                        name=name,
-                        category=entry.get("category", ""),
-                        damage=entry.get("damage", ""),
-                        critical=entry.get("critical", ""),
-                        range_increment=int(entry.get("range_increment", 0)),
-                        damage_type=entry.get("damage_type", ""),
-                        source="",
-                    )
+        catalog: dict[str, WeaponItem | None] = dict(self._weapon_catalog())
         name = pick_from_catalog(self, "Add Weapon", "Weapon:", list(catalog.keys()))
         if name is None:
             return
@@ -281,7 +338,11 @@ class AttacksTab(QWidget):
         self._sync_to_model()
 
     def _sync_from_model(self) -> None:
-        self._weapons_table.setRowCount(0)
+        self._suspend_sync = True
+        try:
+            self._weapons_table.setRowCount(0)
+        finally:
+            self._suspend_sync = False
         if self._model is not None:
             for entry in self._model.character.attacks:
                 self._append_row(
