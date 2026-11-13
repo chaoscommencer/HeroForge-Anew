@@ -8,6 +8,7 @@ from heroforge.logic.equipment import (
     carried_weight,
     encumbrance_category,
     equipment_bonuses,
+    load_effects,
     resolve_item_weight,
     total_weight,
 )
@@ -145,6 +146,17 @@ class TestEncumbranceIntegration:
             encumbrance_category(total_weight(items), light_max=33, medium_max=66)
             == "Light"
         )
+
+    def test_heavy_max_from_carrying_capacity_sets_overloaded(self) -> None:
+        # STR 10 carries 33 / 66 / 100 lb (PHB p162), so 110 lb is overloaded.
+        assert encumbrance_category(110, 33, 66, 100) == "Overloaded"
+        assert encumbrance_category(100, 33, 66, 100) == "Heavy"
+
+    def test_load_effects(self) -> None:
+        assert load_effects("Light") == (None, 0)
+        assert load_effects("Medium") == (3, -3)
+        assert load_effects("Heavy") == (1, -6)
+        assert load_effects("Overloaded") == (1, -6)
 
 
 def test_armor_check_penalty_still_sums() -> None:

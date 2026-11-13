@@ -266,6 +266,7 @@ class StatsAndCharacterDetailsTab(QWidget):
             ("ref", "Reflex:"),
             ("will", "Will:"),
             ("carry", "Carrying Capacity (L/M/H):"),
+            ("load", "Carried Weight (Load):"),
         ]
         for key, label in rows:
             value_label = QLabel("—")
@@ -303,6 +304,9 @@ class StatsAndCharacterDetailsTab(QWidget):
         self._derived_labels["will"].setText(self._signed(stats.will))
         light, medium, heavy = stats.carrying_capacity
         self._derived_labels["carry"].setText(f"{light} / {medium} / {heavy} lb.")
+        self._derived_labels["load"].setText(
+            f"{stats.carried_weight:g} lb. ({stats.load})"
+        )
         # Race is owned by the Race & Templates tab; mirror it read-only here.
         self._race_edit.setText(self._model.character.race)
 

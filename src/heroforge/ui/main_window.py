@@ -385,7 +385,34 @@ class CharacterModel(QObject):
             max_dex=max_dex,
             hp_flat_bonus=hp_flat,
             hp_per_level_bonus=hp_per_level,
+            weight_catalog=self._weight_catalog(),
         )
+
+    def _weight_catalog(self) -> dict[str, float]:
+        """Return an item name → unit weight map for weightless equipment entries.
+
+        Entries saved before weights were stamped on (weight 0) are resolved
+        from the armor and magic-equipment catalogues and the character's custom
+        armor and items, so they still count toward the carried load.  The
+        catalogues are only read when such an entry exists.
+        """
+        if all(entry.get("weight") for entry in self._character.equipment):
+            return {}
+        weights: dict[str, float] = {}
+        if self._game_data.available:
+            weights.update(
+                (m.name, m.weight) for m in self._game_data.list_magic_equipment()
+            )
+            weights.update((a.name, a.weight) for a in self._game_data.list_armor())
+        for entry in (*self._character.custom_armor, *self._character.custom_items):
+            name = entry.get("name", "")
+            try:
+                weight = float(entry.get("weight") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if name and weight:
+                weights[name] = weight
+        return weights
 
     def _armor_class_sources(
         self, natural_armor: int

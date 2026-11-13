@@ -187,6 +187,12 @@ class DerivedStats:
     reflex: int
     will: int
     carrying_capacity: tuple[int, int, int]
+    carried_weight: float = 0.0
+    """Total weight of :attr:`Character.equipment`, in pounds (PHB p162)."""
+    load: str = "Light"
+    """Load category: ``Light``, ``Medium``, ``Heavy`` or ``Overloaded``."""
+    load_check_penalty: int = 0
+    """Check penalty from the load (0/-3/-6); does not stack with armor's."""
 
 
 def _class_levels(character: Character) -> dict[str, int]:
@@ -209,6 +215,7 @@ def compute_derived_stats(
     max_dex: int | None = None,
     hp_flat_bonus: int = 0,
     hp_per_level_bonus: int = 0,
+    weight_catalog: Mapping[str, float] | None = None,
 ) -> DerivedStats:
     """Compute every derived combat/save value for *character*.
 
@@ -252,6 +259,11 @@ def compute_derived_stats(
                        Toughness's +3).
         hp_per_level_bonus: Per-Hit-Die hit-point bonus from feats/templates
                        (e.g. Improved Toughness's +1 per Hit Die).
+        weight_catalog: Optional item name → unit weight map used for equipment
+                       entries stored without a weight.  The carried weight sets
+                       the load (PHB p162); a medium or heavy load caps the
+                       Dexterity bonus to AC at +3/+1 alongside *max_dex* and
+                       sets :attr:`DerivedStats.load_check_penalty`.
 
     Returns:
         An immutable :class:`DerivedStats` snapshot.
@@ -308,6 +320,13 @@ def compute_derived_stats(
         else computed_hit_points
     ) + buff_net.get("hp", 0)
 
+    capacity = combat.carrying_capacity(scores["STR"])
+    carried = equipment.carried_weight(character.equipment or [], weight_catalog)
+    load = equipment.encumbrance_category(carried, *capacity)
+    load_max_dex, load_check_penalty = equipment.load_effects(load)
+    if load_max_dex is not None:
+        max_dex = load_max_dex if max_dex is None else min(max_dex, load_max_dex)
+
     combined_ac_bonuses = list(ac_bonuses or ())
     combined_ac_bonuses.extend(buff_ac)
     ac = combat.aggregate_armor_class(
@@ -346,5 +365,8 @@ def compute_derived_stats(
         will=saving_throws.will(
             base_will, wis_mod, save_bonuses.get("will", 0) + buff_net.get("will", 0)
         ),
-        carrying_capacity=combat.carrying_capacity(scores["STR"]),
+        carrying_capacity=capacity,
+        carried_weight=carried,
+        load=load,
+        load_check_penalty=load_check_penalty,
     )

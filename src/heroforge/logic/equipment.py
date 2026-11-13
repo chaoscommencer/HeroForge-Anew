@@ -273,13 +273,14 @@ def encumbrance_category(
     total_weight: float,
     light_max: int,
     medium_max: int,
+    heavy_max: int | None = None,
 ) -> str:
     """Determine the encumbrance category for a character.
 
     Categories:
     - ``'Light'``:      total_weight ≤ light_max
     - ``'Medium'``:     light_max < total_weight ≤ medium_max
-    - ``'Heavy'``:      medium_max < total_weight ≤ heavy_max (= 2 × medium_max)
+    - ``'Heavy'``:      medium_max < total_weight ≤ heavy_max
     - ``'Overloaded'``: total_weight > heavy_max
 
     Reference: PHB p162.
@@ -288,11 +289,15 @@ def encumbrance_category(
         total_weight: Character's carried weight in pounds.
         light_max:    Maximum weight for Light load.
         medium_max:   Maximum weight for Medium load.
+        heavy_max:    Maximum weight for Heavy load, e.g. the third value of
+                      :func:`heroforge.logic.combat.carrying_capacity`.  When
+                      omitted it falls back to ``2 × medium_max``.
 
     Returns:
         Encumbrance category string.
     """
-    heavy_max = medium_max * 2
+    if heavy_max is None:
+        heavy_max = medium_max * 2
     if total_weight <= light_max:
         return "Light"
     if total_weight <= medium_max:
@@ -300,6 +305,27 @@ def encumbrance_category(
     if total_weight <= heavy_max:
         return "Heavy"
     return "Overloaded"
+
+
+# Max Dex cap and check penalty imposed by each load (PHB p162, Table 9-2).
+# Overloaded uses the heavy-load figures, as the workbook does (Armor!R12/R14).
+_LOAD_EFFECTS: Mapping[str, tuple[int | None, int]] = {
+    "Light": (None, 0),
+    "Medium": (3, -3),
+    "Heavy": (1, -6),
+    "Overloaded": (1, -6),
+}
+
+
+def load_effects(category: str) -> tuple[int | None, int]:
+    """Return ``(max_dex, check_penalty)`` for the load *category*.
+
+    ``max_dex`` is ``None`` when the load does not cap Dexterity.  These do not
+    stack with armor: the stricter Max Dex and the worse check penalty apply.
+
+    Reference: PHB p162.
+    """
+    return _LOAD_EFFECTS.get(category, (None, 0))
 
 
 def armor_check_penalty(armor_acp: int, shield_acp: int) -> int:

@@ -734,6 +734,92 @@ class TestMagicEquipmentTabBonuses:
         ]
 
 
+def _gear(name: str, slot: str, weight: float, equipped: int = 1) -> dict:
+    return {
+        "item_name": name,
+        "quantity": 1,
+        "weight": weight,
+        "equipped": equipped,
+        "slot": slot,
+        "notes": "",
+    }
+
+
+class TestEncumbrance:
+    """Carried weight sets the load, which caps Max Dex and adds an ACP.
+
+    PHB p162; the workbook's LoadMaxDex/LoadACP (Armor!R12/R14) use the same
+    3/1 Max Dex and -3/-6 penalties for medium and heavy loads.
+    """
+
+    def test_carried_weight_sets_load_category(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10  # 33 / 66 / 100 lb.
+        model.character.equipment = [
+            _gear("Leather", "Body Armor", 15.0),
+            _gear("Handy Haversack", "Wondrous", 5.0, equipped=0),
+        ]
+        stats = model.derived_stats()
+        assert stats.carried_weight == 20.0
+        assert stats.load == "Light"
+        assert stats.load_check_penalty == 0
+
+        model.character.equipment.append(_gear("Anvil", "Wondrous", 20.0, 0))
+        stats = model.derived_stats()
+        assert stats.carried_weight == 40.0
+        assert stats.load == "Medium"
+        assert stats.load_check_penalty == -3
+
+    def test_medium_load_caps_dex_bonus_to_ac(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10
+        model.character.ability_scores["DEX"] = 18  # +4
+        model.character.equipment = [
+            _gear("Leather", "Body Armor", 15.0),
+            _gear("Anvil", "Wondrous", 25.0, equipped=0),
+        ]
+        # 10 + leather 2 + DEX capped to +3 by the medium load = 15.
+        assert model.derived_stats().armor_class == 15
+
+    def test_heavy_load_uses_heavy_penalties(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10
+        model.character.ability_scores["DEX"] = 18
+        model.character.equipment = [_gear("Anvil", "Wondrous", 80.0, 0)]
+        stats = model.derived_stats()
+        assert stats.load == "Heavy"
+        assert stats.load_check_penalty == -6
+        assert stats.armor_class == 11
+
+    def test_zero_weight_entry_resolves_from_catalogue(
+        self, gear_model: object
+    ) -> None:
+        # An entry saved before weights were stamped on still counts.
+        gear_model.character.equipment = [
+            _gear("Gauntlets of ogre power", "Hands/Rings (x2)", 0.0),
+            _gear("Full Plate", "Body Armor", 0.0),
+        ]
+        assert gear_model.derived_stats().carried_weight == 54.0
+
+    def test_load_penalty_reaches_skills(self, model: object) -> None:
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        model.character.ability_scores["STR"] = 10
+        tab = SkillsTab(model=model)
+        climb_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Climb")
+        model.character.equipment = [_gear("Anvil", "Wondrous", 80.0, 0)]
+        model.derived_stats_changed.emit()
+        assert tab._table.item(climb_row, 6).text() == "-6"
+
+    def test_stats_tab_shows_current_load(self, model: object) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        model.character.ability_scores["STR"] = 10
+        tab = StatsAndCharacterDetailsTab(model=model)
+        model.character.equipment = [_gear("Anvil", "Wondrous", 40.0, 0)]
+        model.derived_stats_changed.emit()
+        assert tab._derived_labels["load"].text() == "40 lb. (Medium)"
+
+
 # ---------------------------------------------------------------------------
 # Attacks (weapon catalogue)
 # ---------------------------------------------------------------------------
