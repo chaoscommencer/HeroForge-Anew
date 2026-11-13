@@ -90,15 +90,15 @@ services:
     #
     # Every tmpfs is mounted noexec,nosuid,nodev so a compromised process cannot
     # drop and run an executable or setuid payload in a writable directory.
-    # /tmp holds Xvfb's lock file (/tmp/.X99-lock); /home/app carries mode=1707
-    # (sticky + owner/other rwx, group denied) so the non-root app user — the
-    # "other" class on this root-owned tmpfs — can write the runtime-generated
-    # VNC password, fluxbox config and the fbsetbg shim. Those files are only
-    # ever read, so noexec is safe here.
+    # /tmp holds Xvfb's lock file (/tmp/.X99-lock); /home/app is owned by the
+    # non-root app user (uid/gid set to APP_UID/APP_GID) with mode 0700, so only
+    # that user can read or write the runtime-generated VNC password, fluxbox
+    # config and the fbsetbg shim. Those files are only ever read, so noexec is
+    # safe here.
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,nodev
-      - /home/app:mode=1707,noexec,nosuid,nodev
+      - /home/app:uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0700,noexec,nosuid,nodev
     # Resource ceilings to blunt local DoS (fork bombs, memory/CPU exhaustion).
     # Sized from observed steady-state (~85 MiB, 6 PIDs) with generous headroom;
     # tighten further from `docker stats` if desired.
@@ -245,14 +245,14 @@ services:
     # mounts below (in RAM, wiped on stop). Every tmpfs is mounted
     # noexec,nosuid,nodev so a compromised process cannot drop and run an
     # executable or setuid payload in a writable directory. /tmp holds Qt/X
-    # scratch files; /home/app carries mode=1707 (sticky + owner/other rwx,
-    # group denied) so the non-root app user can write Qt's runtime config/cache
-    # and the redirected .pyc bytecode cache — imports only read those files, so
+    # scratch files; /home/app is owned by the non-root app user (APP_UID/APP_GID)
+    # with mode 0700, so only that user can write Qt's runtime config/cache and
+    # the redirected .pyc bytecode cache — imports only read those files, so
     # noexec is safe here.
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,nodev
-      - /home/app:mode=1707,noexec,nosuid,nodev
+      - /home/app:uid=${APP_UID:-1000},gid=${APP_GID:-1000},mode=0700,noexec,nosuid,nodev
     # Resource ceilings to blunt local DoS (fork bombs, memory/CPU exhaustion).
     # Sized from observed steady-state (~90 MiB, 4 PIDs) with headroom for the
     # first-launch openpyxl seed spike; tighten from `docker stats` if desired.

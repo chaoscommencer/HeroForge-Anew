@@ -179,8 +179,9 @@ locations are explicit mounts:
   the non-root `app` user so the volume inherits that ownership on first use.
 - **`/tmp` and `/home/app`** — in-RAM `tmpfs` mounts (wiped on stop) for X/Qt
   scratch files, the runtime VNC password and fluxbox config. `/home/app` is
-  mounted `mode=0o1777` because a `tmpfs` over the image directory would
-  otherwise mount root-owned and lock out the non-root user.
+  mounted owned by the non-root `app` user (`uid`/`gid` from `APP_UID`/`APP_GID`)
+  with mode `0700`, because a `tmpfs` over the image directory would otherwise
+  mount root-owned and lock that user out; no other user can read it.
 
 The application source is bind-mounted **read-only** into the `app` container
 (`./src`, `./pyproject.toml`, and the seed data/workbooks under
