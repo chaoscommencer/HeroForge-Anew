@@ -327,6 +327,78 @@ class TestImprovedBinding:
         assert "Eligor" not in offered
 
 
+class TestRecheckRespectsLimits:
+    """Re-checking a suppressed vestige must not exceed the binder limits."""
+
+    @pytest.fixture()
+    def notices(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        from PyQt6.QtWidgets import QMessageBox
+
+        shown: list[str] = []
+        monkeypatch.setattr(
+            QMessageBox,
+            "information",
+            lambda *args, **kwargs: shown.append(args[1] if len(args) > 1 else ""),
+        )
+        return shown
+
+    @staticmethod
+    def _set_checked(tab: Any, row: int, checked: bool) -> None:
+        from PyQt6.QtCore import Qt
+
+        item = tab._list.item(row)
+        assert item is not None
+        item.setCheckState(
+            Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        )
+
+    def test_recheck_over_bound_count_is_reverted(
+        self, model: Any, notices: list[str]
+    ) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        model.character.classes = [("Binder", 1)]  # one vestige at a time
+        tab = BinderVestigesTab(model)
+        assert tab.bind_vestige("Amon", 1)
+        self._set_checked(tab, 0, False)  # suppress Amon
+        assert tab.bind_vestige("Leraje", 1)
+        self._set_checked(tab, 0, True)  # try to re-bind Amon
+
+        assert [e["bound"] for e in model.character.vestiges] == [False, True]
+        assert len(notices) == 1
+        assert "1 currently bound" in tab._limit_label.text()
+
+    def test_recheck_above_max_level_is_reverted(
+        self, model: Any, notices: list[str]
+    ) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        # Bound while a Binder 15; the character now has only 3 Binder levels.
+        model.character.classes = [("Binder", 3)]
+        model.character.vestiges = [
+            {"vestige_name": "Eligor", "level": 7, "bound": False}
+        ]
+        tab = BinderVestigesTab(model)
+        self._set_checked(tab, 0, True)
+
+        assert model.character.vestiges[0]["bound"] is False
+        assert len(notices) == 1
+
+    def test_recheck_within_limits_is_kept(
+        self, model: Any, notices: list[str]
+    ) -> None:
+        from heroforge.ui.tabs.binder_vestiges import BinderVestigesTab
+
+        model.character.classes = [("Binder", 1)]
+        tab = BinderVestigesTab(model)
+        assert tab.bind_vestige("Amon", 1)
+        self._set_checked(tab, 0, False)
+        self._set_checked(tab, 0, True)
+
+        assert model.character.vestiges[0]["bound"] is True
+        assert notices == []
+
+
 class TestEligorNaturalArmor:
     """Eligor's Resiliance: an enhancement bonus to natural armor (Armor!T27)."""
 

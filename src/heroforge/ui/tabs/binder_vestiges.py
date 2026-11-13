@@ -154,8 +154,37 @@ class BinderVestigesTab(QWidget):
             f"({self._bound_count()} currently bound)."
         )
 
-    def _on_item_changed(self, _item: QListWidgetItem) -> None:
+    def _on_item_changed(self, item: QListWidgetItem) -> None:
+        if item.checkState() == Qt.CheckState.Checked:
+            reason = self._bind_refusal(item.data(_LEVEL_ROLE))
+            if reason:
+                # Revert the re-bind without re-entering this handler.
+                self._list.blockSignals(True)
+                item.setCheckState(Qt.CheckState.Unchecked)
+                self._list.blockSignals(False)
+                QMessageBox.information(self, "Cannot Bind Vestige", reason)
         self._sync_to_model()
+
+    def _bind_refusal(self, vestige_level: int | None) -> str:
+        """Return why the vestige just checked may not be bound, or ``""``.
+
+        The vestige is already counted as bound, so the count limit is only
+        exceeded when more vestiges are bound than the binder may hold.
+        """
+        if self._model is None:
+            return ""
+        level = self._binder_level()
+        if self._bound_count() > vestiges.max_vestiges_bound(level):
+            return (
+                "You are already binding the maximum number of vestiges for your "
+                "binder level. Suppress or remove one first."
+            )
+        bind_level = vestiges.improved_binder_level(self._model.character)
+        if not vestiges.can_bind(vestige_level, bind_level):
+            return (
+                "This vestige's level is above the highest your binder level " "allows."
+            )
+        return ""
 
     # ------------------------------------------------------------------
     # Commands
