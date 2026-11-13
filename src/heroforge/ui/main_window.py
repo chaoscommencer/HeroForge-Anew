@@ -66,6 +66,7 @@ from heroforge.ui.tabs.lg_game_log import LGGameLogTab
 from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
 from heroforge.ui.tabs.magic_equipment import MagicEquipmentTab
 from heroforge.ui.tabs.maneuvers_and_stances import ManeuversAndStancesTab
+from heroforge.ui.tabs.marshal_auras import MarshalAurasTab
 from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
 from heroforge.ui.tabs.psionics import PsionicsTab
 from heroforge.ui.tabs.race_and_templates import RaceAndTemplatesTab
@@ -191,6 +192,13 @@ class CharacterModel(QObject):
     buff_toggled = pyqtSignal(str, str, bool)
     """Emitted when a buff is enabled/disabled. Args: (buff_id, buff_name, active)."""
 
+    marshal_auras_changed = pyqtSignal()
+    """Emitted when the character's active marshal auras change.
+
+    Bridged to :attr:`derived_stats_changed` so dependent tabs recalculate the
+    saving-throw, Armor Class, and attack bonuses the active auras contribute.
+    """
+
     character_loaded = pyqtSignal(int)
     """Emitted after a character file is loaded from disk.
 
@@ -246,6 +254,7 @@ class CharacterModel(QObject):
         self.skill_ranks_changed.connect(self._on_skill_ranks_changed)
         self.feat_added.connect(self._on_feat_added)
         self.buff_toggled.connect(self._on_buff_toggled)
+        self.marshal_auras_changed.connect(self.derived_stats_changed)
         self.class_levels_changed.connect(self.derived_stats_changed)
         self.character_reset.connect(self.derived_stats_changed)
         self.character_loaded.connect(lambda _id: self.derived_stats_changed.emit())
@@ -388,7 +397,8 @@ class CharacterModel(QObject):
         # Magic-item bonus specs on character.equipment, the effects of the
         # active Tome of Battle stances on character.maneuvers and the always-on
         # effects of bound vestiges on character.vestiges are stacked together
-        # with active buffs inside compute_derived_stats (PHB p176).
+        # with active buffs and active marshal auras on character.marshal_auras
+        # inside compute_derived_stats (PHB p176).
         return compute_derived_stats(
             self._character,
             progressions,
@@ -622,6 +632,7 @@ class MainWindow(QMainWindow):
         ("Buffs", BuffsTab),
         ("Soulmelds", SoulmeldsTab),
         ("Binder Vestiges", BinderVestigesTab),
+        ("Marshal Auras", MarshalAurasTab),
         ("Spells", SpellsTab),
         ("Psionics", PsionicsTab),
         ("Animal Companion", AnimalCompanionTab),
