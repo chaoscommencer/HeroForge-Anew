@@ -63,6 +63,13 @@
 
   "remoteUser": "vscode",
 
+  // Keep Claude Code's conversations, memory and settings across rebuilds, as
+  // the default profile does (see the comment there and issue #141). The
+  // image's root-owned, read-only copy of the script, never the workspace's.
+  "postCreateCommand": "/usr/bin/bash /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/persist-claude-state.sh link",
+  "postStartCommand": "/usr/bin/bash /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/persist-claude-state.sh link",
+  "waitFor": "postStartCommand",
+
   "customizations": {
     "vscode": {
       "settings": {

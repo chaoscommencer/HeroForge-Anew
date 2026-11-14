@@ -66,6 +66,49 @@ only in the opt-in QA profile. Never point unattended agents at the QA profile.
 Treat a QA Codespace as short-lived: create it for a QA session, then delete it,
 rather than doing everyday work in it.
 
+### Claude Code history across rebuilds
+
+A rebuild replaces the container, and with it `~/.claude`. To keep Claude Code's
+work, both profiles run
+[`persist-claude-state.sh`](../.devcontainer/development/scripts/persist-claude-state/persist-claude-state.sh)
+when the container is created and at every start (issue #141):
+
+- **Kept:** `projects/` (conversation transcripts, which `/resume` and
+  `--continue` restore, plus tool results and agent memory), `file-history/`
+  (`/rewind` checkpoints), `settings.json` and `settings.local.json`. They live
+  on the Codespace's persistent disk at `/workspaces/.claude`, outside every
+  repository's working tree so nothing there can be committed, and are linked
+  into `~/.claude`. Owner-only modes (0700 directories, 0600 files).
+- **Not kept:** credentials and account identity (`.credentials.json`,
+  `~/.claude.json`, `backups/`, `ide/`, sessions). A rebuild still asks you to
+  sign in again, and no token is parked on the long-lived disk.
+- **Safeguards:** the script follows no link inside the persistent directory,
+  leaves out (and reports) any entry that holds a link, a hard link or a
+  special file, removes credential-shaped files it finds on the disk, and
+  refuses to run as root. The copy that runs is the image's, root-owned and
+  read-only under `/usr/local/libexec/heroforge-anew/`; editing the one in the
+  repository takes a rebuild to apply.
+- **Limits:** `/workspaces` lives as long as the Codespace. Deleting the
+  Codespace deletes the history too. To move it to another Codespace, export
+  it first:
+
+  ```bash
+  bash .devcontainer/development/scripts/persist-claude-state/persist-claude-state.sh export
+  # writes /workspaces/claude-state-<timestamp>.tgz (no credentials); download it,
+  # upload it to the new Codespace, then there:
+  tar -C /workspaces -xzf claude-state-<timestamp>.tgz
+  bash /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/persist-claude-state.sh link
+  ```
+
+**First rebuild after adopting this:** a Codespace created before this change
+keeps its history only in the container. Run the repository's copy once
+*before* rebuilding, so the current history is on the persistent disk when the
+new container links it in:
+
+```bash
+bash .devcontainer/development/scripts/persist-claude-state/persist-claude-state.sh link
+```
+
 ### Unattended agents and the Codespace token
 
 Codespaces gives every Codespace a `GITHUB_TOKEN`. It is in the environment of
