@@ -66,6 +66,77 @@ only in the opt-in QA profile. Never point unattended agents at the QA profile.
 Treat a QA Codespace as short-lived: create it for a QA session, then delete it,
 rather than doing everyday work in it.
 
+### Claude Code history across rebuilds
+
+A rebuild replaces the container, and with it `~/.claude`. To keep Claude Code's
+work, both profiles run
+[`persist-claude-state.sh`](../.devcontainer/development/scripts/persist-claude-state/persist-claude-state.sh)
+at every start, creation included, with an empty environment (issue #141):
+
+- **Kept:** `projects/` (conversation transcripts, which `/resume` and
+  `--continue` restore, plus tool results and agent memory), `file-history/`
+  (`/rewind` checkpoints), `settings.json` and `settings.local.json`. They live
+  on the Codespace's persistent disk at `/workspaces/.claude-state`, outside every
+  repository's working tree so nothing there can be committed, and are linked
+  into `~/.claude`. Owner-only modes (0700 directories, 0600 files).
+- **Settings are cleaned at every start.** A key in `settings.json` or
+  `settings.local.json` that runs a command (`hooks`, `statusLine`,
+  `fileSuggestion`, credential helpers such as `apiKeyHelper`), widens
+  permissions (`permissions.allow`, `permissions.additionalDirectories`, a
+  `bypassPermissions` default mode, MCP auto-enable) or redirects commands and
+  traffic (`env` entries such as `PATH`, `NODE_OPTIONS`, `LD_*`, `GIT_*`,
+  proxies, `ANTHROPIC_BASE_URL` and API keys) is removed, and the start prints
+  what it removed. Otherwise anything running as `vscode` could plant one that
+  outlives "Rebuild Container". The original file is kept, owner-only, in
+  `/workspaces/.claude-state/quarantine/` (neither linked nor exported; delete it once
+  checked, as it may hold a key). Put hooks and the like in the project's
+  `.claude/settings.json`, which git reviews. The full list is in
+  [`clean_settings.py`](../.devcontainer/development/scripts/persist-claude-state/clean_settings.py).
+- **Not kept:** credentials and account identity (`.credentials.json`,
+  `~/.claude.json`, `backups/`, `ide/`, sessions). A rebuild still asks you to
+  sign in again, and no token is parked on the long-lived disk.
+- **Safeguards:** the script follows no link inside the persistent directory,
+  leaves out (and reports) any entry that holds a link, a hard link to a file
+  outside it, or a special file, refuses a persistent directory or `~/.claude`
+  that is not your own, removes credential-shaped files it finds on the disk, and
+  refuses to run as root. The copy that runs is the image's, root-owned and
+  read-only under `/usr/local/libexec/heroforge-anew/`; editing the one in the
+  repository takes a rebuild to apply.
+- **Limits:** `/workspaces` lives as long as the Codespace. Deleting the
+  Codespace deletes the history too. To move it to another Codespace, export
+  it first:
+
+  ```bash
+  bash .devcontainer/development/scripts/persist-claude-state/persist-claude-state.sh export
+  # writes /workspaces/claude-state-<timestamp>.tgz: the allowlisted entries
+  # only, no credentials. Download it, upload it to the new Codespace, then there:
+  tar -C /workspaces -xzf claude-state-<timestamp>.tgz
+  bash /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/persist-claude-state.sh link
+  ```
+
+  The archive is **not free of secrets**. Transcripts and tool results hold
+  whatever a command printed (an `env`, a token, a `.env` file it read), and
+  `file-history/` holds copies of files that were edited. Keep the archive
+  private, and delete it once it is restored. Claude Code itself deletes
+  transcripts older than `cleanupPeriodDays` (30 days by default), on the
+  persistent disk too.
+
+**Old name:** earlier versions used `/workspaces/.claude`. Claude Code reads a
+directory's `.claude` folder as that directory's project config, so a session
+started in `/workspaces` would have taken the persisted user settings as
+project settings too. The first start with the new name moves the old
+directory over, as a whole, when `/workspaces/.claude-state` does not exist
+yet. If both exist, each start names the old one until you remove it.
+
+**First rebuild after adopting this:** a Codespace created before this change
+keeps its history only in the container. Run the repository's copy once
+*before* rebuilding, so the current history is on the persistent disk when the
+new container links it in:
+
+```bash
+bash .devcontainer/development/scripts/persist-claude-state/persist-claude-state.sh link
+```
+
 ### Unattended agents and the Codespace token
 
 Codespaces gives every Codespace a `GITHUB_TOKEN`. It is in the environment of

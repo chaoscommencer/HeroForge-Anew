@@ -71,6 +71,26 @@
   // Run as the unprivileged user shipped with the base image.
   "remoteUser": "vscode",
 
+  // Keep Claude Code's conversations, agent memory, /rewind checkpoints and
+  // user settings across rebuilds (issue #141). persist-claude-state.sh moves
+  // that allowlist onto the Codespace's persistent disk
+  // (/workspaces/.claude-state, outside every working tree) and links it back
+  // into ~/.claude. Credentials
+  // stay in the container, so a rebuild still asks you to sign in again. It is
+  // the image's root-owned, read-only copy, never the workspace's, so a branch
+  // checkout cannot change what runs; a change to it takes a rebuild. It runs
+  // at every start, creation included (postStartCommand also runs then), and
+  // is self-healing: if an update replaces one of the links with a regular
+  // file, the next start folds that file back onto the disk and links it
+  // again. It starts with an empty environment (env -i) and no startup files,
+  // so nothing the user can write (BASH_ENV, exported shell functions, a PATH
+  // through ~/.local/bin) changes what it runs. Details in
+  // docs/containerized-runtime.md.
+  "postStartCommand": "/usr/bin/env -i HOME=/home/vscode /usr/bin/bash --noprofile --norc /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/persist-claude-state.sh link",
+  // Connect only once postStartCommand has finished, so no terminal can start
+  // a Claude Code session before its state is linked in.
+  "waitFor": "postStartCommand",
+
   "customizations": {
     "vscode": {
       // Recommended extensions live in .vscode/extensions.json so they can be
