@@ -86,6 +86,9 @@ set -euo pipefail
 # PATH a start runs with may put ~/.local/bin, which the user can write,
 # ahead of the system directories.
 export PATH=/usr/bin
+# The directory this script is in: in the image, the root-owned, read-only tree
+# that also holds the Python helpers it runs (read_persist.py, narrow.py).
+HERE="$(dirname -- "${BASH_SOURCE[0]}")"
 
 # The system Python, which every narrowing below runs on, started once before
 # anything is made: one that is missing or
@@ -110,50 +113,11 @@ fi
 
 # The persistent directory, from persist-directory beside this script: by a
 # path built from where this script is, in the image's root-owned, read-only
-# tree, never from the environment.  It must be exactly one line holding an
-# absolute, normalized path, with no "..", no control character, no
-# trailing slash, and not / itself; anything else, a missing or linked file
-# included, stops the run here, before anything is made.
+# tree, never from the environment.  read_persist.py, beside it too, accepts
+# exactly one line holding an absolute, normalized path; anything else, a
+# missing or linked file included, stops the run here, before anything is made.
 read_persist=0
-PERSIST="$(/usr/bin/python3 -I -S -B - "$(dirname -- "${BASH_SOURCE[0]}")/persist-directory" <<'READ_PY'
-import os
-import posixpath
-import stat
-import sys
-
-
-def persist_directory(path: str) -> str | None:
-    """The one line of the file at *path*, when it is an absolute, normalized path with no "..", no control
-    character, no trailing slash, and not / itself; None otherwise, a file that is missing, a link or no regular
-    file included."""
-    try:
-        descriptor: int = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
-    except OSError:
-        return None
-    try:
-        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-            return None
-        raw: bytes = os.read(descriptor, 4097)
-    finally:
-        os.close(descriptor)
-    try:
-        text: str = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
-    value: str = text[:-1] if text.endswith("\n") else text
-    valid: bool = (len(raw) <= 4096 and value.isprintable() and value.startswith("/") and value != "/"
-                   and not value.endswith("/") and "//" not in value  # normpath keeps a leading //
-                   and posixpath.normpath(value) == value and ".." not in value.split("/"))
-    found: str | None = value if valid else None
-    return found
-
-
-directory: str | None = persist_directory(sys.argv[1])
-if directory is None:
-    sys.exit(1)
-sys.stdout.write(directory)
-READ_PY
-)" || read_persist=$?
+PERSIST="$(/usr/bin/python3 -I -S -B "$HERE/read_persist.py" "$HERE/persist-directory")" || read_persist=$?
 if [ "$read_persist" -ne 0 ]; then
   echo "persist-claude-state: its persist-directory file is missing or holds no one absolute, normalized path, so nothing was persisted." >&2
   exit 1
@@ -164,144 +128,12 @@ DIRS=(projects file-history)
 FILES=(settings.json settings.local.json)
 
 # narrow_no_follow KIND PATH [KIND PATH ...]: each PATH, a KIND ("file" or
-# "directory"), set to its owner-only mode, 0600 for a file and 0700 for a
-# directory, changing no mode through a link.  A PATH that is a link is
-# resolved once, and
-# what it leads to is opened as a path only (O_PATH | O_NOFOLLOW), so no link
-# is followed past that; it is changed only when that descriptor is a KIND,
-# and, reached through a link, this user's own, through the name the kernel
-# gives it (/proc/self/fd/N).  A link that leads to no such entry
-# (dangling, another kind, another user's, or out of reach) is named and left
-# as it is, and the call goes on.  A PATH that is absent or out of reach, or
-# no link and no KIND, is passed over, as the tests on the names passed it
-# before.  A mode that cannot be changed is named, and the call returns 1 once
-# every PATH has been tried.  On the system Python in isolated mode with no
-# site.  What a link leads to is narrowed only
-# inside the persistent directory or ~/.claude,
-# which the function passes first, checked on the path the link resolves
-# to and again on what the kernel opened there, so a parent directory swapped
-# for a link in between narrows nothing: a link of the user's own elsewhere,
-# to ~/.bashrc say, is named and left as it is, so the run narrows no
-# unrelated file, and the call returns 1.  The
-# script passes no link (refuse_links leaves one out first); this holds
-# for one swapped in after that, a race, which so fails the run rather than
-# pass as success.
+# "directory"), set to its owner-only mode (0600 or 0700), changing no mode
+# through a link and nothing outside the persistent directory and ~/.claude;
+# returns 1 when a mode could not be changed or a link led elsewhere.  The
+# rules and their reasons are in narrow.py, beside this script.
 narrow_no_follow() {
-  /usr/bin/python3 -I -S -B - "$PERSIST" "$CLAUDE_HOME" "$@" <<'PY'
-import enum
-import os
-import stat
-import sys
-
-
-class Kind(enum.Enum):
-    """What a path is to be, by the word the caller gives, with the owner-only mode it is set to."""
-    FILE = "file"
-    DIRECTORY = "directory"
-
-    def mode(self) -> int:
-        mode: int = 0o700 if self is Kind.DIRECTORY else 0o600
-        return mode
-
-    def holds(self, st_mode: int) -> bool:
-        held: bool = stat.S_ISDIR(st_mode) if self is Kind.DIRECTORY else stat.S_ISREG(st_mode)
-        return held
-
-
-# A path only: no read access needed, a link opened as itself, never inherited.
-OPEN_PATH: int = os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
-# The two directories a link may lead into, as the function passes them first, each resolved once; one that is itself
-# a link, or no directory, counts as none.
-ROOTS: tuple[str, ...] = tuple(os.path.realpath(root) for root in sys.argv[1:3]
-                               if os.path.isdir(root) and not os.path.islink(root))
-
-
-def within_roots(target: str) -> bool:
-    """Whether *target*, a resolved path, is one of ROOTS or lies below one; a path that is not absolute is in none."""
-    within: bool = os.path.isabs(target) and any(os.path.commonpath((root, target)) == root for root in ROOTS)
-    return within
-
-
-def opened_at(descriptor: int) -> str:
-    """Where *descriptor* was opened, as the kernel names it (/proc/self/fd/N); empty when it cannot be read."""
-    try:
-        name: str = os.readlink(f"/proc/self/fd/{descriptor}")
-    except OSError:
-        name = ""
-    return name
-
-
-def open_kind(kind: Kind, path: str, linked: bool) -> int | None:
-    """A path-only descriptor of *path* when it is a *kind*, and, reached through a link, this user's own; None, with
-    nothing left open, when it is not one or cannot be opened.
-
-    With O_NOFOLLOW, a link swapped in after *path* was looked at opens as itself, which is no *kind*.
-    """
-    try:
-        descriptor: int = os.open(path, OPEN_PATH)
-    except OSError:
-        return None
-    found: int | None = descriptor
-    try:
-        opened: os.stat_result = os.fstat(descriptor)
-        if not kind.holds(opened.st_mode) or (linked and opened.st_uid != os.geteuid()):
-            found = None
-    except OSError:
-        found = None
-    if found is None:
-        os.close(descriptor)
-    return found
-
-
-def narrow(kind: Kind, path: str) -> bool:
-    """*path* set to *kind*'s mode through no link; False, named, when its mode could not be changed, or when it is a
-    link that leads outside ROOTS, which only a link swapped in after refuse_links looked can be."""
-    try:
-        linked: bool = stat.S_ISLNK(os.lstat(path).st_mode)
-    except OSError:
-        return True  # absent or out of reach: passed over, as [ -f ] and [ -d ] passed it
-    target: str | None = path
-    if linked:
-        try:
-            target = os.path.realpath(path, strict = True)
-        except OSError:
-            target = None
-        if target is not None and not within_roots(target):
-            print(f"persist-claude-state: {path} is a link that leads outside the persistent directory and ~/.claude; "
-                  "its mode is left as it is.")
-            return False
-    descriptor: int | None = None if target is None else open_kind(kind, target, linked)
-    # O_NOFOLLOW guards the last component alone: a parent swapped for a link since the check above leads the open
-    # elsewhere, so what was opened is checked again.
-    if descriptor is not None and linked and not within_roots(opened_at(descriptor)):
-        os.close(descriptor)
-        print(f"persist-claude-state: {path} is a link that leads outside the persistent directory and ~/.claude; "
-              "its mode is left as it is.")
-        return False
-    if descriptor is None:
-        if linked:
-            print(f"persist-claude-state: {path} is a link that leads to no {kind.value} of this user's own; "
-                  "its mode is left as it is.")
-        return True
-    narrowed: bool = True
-    try:
-        # fchmod refuses an O_PATH descriptor; a chmod through its /proc name changes exactly its inode.
-        if stat.S_IMODE(os.fstat(descriptor).st_mode) != kind.mode():
-            os.chmod(f"/proc/self/fd/{descriptor}", kind.mode())
-    except OSError as error:
-        # A failed chmod carries the kernel's errno; one without is named all the same, and the rest still tried.
-        reason: str = "" if error.errno is None else f" ({os.strerror(error.errno)})"
-        sys.stderr.write(f"persist-claude-state: cannot narrow {path}{reason}; its mode is left as it is.\n")
-        narrowed = False
-    finally:
-        os.close(descriptor)
-    return narrowed
-
-
-arguments: list[str] = sys.argv[3:]
-results: list[bool] = [narrow(Kind(arguments[index]), arguments[index + 1]) for index in range(0, len(arguments), 2)]
-sys.exit(0 if all(results) else 1)
-PY
+  /usr/bin/python3 -I -S -B "$HERE/narrow.py" "$PERSIST" "$CLAUDE_HOME" "$@"
 }
 
 # Each of the two directories must be one of this user's own, never a link:

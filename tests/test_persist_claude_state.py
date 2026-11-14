@@ -4,8 +4,9 @@ The script keeps Claude Code's conversations, memory and settings across
 Codespace rebuilds by moving an allowlist of ~/.claude entries onto the
 persistent /workspaces disk and linking them back (issue #141). These tests
 run the real script against a temporary home and a temporary persistent
-directory: each test copies the script beside a persist-directory file that
-names its own persistent directory, as the image does with /workspaces/.claude.
+directory: each test copies the script's directory (the script and its Python
+helpers) and rewrites its persist-directory file to name its own persistent
+directory, as the image's copy names /workspaces/.claude.
 """
 
 from __future__ import annotations
@@ -26,7 +27,6 @@ SOURCE = (
     / "development"
     / "scripts"
     / "persist-claude-state"
-    / "persist-claude-state.sh"
 )
 
 pytestmark = [
@@ -67,9 +67,8 @@ class Layout:
 @pytest.fixture
 def layout(tmp_path: Path) -> Layout:
     scripts = tmp_path / "scripts"
-    scripts.mkdir()
+    shutil.copytree(SOURCE, scripts, ignore=shutil.ignore_patterns("__pycache__"))
     script = scripts / "persist-claude-state.sh"
-    shutil.copy(SOURCE, script)
     persist = tmp_path / "workspaces" / ".claude"
     (scripts / "persist-directory").write_text(f"{persist}\n")
     home = tmp_path / "home"

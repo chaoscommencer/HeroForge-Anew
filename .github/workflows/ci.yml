@@ -118,6 +118,14 @@ jobs:
       - name: Check formatting with Black
         run: black --check src/ tests/
 
+      - name: Lint, format-check and type-check the devcontainer's Python helpers
+        # persist-claude-state's helpers run at every Codespace start, on
+        # Debian's system Python (3.11), outside src/; check them like src/.
+        run: |
+          ruff check .devcontainer/development/scripts/
+          black --check .devcontainer/development/scripts/
+          mypy --strict --python-version 3.11 .devcontainer/development/scripts/persist-claude-state/*.py
+
       - name: Run tests
         # Run under a virtual framebuffer (xvfb-run) so Qt has a real X display.
         # -a auto-picks a free server number; the tests then exercise the GUI
