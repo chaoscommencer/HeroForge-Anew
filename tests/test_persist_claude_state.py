@@ -238,6 +238,22 @@ def test_an_entry_holding_a_hard_link_is_left_out(
     assert (layout.claude / "projects").is_symlink()
 
 
+def test_a_hard_link_inside_the_same_tree_is_kept(layout: Layout) -> None:
+    seed_state(layout.claude)
+    history = layout.claude / "file-history" / "abc"
+    os.link(history / "v1", history / "v2")
+
+    result = layout.run("link")
+
+    assert result.returncode == 0, result.stderr
+    assert (layout.claude / "file-history").is_symlink()
+    persisted = layout.persist / "file-history" / "abc"
+    assert (persisted / "v1").read_text() == "checkpoint\n"
+    assert (persisted / "v2").read_text() == "checkpoint\n"
+    # A second start finds the same pair, now on the persistent disk, and keeps it.
+    assert layout.run("link").returncode == 0
+
+
 @pytest.mark.parametrize(
     "content",
     ["relative/path\n", "/\n", "/workspaces/../etc\n", "/a\n/b\n", ""],

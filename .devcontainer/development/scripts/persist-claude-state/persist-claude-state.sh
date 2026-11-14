@@ -60,7 +60,7 @@
 # No operation follows a link inside the persistent dir:
 #   - an allowlisted entry that is or holds, at any depth, a link or a
 #     special file (anything but a file, a directory or a link, or a file
-#     with a hard link), or a real ~/.claude
+#     with a hard link to a name outside its tree), or a real ~/.claude
 #     directory about to be copied in, or a ~/.claude/<name>.migrating an
 #     earlier start left, that holds one, is left out:
 #     nothing is copied, linked or narrowed through it, an earlier start's
@@ -188,8 +188,9 @@ one_of() {
 # an allowlisted directory, the ~/.claude/NAME.migrating an earlier start may
 # have left, is a link or holds one at any depth, or
 # is or holds a special file: anything but a file, a directory or a link, or
-# a file with a second name, a hard link, through which a write would reach
-# whatever else holds it.
+# a file with a hard link to a name outside that entry's tree, through which a
+# write would reach whatever else holds it.  Hard links between two names in
+# the same tree reach nothing else and are kept.
 # Otherwise the first of them that does is named, NAME joins SKIPPED, and 1:
 # the caller leaves NAME out, so nothing is copied, linked, moved or narrowed
 # through what was found, and every other entry goes on as usual.
@@ -216,8 +217,16 @@ refuse_links() {
       continue
     fi
     # Called as a condition, where set -e does not hold: a failure exits here.
-    found="$(find -P "$entry" \( -type l -o ! \( -type f -o -type d \) -o \( -type f -links +1 \) \) -print -quit)" \
+    found="$(find -P "$entry" \( -type l -o ! \( -type f -o -type d \) \) -print -quit)" \
       || stopped "$?" "look through $entry for links and special files" "make every directory in it readable"
+    # A file with more names (its link count) than the tree holds for it has
+    # a name outside the tree.  Each file with a hard link is printed as
+    # device:inode and link count, never by name, and counted.
+    if [ -z "$found" ]; then
+      found="$(find -P "$entry" -type f -links +1 -printf '%D:%i %n\n' \
+        | awk '{ names[$1]++; links[$1] = $2 } END { for (file in names) if (links[file] + 0 > names[file]) { print file; exit } }')" \
+        || stopped "$?" "look through $entry for hard links" "make every directory in it readable"
+    fi
     if [ -n "$found" ]; then
       named="$entry"
       if ! one_of "$1" "${DIRS[@]}" "${FILES[@]}"; then
