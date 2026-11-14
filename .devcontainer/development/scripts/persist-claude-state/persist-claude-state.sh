@@ -201,12 +201,10 @@ one_of() {
 # through what was found, and every other entry goes on as usual.
 # A link at ~/.claude/NAME itself is the one link() makes, never refused.  A
 # tree find cannot read all of stops the run rather than pass as clean, as
-# the copy into it would have.  Only the path the script built is named,
-# never the link or special file found; one built from a name export found
-# in the persistent dir, outside the allowlist, is named quoted, so no
-# control character in it reaches the terminal.
+# the copy into it would have.  Only the path the script built from an
+# allowlisted name is named, never the link or special file found.
 refuse_links() {
-  local entry found named
+  local entry found
   local -a entries=("$PERSIST/$1")
   if one_of "$1" "${DIRS[@]}" "${FILES[@]}"; then
     entries+=("$CLAUDE_HOME/$1")
@@ -233,11 +231,7 @@ refuse_links() {
         || stopped "$?" "look through $entry for hard links" "make every directory in it readable"
     fi
     if [ -n "$found" ]; then
-      named="$entry"
-      if ! one_of "$1" "${DIRS[@]}" "${FILES[@]}"; then
-        named="${entry@Q}"
-      fi
-      echo "persist-claude-state: $named is or holds a link or a special file, so it was left out and nothing was written through it; remove the link or special file, then restart the Codespace." >&2
+      echo "persist-claude-state: $entry is or holds a link or a special file, so it was left out and nothing was written through it; remove the link or special file, then restart the Codespace." >&2
       SKIPPED+=("$1")
       return 1
     fi
@@ -395,24 +389,26 @@ link() {
   fi
 }
 
-# One downloadable file of everything persisted (projects incl. memory,
-# file-history, settings) and nothing else: credentials never enter $PERSIST
-# (removed above), so a plain archive of it is safe to carry to a new
-# Codespace, where "link" restores it once it is unpacked to /workspaces/.claude.
-# An entry snapshot left out stays out of the archive too, so no link found
-# there is carried on.  The archive is written to a new file beside the path,
+# One downloadable file of the allowlisted state (projects incl. memory,
+# file-history, settings) and nothing else: only those names are archived, so
+# credentials (never in $PERSIST, removed above) and anything else in the
+# persistent dir stay out.  The archive is NOT free of secrets: transcripts
+# and tool results hold whatever a command printed (an `env`, a token, a
+# .env file read), and file-history holds copies of edited files.  Treat it
+# like the Codespace itself: keep it private, and delete it once restored.
+# In a new Codespace, unpack it into the persistent dir's parent and restart;
+# link picks it up.  An entry snapshot left out stays out of the archive too,
+# so no link found there is carried on, and the run ends with 1 after the
+# archive is written.  The archive is written to a new file beside the path,
 # then renamed over it: a link at the path is replaced, never written
 # through or changed, and an archive already there is still overwritten.  On
 # any failure the temporary file goes.  Owner-only from its first byte: made
 # under umask 077, and narrowed through no link before the rename, which also
 # holds where a default ACL on the directory widens what the umask leaves.
-# The excludes stay, and every top-level entry outside the allowlist goes
-# through refuse_links too, so one that is or holds
-# a link or a special file is left out of the archive the same way, with the
-# same line; tar takes the names literally, never as patterns.
-# tar's status 1, a file that changed as it was read (Claude Code writing
-# live), keeps the archive with a line saying so, and the run goes on; 2 and
-# above, a fatal error, fail the run, the temporary file going.
+# tar takes the names literally (--no-wildcards), ./-prefixed so none is read
+# as an option.  tar's status 1, a file that changed as it was read (Claude
+# Code writing live), keeps the archive with a line saying so, and the run
+# goes on; 2 and above, a fatal error, fail the run, the temporary file going.
 export_archive() {
   local out="${1:-/workspaces/claude-state-$(date -u +%Y%m%d-%H%M%S).tgz}"
   # The path as the tools below take it: a relative one ./-prefixed, so a
@@ -424,16 +420,13 @@ export_archive() {
   fi
   local temporary
   local archived=0
-  local entry name
-  local -a present
+  local base name
+  local -a members=()
   snapshot
-  shopt -s nullglob dotglob
-  present=("$PERSIST"/*)
-  shopt -u nullglob dotglob
-  for entry in "${present[@]}"; do
-    name="${entry##*/}"
-    if ! one_of "$name" "${DIRS[@]}" "${FILES[@]}" .credentials.json .claude.json backups; then
-      refuse_links "$name" || true
+  base="$(basename "$PERSIST")"
+  for name in "${DIRS[@]}" "${FILES[@]}"; do
+    if ! one_of "$name" "${SKIPPED[@]}" && [ -e "$PERSIST/$name" ]; then
+      members+=("./$base/$name")
     fi
   done
   umask 077
@@ -443,10 +436,10 @@ export_archive() {
   # its name: tar's compressor child can outlive a tar that failed, and one
   # that opened the name itself made the file again after the trap removed
   # it.  Writing to the descriptor it was handed, it reaches only the
-  # inode the trap unlinked.
+  # inode the trap unlinked.  The directory itself goes in without what it
+  # holds, then each allowlisted entry with everything below it.
   tar -C "$(dirname "$PERSIST")" -czf - --no-wildcards \
-      --exclude='.credentials.json' --exclude='.claude.json' --exclude='backups' \
-      "${SKIPPED[@]/#/--exclude=$(basename "$PERSIST")/}" "$(basename "$PERSIST")" > "$temporary" || archived=$?
+      --no-recursion "./$base" --recursion "${members[@]}" > "$temporary" || archived=$?
   if [ "$archived" -gt 1 ]; then
     exit "$archived"
   elif [ "$archived" -eq 1 ]; then
@@ -456,7 +449,11 @@ export_archive() {
   mv -T -- "$temporary" "$destination" \
     || stopped "$?" "rename the new archive over its path" "check that its directory is writable and holds no directory at that name"
   trap - EXIT
-  echo "exported $out"
+  if [ "${#SKIPPED[@]}" -ne 0 ]; then
+    echo "exported $out, without ${SKIPPED[*]} (left out above)"
+  else
+    echo "exported $out"
+  fi
 }
 case "${1:-link}" in
   snapshot) snapshot ;;

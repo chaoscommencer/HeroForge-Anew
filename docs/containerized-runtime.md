@@ -83,8 +83,9 @@ when the container is created and at every start (issue #141):
   `~/.claude.json`, `backups/`, `ide/`, sessions). A rebuild still asks you to
   sign in again, and no token is parked on the long-lived disk.
 - **Safeguards:** the script follows no link inside the persistent directory,
-  leaves out (and reports) any entry that holds a link, a hard link or a
-  special file, removes credential-shaped files it finds on the disk, and
+  leaves out (and reports) any entry that holds a link, a hard link to a file
+  outside it, or a special file, refuses a persistent directory or `~/.claude`
+  that is not your own, removes credential-shaped files it finds on the disk, and
   refuses to run as root. The copy that runs is the image's, root-owned and
   read-only under `/usr/local/libexec/heroforge-anew/`; editing the one in the
   repository takes a rebuild to apply.
@@ -94,11 +95,18 @@ when the container is created and at every start (issue #141):
 
   ```bash
   bash .devcontainer/development/scripts/persist-claude-state/persist-claude-state.sh export
-  # writes /workspaces/claude-state-<timestamp>.tgz (no credentials); download it,
-  # upload it to the new Codespace, then there:
+  # writes /workspaces/claude-state-<timestamp>.tgz: the allowlisted entries
+  # only, no credentials. Download it, upload it to the new Codespace, then there:
   tar -C /workspaces -xzf claude-state-<timestamp>.tgz
   bash /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/persist-claude-state.sh link
   ```
+
+  The archive is **not free of secrets**. Transcripts and tool results hold
+  whatever a command printed (an `env`, a token, a `.env` file it read), and
+  `file-history/` holds copies of files that were edited. Keep the archive
+  private, and delete it once it is restored. Claude Code itself deletes
+  transcripts older than `cleanupPeriodDays` (30 days by default), on the
+  persistent disk too.
 
 **First rebuild after adopting this:** a Codespace created before this change
 keeps its history only in the container. Run the repository's copy once

@@ -314,8 +314,46 @@ def test_export_archives_the_state_without_credentials(
     assert mode(archive) == 0o600
     with tarfile.open(archive) as tar:
         names = tar.getnames()
-    assert ".claude/projects/repo/session.jsonl" in names
+    assert "./.claude/projects/repo/session.jsonl" in names
     assert not any("credentials" in name or "backups" in name for name in names)
+
+
+def test_export_keeps_nested_names_and_only_the_allowlist(
+    layout: Layout, tmp_path: Path
+) -> None:
+    seed_state(layout.claude)
+    nested = layout.claude / "projects" / "-workspaces-backups"
+    nested.mkdir()
+    (nested / "session.jsonl").write_text("{}\n")
+    layout.persist.mkdir(parents=True)
+    (layout.persist / "stray.txt").write_text("not allowlisted\n")
+    (layout.persist / "stray-link").symlink_to(tmp_path)
+    archive = tmp_path / "state.tgz"
+
+    result = layout.run("export", str(archive))
+
+    assert result.returncode == 0, result.stderr
+    with tarfile.open(archive) as tar:
+        names = tar.getnames()
+    assert "./.claude/projects/-workspaces-backups/session.jsonl" in names
+    assert not any("stray" in name for name in names)
+
+
+def test_export_without_a_left_out_entry_says_so(
+    layout: Layout, tmp_path: Path
+) -> None:
+    seed_state(layout.claude)
+    (layout.claude / "projects" / "repo" / "sneaky").symlink_to(tmp_path)
+    archive = tmp_path / "state.tgz"
+
+    result = layout.run("export", str(archive))
+
+    assert result.returncode == 1
+    assert "without projects" in result.stdout
+    with tarfile.open(archive) as tar:
+        names = tar.getnames()
+    assert not any("/projects" in name for name in names)
+    assert "./.claude/file-history/abc/v1" in names
 
 
 def test_unknown_mode_is_rejected(layout: Layout) -> None:
