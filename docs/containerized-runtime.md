@@ -29,7 +29,8 @@ universal image and none of this applies.
 | Privileged | No; also `no-new-privileges`, all capabilities dropped except the few root needs for Codespaces setup, 4096-process and 6 GiB memory limits | Yes (Docker-in-Docker requires it) |
 | Containers | None | Docker CE, feature and engine pinned to exact versions |
 | GUI | `scripts/run-gui-local.sh` (plain processes) | `scripts/run-gui.sh` (Compose stack) |
-| sudo | None | None |
+| sudo | None | None, and `no-new-privileges` blocks setuid programs |
+| Root equivalent | None | **Yes**: `vscode` is in the `docker` group, which is equivalent to root on the Codespace VM |
 
 Both build [`.devcontainer/Dockerfile.devcontainer-default`](../.devcontainer/Dockerfile.devcontainer-default):
 the official devcontainers Python 3.12 image (pinned by digest) plus the Qt/X11
@@ -62,6 +63,8 @@ privileged container, which can take over the Codespace VM, and rootless Podman
 was tested and cannot start in an unprivileged container (creating its user
 namespace fails even with seccomp and AppArmor disabled). So container work lives
 only in the opt-in QA profile. Never point unattended agents at the QA profile.
+Treat a QA Codespace as short-lived: create it for a QA session, then delete it,
+rather than doing everyday work in it.
 
 Once the container is up you can immediately develop and test:
 

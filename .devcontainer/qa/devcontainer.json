@@ -33,6 +33,14 @@
     }
   },
 
+  // no-new-privileges still applies inside a privileged container: the
+  // remaining setuid programs (su, passwd, newgrp, gpasswd, mount, ...) cannot
+  // raise privileges. It does not change the larger risk above: membership of
+  // the `docker` group, which the feature grants `vscode`, is equivalent to root.
+  "runArgs": [
+    "--security-opt=no-new-privileges"
+  ],
+
   "containerEnv": {
     "PYTHONPATH": "${containerWorkspaceFolder}/src"
   },
