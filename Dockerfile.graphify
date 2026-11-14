@@ -20,13 +20,13 @@
 # stage; the final runner stage only ever COPYs and installs offline):
 #   1. base            — the shared, digest-pinned image + OCI/prune labels that
 #                        the other three stages derive from (labels inherited via FROM).
-#   2. python-builder  — installs graphifyy into an isolated pipx venv at
-#                        /opt/pipx, as a non-root user against the image's Python.
-#                        Network.
+#   2. python-builder  — installs graphifyy into an isolated virtualenv at
+#                        /opt/graphify, as a non-root user against the image's
+#                        Python, entirely from hash-locked files. Network.
 #   3. git-builder     — downloads git as .deb packages into /git-debs. Network.
 #                        Independent of python-builder, so BuildKit can run the
 #                        two builders in parallel.
-#   4. graphify-runner — copies /opt/pipx and the git .debs from the builders,
+#   4. graphify-runner — copies /opt/graphify and the git .debs from the builders,
 #                        installs git offline via dpkg, and builds the graph at
 #                        `docker run` time with networking severed.
 
@@ -79,81 +79,41 @@ LABEL org.opencontainers.image.title="HeroForge-Anew graphify builder" \
       org.opencontainers.image.base.name="docker.io/library/python:3.12-slim-bookworm"
 
 # =============================================================================
-# Stage 2 — python-builder: install graphifyy into an isolated pipx venv
+# Stage 2 — python-builder: install graphifyy into an isolated virtualenv
 # =============================================================================
 FROM base AS python-builder
 
-# pipx installs graphifyy into its OWN dedicated virtualenv and exposes only the
-# console scripts, keeping it and its deps out of the system site-packages. Fixed,
-# relocatable paths so the whole tree can be copied verbatim into the runner:
-#   PIPX_HOME   — where the app venv lives (/opt/pipx/venvs/graphifyy)
-#   PIPX_BIN_DIR— where the `graphify` shim symlinks are placed
-# PIPX_DEFAULT_PYTHON pins the venv to the IMAGE's interpreter (3.12 under
-# /usr/local), NOT some other python pipx might find. This matters because the
-# venv records an absolute interpreter path in its bin/python symlink and script
-# shebangs; building against /usr/local/bin/python means that path also exists in
-# the runner stage (same base image), so the relocated venv stays valid. (Letting
-# an apt-installed pipx pull in the system 3.11 would bake a /usr/bin/python3.11
-# path that the runner lacks, breaking every shim.)
+# graphifyy goes into its OWN virtualenv at /opt/graphify, so nothing lands in
+# the image's system site-packages, and the runner stage copies just that tree.
+# The venv is created with the IMAGE's interpreter (/usr/local/bin/python, 3.12),
+# so the interpreter path recorded in its scripts is valid in the runner stage,
+# which derives from the same base.
 #
-# PIP_NO_CACHE_DIR=1 makes the pip that pipx shells out to skip its download
-# cache, so no ~/.cache/pip is left in this builder layer (the modern equivalent
-# of the old `--no-cache-dir` flag, which can't be passed through `pipx install`
-# directly). The runner copies only /opt/pipx, so this only trims the builder.
-ENV PIPX_HOME=/opt/pipx \
-    PIPX_BIN_DIR=/opt/pipx/bin \
-    PIPX_DEFAULT_PYTHON=/usr/local/bin/python \
-    PIP_NO_CACHE_DIR=1
+# Every install is hash-pinned: --require-hashes makes pip refuse any wheel whose
+# sha256 does not match the committed lockfile, and --only-binary=:all: refuses
+# sdists so no package's build backend can run code at install time. Two steps,
+# both fully verified:
+#   1. Upgrade the venv's bundled pip to the hash-pinned one in
+#      requirements-pip.txt, so the installer itself is verified first.
+#   2. Install graphifyy and its whole dependency tree from
+#      requirements-graphifyy.txt.
+# (An earlier version used pipx, whose `pipx install graphifyy` resolved an
+# unpinned, unverified copy first and only then re-installed the hashed set. A
+# plain venv needs no such bootstrap, so every artifact is verified.)
+ENV GRAPHIFY_VENV=/opt/graphify
 
-# Create an unprivileged build user that owns the pipx tree, so pip and pipx run
-# as non-root. Besides being good hygiene, this is what removes pip's "Running
-# pip as the 'root' user ..." warning at the source rather than suppressing it.
+# Create an unprivileged build user that owns the venv, so pip runs as non-root.
+# Besides being good hygiene, this removes pip's "Running pip as the 'root'
+# user ..." warning at the source rather than suppressing it.
 RUN useradd --create-home --uid 1001 builder \
-    && mkdir -p /opt/pipx/bin \
-    && chown -R builder:builder /opt/pipx
+    && mkdir -p "${GRAPHIFY_VENV}" \
+    && chown builder:builder "${GRAPHIFY_VENV}"
 USER builder
 
-# Bootstrap pipx into the build user's site with pip (against the image's 3.12,
-# as non-root → no warning), then have pipx install graphifyy into /opt/pipx.
-# tree-sitter grammars ship as prebuilt wheels, so no compiler/sdist build step
-# is required. --no-cache-dir keeps pip's download cache out of every layer.
-#
-# Every install here is hash-pinned for supply-chain integrity: --require-hashes
-# makes pip refuse to install unless each downloaded wheel's sha256 matches a
-# digest recorded in the corresponding committed lockfile, consistent with the
-# digest-pinned base image. Each lockfile is generated from a one-line *.in
-# source with `pip-compile --generate-hashes` so Dependabot / CI can track and
-# update the pins automatically (CI's audit job also scans every requirements*.txt).
-# Every install also passes --only-binary=:all: so pip refuses sdists and no
-# package's build backend can execute arbitrary code at install time (the closest
-# equivalent to `npm --ignore-scripts`); it is forwarded into the pipx bootstrap
-# via --pip-args so even that throwaway resolve is wheels-only.
-#
-# Because --require-hashes is all-or-nothing — every requirement resolved in an
-# invocation must carry a hash — and a package named on the *command line* is
-# always treated as its own unpinned requirement (so pip rejects it under
-# --require-hashes), the four steps are:
-#   1. pip   — install a hash-pinned pip from requirements-pip.txt (the artifact
-#              that bootstraps everything else is verified first).
-#   2. pipx  — install a hash-pinned pipx (+ its deps) from requirements-pipx.txt.
-#   3. pipx install graphifyy — create the /opt/pipx venv and expose the
-#              `graphify`/`graphify-mcp` console scripts. This bootstrap resolve
-#              cannot itself be hash-checked (graphifyy is a command-line spec),
-#              but --pip-args='--only-binary=:all:' keeps it wheels-only (no sdist
-#              code executes), and step 4 immediately re-verifies the whole closure.
-#   4. pipx runpip graphifyy install --require-hashes -r requirements-graphifyy.txt
-#              --force-reinstall — re-install graphifyy AND its entire transitive
-#              tree *inside* that venv with every wheel cryptographically verified,
-#              overwriting whatever step 3 resolved. This is the actual integrity
-#              gate: a tampered or version-drifted artifact fails the build (pipx
-#              propagates pip's non-zero exit). runpip is pipx's supported way to
-#              run pip in an existing pipx venv, which is what lets a hashed
-#              -r file (rather than an unpinnable command-line spec) drive it.
-COPY requirements-pip.txt requirements-pipx.txt requirements-graphifyy.txt /tmp/
-RUN python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r /tmp/requirements-pip.txt \
-    && python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r /tmp/requirements-pipx.txt \
-    && python -m pipx install --pip-args='--only-binary=:all:' graphifyy \
-    && python -m pipx runpip graphifyy install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/requirements-graphifyy.txt --force-reinstall
+COPY requirements-pip.txt requirements-graphifyy.txt /tmp/
+RUN /usr/local/bin/python -m venv "${GRAPHIFY_VENV}" \
+    && "${GRAPHIFY_VENV}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/requirements-pip.txt \
+    && "${GRAPHIFY_VENV}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/requirements-graphifyy.txt
 
 # =============================================================================
 # Stage 3 — git-builder: download git as offline-installable .deb packages
@@ -187,15 +147,15 @@ COPY --from=git-builder /git-debs /tmp/git-debs
 RUN dpkg -i /tmp/git-debs/*.deb \
     && rm -rf /tmp/git-debs
 
-# Copy graphifyy's isolated pipx venv from python-builder. /opt/pipx holds the
-# dedicated virtualenv (with graphifyy + its deps) and the `graphify` shim under
-# /opt/pipx/bin; nothing was installed into this image's system site-packages.
-# The venv was built against /usr/local/bin/python (this same base image), so its
-# recorded interpreter path is valid here. Adding /opt/pipx/bin to PATH puts the
+# Copy graphifyy's isolated virtualenv from python-builder. /opt/graphify holds
+# graphifyy + its deps and the `graphify` console script under /opt/graphify/bin;
+# nothing was installed into this image's system site-packages. The venv was
+# built against /usr/local/bin/python (this same base image), so its recorded
+# interpreter path is valid here. Adding /opt/graphify/bin to PATH puts the
 # `graphify` command on PATH for any UID (the script runs this container as the
 # host user via --user), and the tree is world-readable as copied.
-COPY --from=python-builder /opt/pipx /opt/pipx
-ENV PATH=/opt/pipx/bin:$PATH
+COPY --from=python-builder /opt/graphify /opt/graphify
+ENV PATH=/opt/graphify/bin:$PATH
 
 # /src is where scripts/build-graph.sh bind-mounts the repository (read-only),
 # with the writable graphify-out/ output directory mounted over /src/graphify-out.

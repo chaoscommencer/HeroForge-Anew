@@ -4,6 +4,9 @@
 # repository. Each `updates` entry tells Dependabot which package manager to use
 # and which directory to scan. See:
 # https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Dependabot reads this file from the DEFAULT branch (master) only, and opens
+# its PRs against that branch.
 version: 2
 updates:
   # --- Python (pip) ---------------------------------------------------------
@@ -17,6 +20,12 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    # Wait 14 days after a release before proposing it, so a compromised or
+    # broken release is usually caught and pulled first. Security updates are
+    # NOT delayed: GitHub exempts them from cooldown, so a fix for a known
+    # vulnerability is proposed straight away.
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: "chore"
     labels:
@@ -30,6 +39,12 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    # Wait 14 days after a release before proposing it, so a compromised or
+    # broken release is usually caught and pulled first. Security updates are
+    # NOT delayed: GitHub exempts them from cooldown, so a fix for a known
+    # vulnerability is proposed straight away.
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: "chore"
     labels:
@@ -37,12 +52,20 @@ updates:
       - "github-actions"
 
   # --- Dev Containers -------------------------------------------------------
-  # Updates the features pinned in .devcontainer/devcontainer.json.
+  # Updates the features pinned in the devcontainer profiles (today only
+  # Docker-in-Docker, in .devcontainer/qa/devcontainer.json) together with the
+  # digests locked in the devcontainer-lock.json next to each profile.
   - package-ecosystem: "devcontainers"
     directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
+    # Wait 14 days after a release before proposing it, so a compromised or
+    # broken release is usually caught and pulled first. Security updates are
+    # NOT delayed: GitHub exempts them from cooldown, so a fix for a known
+    # vulnerability is proposed straight away.
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: "chore"
     labels:
@@ -59,21 +82,21 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+    # Wait 14 days after a release before proposing it, so a compromised or
+    # broken release is usually caught and pulled first. Security updates are
+    # NOT delayed: GitHub exempts them from cooldown, so a fix for a known
+    # vulnerability is proposed straight away.
+    cooldown:
+      default-days: 14
     commit-message:
       prefix: "chore"
     labels:
       - "dependencies"
       - "docker"
 
-  # --- Docker (development container image) ----------------------------------
-  # Tracks the base image pinned in .devcontainer/Dockerfile.
-  - package-ecosystem: "docker"
-    directory: "/.devcontainer"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    commit-message:
-      prefix: "chore"
-    labels:
-      - "dependencies"
-      - "docker"
+  # The devcontainer base image (.devcontainer/Dockerfile.devcontainer-default)
+  # is deliberately NOT tracked here. .github/workflows/update-devcontainer.yml
+  # owns that pin: it stays on the current image major and Python minor, never
+  # proposes a downgrade, and applies the 14-day rule by MCR's listing date.
+  # A Dependabot entry for /.devcontainer would open competing PRs for the same
+  # FROM line under different rules.

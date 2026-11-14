@@ -9,8 +9,16 @@
 #
 # It layers the Qt runtime libraries on top of the official devcontainers Python
 # image so that `pytest` can import PyQt6 for real (instead of skipping the
-# widget tests). The viewable QA desktop now lives entirely in the Compose
-# `display` sidecar, so no X11 client utilities (xhost) are needed here.
+# widget tests), plus the desktop tools scripts/run-gui-local.sh uses to show the
+# GUI without a container engine.
+#
+# Both devcontainer profiles build this image:
+#   * .devcontainer/devcontainer.json    — the default, UNPRIVILEGED profile.
+#   * .devcontainer/qa/devcontainer.json — opt-in, adds Docker-in-Docker for the
+#     Compose QA stack (privileged).
+# Hardening that applies to both: no sudo for the `vscode` user (removed at the
+# end of this file) and a root-owned, read-only Python environment at /opt/venv,
+# so code running as `vscode` cannot become root or tamper with installed tools.
 
 # Pinned to a specific digest for reproducible, tamper-evident builds. The
 # human-readable tag (3-3.12-bookworm) is kept alongside the digest for clarity;
@@ -58,47 +66,37 @@ RUN export DEBIAN_FRONTEND=noninteractive \
         libsm6 \
         libice6
 
-# Whether to bake the rootless-Podman runtime packages into the image. Set by
-# devcontainer.json (build.args.INSTALL_PODMAN_DEPS) and overridable per build
-# with `--build-arg INSTALL_PODMAN_DEPS=false`. Front-loading these here (rather
-# than apt-installing them at postCreate via scripts/setup-podman.sh) bakes them
-# into a cached layer, so container creation is faster and does not depend on a
-# network fetch — and the QA stack's preferred Podman engine works on first boot
-# even if the optional setup-podman.sh step is skipped or fails. Set to "false"
-# to keep the image lean when only the Docker-in-Docker QA path will be used;
-# scripts/setup-podman.sh still installs whatever is missing at postCreate.
-ARG INSTALL_PODMAN_DEPS=true
-
-# Rootless Podman + its runtime prerequisites (only when INSTALL_PODMAN_DEPS is
-# true). These mirror the apt packages in scripts/setup-podman.sh section 1:
-#   * podman           — the container engine itself.
-#   * uidmap           — newuidmap/newgidmap setuid helpers rootless Podman needs.
-#   * fuse-overlayfs   — nested-friendly storage driver (kernel overlay is
-#                        usually unavailable inside the dev container).
-#   * slirp4netns      — rootless user-mode networking.
-#   * crun             — OCI runtime that starts containers gracefully when no
-#                        cgroup v2 controllers are delegated (the default runc
-#                        aborts). See setup-podman.sh section 4.
-#   * catatonit        — container-init binary that `init: true` needs; bookworm
-#                        installs it at /usr/libexec/podman/catatonit (Podman's
-#                        default init_path). See setup-podman.sh section 1.
-# The podman-compose CLI (a pure-Python tool) is baked into the venv further
-# down, also gated by INSTALL_PODMAN_DEPS. Only genuinely per-user/identity
-# state (subuid/subgid ranges, storage.conf, containers.conf) is deliberately
-# NOT done here — it does not belong in a shared image layer, so it stays in
-# scripts/setup-podman.sh, whose `command -v` guards make the package installs
-# above harmless no-ops when already present.
-RUN if [ "${INSTALL_PODMAN_DEPS}" = "true" ]; then \
+# Desktop tools for scripts/run-gui-local.sh (the default profile's GUI): the
+# same stack the Compose `display` sidecar runs (see Dockerfile.display), started
+# as plain processes. Rootless Podman was evaluated for this instead and cannot
+# work in an unprivileged container: creating its user namespace fails under the
+# default seccomp profile, and even with seccomp and AppArmor disabled newuidmap
+# cannot write the UID map. The QA profile sets INSTALL_DISPLAY=false because its
+# desktop runs in the Compose sidecar.
+ARG INSTALL_DISPLAY=true
+RUN if [ "${INSTALL_DISPLAY}" = "true" ]; then \
         export DEBIAN_FRONTEND=noninteractive \
         && apt-get install --no-install-recommends -y \
-            podman \
-            uidmap \
-            fuse-overlayfs \
-            slirp4netns \
-            crun \
-            catatonit; \
-    else \
-        echo "INSTALL_PODMAN_DEPS=${INSTALL_PODMAN_DEPS}: skipping Podman runtime packages (scripts/setup-podman.sh will install them at postCreate if needed)."; \
+            xvfb \
+            fluxbox \
+            x11vnc \
+            novnc \
+            websockify \
+            x11-utils \
+            xauth \
+            openssl \
+        && printf '%s\n' \
+            '#!/bin/sh' \
+            '# Shim (see Dockerfile.display): paint a solid background instead of' \
+            '# fbsetbg'"'"'s blocking "no wallpaper app" dialog. Ignore all arguments.' \
+            'exec fbsetroot -solid black' \
+            > /usr/bin/fbsetbg \
+        && chmod 0755 /usr/bin/fbsetbg \
+        && printf '%s\n' \
+            '<!doctype html>' \
+            '<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true">' \
+            > /usr/share/novnc/index.html \
+        && chmod 0644 /usr/share/novnc/index.html; \
     fi
 
 # Clean the apt cache and drop the package lists once, at the very end, so every
@@ -106,71 +104,39 @@ RUN if [ "${INSTALL_PODMAN_DEPS}" = "true" ]; then \
 RUN apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# --- Python dependencies (baked into a vscode-owned virtual environment) ------
+# --- Python dependencies (baked into a root-owned virtual environment) --------
 #
-# Install the hash-pinned third-party dependencies into a virtual environment at
-# /opt/venv so the dev environment is ready on first boot WITHOUT a postCreate
-# network fetch. Two deliberate choices make this robust:
-#   * /opt/venv lives OUTSIDE /home/vscode and /workspaces, so it cannot be
-#     shadowed by a future home-directory or workspace volume mount. A baked
-#     `pip install --user` into ~/.local would silently vanish behind such a
-#     mount; a venv at a system path does not.
-#   * the venv is created and owned by the unprivileged `vscode` user, and the
-#     installs run as that user (via a `USER vscode` stanza), so nothing lands in
-#     root-owned paths that the runtime user could not later write to.
-# The editable project itself (`-e .`) is deliberately NOT installed here: it
-# links to the workspace checkout, which is bind-mounted at runtime and absent
-# during `docker build`. It stays in devcontainer.json's postCreateCommand, which
-# targets this same venv (now first on PATH).
+# The hash-pinned third-party dependencies go into a virtual environment at
+# /opt/venv, so the dev environment is ready on first boot without a network
+# fetch. /opt/venv lives outside /home/vscode and /workspaces, so no home or
+# workspace mount can shadow it.
+#
+# The venv is owned by root and not writable by anyone else, so a compromised
+# tool or dependency running as `vscode` cannot replace pytest, black, ruff or
+# any library that later runs with the developer's credentials. Because of that
+# the project itself is not pip-installed in editable mode; both devcontainer
+# profiles set PYTHONPATH to <workspace>/src instead (pytest already uses
+# `pythonpath = ["src"]`). Run the app with `python -m heroforge`.
 #
 # CI-PARITY NOTE: .github/workflows/ci.yml and copilot-setup-steps.yml install
-# the SAME hash-pinned requirements with `pip install --user` (no venv), because
-# their runners are throwaway. This image uses a venv instead, but installs the
-# identical pinned wheels — so the two must be bumped together when the pins in
-# requirements-pip.txt / requirements-dev.txt change. --only-binary=:all: refuses
-# sdists so no package's build backend runs arbitrary code at install time.
+# the SAME hash-pinned requirements with `pip install --user`, so the two must be
+# bumped together when the pins change. --only-binary=:all: refuses sdists so no
+# package's build backend runs arbitrary code at install time.
 ARG VENV_PATH=/opt/venv
 ENV VENV_PATH=${VENV_PATH}
-# Put the venv first on PATH so `python`/`pip` resolve to it in non-login shells
-# (the postCreate command, `docker exec`, VS Code's integrated terminal task
-# runner). NOTE: this ENV does NOT win in a *login* shell — the base image's
-# /etc/profile.d/00-restore-env.sh re-prepends the system Python
-# (/usr/local/python/current/bin) ahead of $PATH, pushing the venv behind it. The
-# 99-venv-path.sh profile.d snippet written below restores the venv to the front
-# for login shells too, so every entry path lands on /opt/venv consistently.
+# Put the venv first on PATH in non-login shells (postCreate, `docker exec`,
+# VS Code tasks). The 99-venv-path.sh snippet below does the same for login
+# shells, where the base image's 00-restore-env.sh would otherwise put the
+# system Python first.
 ENV PATH="${VENV_PATH}/bin:${PATH}"
 
-# The pip inputs baked in, all hash-pinned and living in the build context (not
-# excluded by .dockerignore):
-#   * requirements-pip.txt          — the verified bootstrap pip.
-#   * requirements-dev.txt          — the hash-pinned dev environment.
-#   * requirements-podman-compose.txt — the podman-compose CLI, installed into
-#     this same venv ONLY when INSTALL_PODMAN_DEPS=true (it pairs with the
-#     rootless-Podman apt packages above). Its deps (pyyaml, python-dotenv) are
-#     absent from requirements-dev.txt, so co-locating it in /opt/venv raises no
-#     version conflict, and the venv already isolates it from the system Python
-#     (the original isolation goal of scripts/setup-podman.sh's pipx path). This
-#     replaces that script's postCreate install; the script keeps a self-skipping
-#     fallback for standalone (non-devcontainer) use.
-#
-# The installs run as the unprivileged `vscode` user via a `USER vscode` stanza
-# (the idiomatic Docker way) rather than `su vscode -c "..."`: there is no nested
-# shell string to hand-quote, the steps are `&&`-chained so a failed install
-# aborts the build natively (no `set -e` needed), and `COPY --chown` plus a
-# pre-created venv dir give correct ownership at copy/create time without a
-# recursive `chown -R`. `USER root` is restored afterwards so the remaining build
-# steps (and the final image, per devcontainer.json's `remoteUser`) run as root.
-RUN mkdir -p "${VENV_PATH}" && chown vscode:vscode "${VENV_PATH}"
-COPY --chown=vscode:vscode requirements-pip.txt requirements-dev.txt requirements-podman-compose.txt /tmp/reqs/
-USER vscode
-RUN python -m venv "${VENV_PATH}" \
-    && "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-pip.txt \
-    && "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-dev.txt \
-    && if [ "${INSTALL_PODMAN_DEPS}" = "true" ]; then \
-           "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-podman-compose.txt; \
-       fi
-USER root
-RUN rm -rf /tmp/reqs
+COPY requirements-pip.txt requirements-dev.txt /tmp/reqs/
+RUN PIP_ROOT_USER_ACTION=ignore python -m venv "${VENV_PATH}" \
+    && PIP_ROOT_USER_ACTION=ignore "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-pip.txt \
+    && PIP_ROOT_USER_ACTION=ignore "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-dev.txt \
+    && chown -R root:root "${VENV_PATH}" \
+    && chmod -R go-w "${VENV_PATH}" \
+    && rm -rf /tmp/reqs
 
 # Make the venv win in *login* shells too. The base image's
 # /etc/profile.d/00-restore-env.sh re-prepends the system Python to $PATH, so an
@@ -180,19 +146,92 @@ RUN rm -rf /tmp/reqs
 # /opt/venv in login shells, non-login shells and VS Code alike. The snippet is
 # written via a heredoc so the file reads exactly as generated; ${VENV_PATH} is
 # expanded now (build time) while \${PATH} stays literal (evaluated at login).
+#
+# It must MOVE the entry, not just add it when missing: the image's ENV PATH
+# already contains the venv, so after 00-restore-env.sh prepends the system
+# Python the venv is still present, only further down, and a "prepend unless
+# present" test would leave `python` pointing at /usr/local/bin/python.
 RUN cat > /etc/profile.d/99-venv-path.sh <<EOF && chmod 0644 /etc/profile.d/99-venv-path.sh
 # Prefer the baked HeroForge dev virtualenv (see Dockerfile.devcontainer-default).
 # The base image's 00-restore-env.sh puts the system Python first in login
-# shells; move the venv back to the front. The colon-wrapped \`case\` is an
-# idempotent membership test: it matches when ":\${PATH}:" already contains the
-# entry ":${VENV_PATH}/bin:" as a whole element (the wildcards on either side let
-# it sit anywhere in PATH), so re-sourcing never stacks duplicate entries. The
-# -d test makes the prepend a no-op if the venv is ever missing.
+# shells, while the venv may still sit further down PATH. Remove every copy of
+# the venv entry, then put one copy first, so the result is the same however
+# often this file is sourced. POSIX sh only: profile.d is also read by dash.
+# The -d test makes this a no-op if the venv is ever missing.
 if [ -d "${VENV_PATH}/bin" ]; then
-    case ":\${PATH}:" in
-        *":${VENV_PATH}/bin:"*) ;;
-        *) export PATH="${VENV_PATH}/bin:\${PATH}" ;;
-    esac
+    _hf_path=":\${PATH}:"
+    while :; do
+        case "\${_hf_path}" in
+            *":${VENV_PATH}/bin:"*)
+                _hf_path="\${_hf_path%%:${VENV_PATH}/bin:*}:\${_hf_path#*:${VENV_PATH}/bin:}"
+                ;;
+            *) break ;;
+        esac
+    done
+    _hf_path="\${_hf_path#:}"
+    _hf_path="\${_hf_path%:}"
+    export PATH="${VENV_PATH}/bin\${_hf_path:+:\${_hf_path}}"
+    unset _hf_path
 fi
 EOF
 
+# --- Base-image tool directories ----------------------------------------------
+# The base image installs its pipx tools under /usr/local/py-utils and nvm under
+# /usr/local/share/nvm, both group-writable (2775) by the `pipx` and `nvm`
+# groups, which `vscode` belongs to. /usr/local/py-utils/bin sits on PATH ahead
+# of /usr/local/bin and /usr/bin, so `vscode` could otherwise plant a `git`,
+# `ssh` or `openssl` there that every later call (VS Code's git integration
+# included) would run with the Codespace's credentials. Make both trees owned
+# by root and writable by nobody else, and take `vscode` out of those groups.
+RUN for dir in /usr/local/py-utils /usr/local/share/nvm; do \
+        if [ -e "$dir" ]; then chown -R root:root "$dir" && chmod -R go-w "$dir"; fi; \
+    done \
+    && for group in pipx nvm; do \
+        if id -nG vscode | tr ' ' '\n' | grep -qx "$group"; then gpasswd -d vscode "$group"; fi; \
+    done
+
+# --- No sudo -------------------------------------------------------------------
+# The devcontainers base image gives `vscode` passwordless sudo. Remove it, so
+# nothing running as the editor user (an extension, a dependency, an AI agent)
+# can become root. Every root step already happens above at build time. The
+# default profile also runs with --security-opt=no-new-privileges, which stops
+# any setuid program from raising privileges; removing the rule keeps this true
+# in the QA profile and wherever the image is started without that flag.
+RUN rm -f /etc/sudoers.d/vscode \
+    && if getent group sudo | grep -qw vscode; then gpasswd -d vscode sudo; fi
+
+# --- Guard: vscode cannot change what runs from PATH ---------------------------
+# Fail the build if `vscode` could write (or create) any directory on PATH, in
+# both the image's PATH and a login shell's, or any system-wide login script.
+# This keeps a base-image bump from quietly bringing back a writable tool
+# directory like the ones fixed above. runuser applies vscode's real group
+# memberships, so group-writable entries are caught too. Entries under vscode's
+# own home (e.g. ~/.local/bin) are skipped: the home is writable by design.
+RUN runuser -u vscode -- sh -eu <<'CHECK'
+status=0
+# True when the current user could write the path, or create it because its
+# nearest existing ancestor is writable.
+can_write() {
+    target=$1
+    while [ ! -e "$target" ]; do target=$(dirname "$target"); done
+    [ -w "$target" ]
+}
+login_path=$(sh -lc 'printf %s "$PATH"')
+old_ifs=$IFS
+IFS=:
+for dir in $PATH $login_path; do
+    case "$dir" in "" | "$HOME" | "$HOME"/*) continue ;; esac
+    if can_write "$dir"; then
+        echo "error: vscode can write PATH entry $dir" >&2
+        status=1
+    fi
+done
+IFS=$old_ifs
+for file in /etc/profile /etc/bash.bashrc /etc/environment /etc/profile.d /etc/profile.d/*; do
+    if [ -e "$file" ] && [ -w "$file" ]; then
+        echo "error: vscode can write $file" >&2
+        status=1
+    fi
+done
+exit "$status"
+CHECK

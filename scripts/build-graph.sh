@@ -8,7 +8,7 @@
 # dev container's Python environment, and the graph-building run is executed with
 # NO network access (`--network none`) in a disposable container that mounts the
 # repository READ-ONLY. Only the image build touches the network (to install the
-# hash-pinned graphifyy into an isolated pipx venv); the actual source-tree walk
+# hash-pinned graphifyy into an isolated virtualenv); the actual source-tree walk
 # cannot phone home. See Dockerfile.graphify.
 #
 # The repository is mounted read-only at /src and the writable output directory

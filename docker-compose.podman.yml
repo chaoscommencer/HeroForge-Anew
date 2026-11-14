@@ -2,8 +2,9 @@
 #
 # scripts/run-gui.sh layers this file on top of docker-compose.yml (via a second
 # `-f`) ONLY when the detected engine is Podman. It papers over two behavioural
-# gaps in the rootless Podman that Debian bookworm ships (4.3.1), which the
-# devcontainer's scripts/setup-podman.sh installs:
+# gaps in the rootless Podman that Debian bookworm ships (4.3.1), which
+# scripts/setup-podman.sh installs on a machine you administer (the devcontainer
+# profiles do not include Podman):
 #
 #   * podman-compose on podman < 4.4 cannot evaluate
 #     `depends_on: condition: service_healthy`; it prints

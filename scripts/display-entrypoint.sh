@@ -23,6 +23,14 @@ set -euo pipefail
 : "${SCREEN_GEOMETRY:=1920x1080}"
 : "${NOVNC_PORT:=6080}"
 : "${VNC_PORT:=5900}"
+# Address websockify listens on. Empty (the default) means all interfaces, which
+# is right inside the display container, whose port Compose publishes on
+# 127.0.0.1 only. scripts/run-gui-local.sh runs this script directly in the
+# devcontainer and sets it to 127.0.0.1, so noVNC is reachable only through
+# VS Code's port forwarding.
+: "${NOVNC_HOST:=}"
+# noVNC web client directory (the Debian `novnc` package's location).
+: "${NOVNC_WEB:=/usr/share/novnc}"
 
 # Resolve the VNC password from the Compose secret file if present, otherwise
 # from the VNC_PASSWORD environment variable (plain `docker run` fallback). The
@@ -37,14 +45,13 @@ fi
 
 if [[ -z "${VNC_PASSWORD:-}" ]]; then
     echo "error: VNC_PASSWORD is not set — refusing to start a passwordless desktop." >&2
-    echo "       Copy .env.example to .env and set a strong VNC_PASSWORD." >&2
+    echo "       Start the stack with scripts/run-gui.sh, which supplies a one-time password." >&2
     exit 1
 fi
 
 if [[ "${VNC_PASSWORD}" == "change-me" ]]; then
     echo "error: VNC_PASSWORD is still the placeholder 'change-me' — refusing to start." >&2
-    echo "       Set a strong VNC_PASSWORD in .env (or run scripts/run-gui.sh," >&2
-    echo "       which generates one automatically)." >&2
+    echo "       Start the stack with scripts/run-gui.sh, which supplies a one-time password." >&2
     exit 1
 fi
 
@@ -102,7 +109,9 @@ trap shutdown EXIT INT TERM
 # lock blocks the first, which then fails with "timeout in locking authority
 # file". Capturing nlist's output first lets each xauth invocation take and
 # release the lock in turn.
-export XAUTHORITY="/tmp/.X11-unix/.Xauthority"
+# XAUTHORITY can be overridden: scripts/run-gui-local.sh points it at a private
+# per-run directory, since there is no shared socket volume outside Compose.
+export XAUTHORITY="${XAUTHORITY:-/tmp/.X11-unix/.Xauthority}"
 : > "${XAUTHORITY}"
 # 0600 while the cookie is being written: xauth `add` and `nmerge` below both
 # REWRITE the authority file in place, so the owner needs write permission here
@@ -143,15 +152,28 @@ fi
 # Dockerfile.display), so no dialog appears and no runtime workaround is needed.
 fluxbox >/dev/null 2>&1 &
 
-# Store the VNC password in a private file, then export the display over VNC
-# bound to loopback only — the sole client is the in-container websockify bridge.
-vnc_pass_file="${HOME}/.vnc/passwd"
+# Hand the VNC password to x11vnc through a one-shot file rather than its
+# command line (where `x11vnc -storepasswd <pw>` or `-passwd <pw>` would expose
+# it to anyone who can list processes). The printf builtin writes the file
+# without spawning a process; x11vnc reads the first line and, because of the
+# `rm:` prefix, deletes this copy straight away. The file sits on the private
+# /home/app tmpfs (owner-only, mode 0700) and is created 0600. In the Compose
+# stack the original secret stays mounted read-only at /run/secrets/vnc_password
+# for the container's lifetime; docs/containerized-runtime.md explains why that
+# is accepted.
+vnc_pass_file="${HOME}/.vnc/passwd-once"
 mkdir -p "$(dirname "${vnc_pass_file}")"
-x11vnc -storepasswd "${VNC_PASSWORD}" "${vnc_pass_file}" >/dev/null 2>&1
+(
+    umask 077
+    printf '%s\n' "${VNC_PASSWORD}" >"${vnc_pass_file}"
+)
+chmod 600 "${vnc_pass_file}"
+unset VNC_PASSWORD
 # Export the Xvfb display over VNC. Flags, in order:
 #   -display "${DISPLAY}"      attach to the Xvfb screen (:99) the rest of the
 #                              stack draws into.
-#   -rfbauth "${vnc_pass_file}"  require the stored VNC password to connect.
+#   -passwdfile rm:"${vnc_pass_file}"  require the VNC password read from that
+#                              file, then delete the file.
 #   -localhost                 bind the listener to 127.0.0.1 only, so the sole
 #                              client is the in-container websockify bridge; the
 #                              VNC port is never exposed outside the container.
@@ -190,17 +212,22 @@ x11vnc -storepasswd "${VNC_PASSWORD}" "${vnc_pass_file}" >/dev/null 2>&1
 #                              power-manage in a headless container, so we skip
 #                              DPMS entirely and suppress that benign-but-noisy line.
 #   -quiet                     trim routine per-connection chatter from the log.
-x11vnc -display "${DISPLAY}" -rfbauth "${vnc_pass_file}" \
+x11vnc -display "${DISPLAY}" -passwdfile "rm:${vnc_pass_file}" \
     -localhost -rfbport "${VNC_PORT}" -forever -noshared -noxdamage -nodpms -quiet &
 
 # Generate a self-signed certificate and key for TLS encryption of the noVNC
 # WebSocket. The cert is loopback-only (CN=localhost), so self-signed is
-# appropriate here. The key is written 0600 (readable only by this user).
+# appropriate here. openssl runs under umask 077, so the key is created 0600
+# (readable only by this user) rather than briefly getting the default umask's
+# wider mode before a later chmod; the chmod stays as a backstop.
 cert_file="${HOME}/novnc-cert.pem"
 key_file="${HOME}/novnc-key.pem"
-openssl req -x509 -newkey rsa:2048 -nodes \
-    -keyout "${key_file}" -out "${cert_file}" \
-    -days 3650 -subj '/CN=localhost' >/dev/null 2>&1
+(
+    umask 077
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "${key_file}" -out "${cert_file}" \
+        -days 3650 -subj '/CN=localhost' >/dev/null 2>&1
+)
 chmod 0600 "${cert_file}" "${key_file}"
 
 # Serve the noVNC web client and bridge its WebSocket traffic to x11vnc over TLS.
@@ -209,7 +236,7 @@ chmod 0600 "${cert_file}" "${key_file}"
 # websockify exits or a signal fires the trap.
 # The --cert, --key, and --ssl-only flags ensure WebSocket connections are
 # encrypted (wss:// only); plaintext ws:// is refused.
-websockify --web=/usr/share/novnc --cert="${cert_file}" --key="${key_file}" --ssl-only \
-    "${NOVNC_PORT}" "localhost:${VNC_PORT}" &
+websockify --web="${NOVNC_WEB}" --cert="${cert_file}" --key="${key_file}" --ssl-only \
+    "${NOVNC_HOST:+${NOVNC_HOST}:}${NOVNC_PORT}" "localhost:${VNC_PORT}" &
 websockify_pid=$!
 wait "${websockify_pid}"

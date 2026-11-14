@@ -1,31 +1,25 @@
 #!/usr/bin/env bash
 #
-# Set up rootless Podman (and podman-compose) inside the dev container so the QA
-# stack can be run with Podman instead of docker-in-docker. scripts/run-gui.sh
-# already prefers Podman when present (podman-compose -> podman compose ->
-# docker compose), so once this script has run, `scripts/run-gui.sh` uses it
-# automatically — no flags needed.
+# Set up rootless Podman (and podman-compose) on a Linux machine you administer,
+# so the QA stack can run rootless. scripts/run-gui.sh prefers Podman when present
+# (podman-compose -> podman compose -> docker compose), so once this script has
+# run, `scripts/run-gui.sh` uses it automatically — no flags needed.
 #
-# Why a script rather than only a devcontainer Feature: running rootless Podman
-# *nested* inside a container needs a few prerequisites a stock install does not
-# guarantee — subordinate UID/GID ranges for the remote user, the fuse-overlayfs
-# storage driver (the kernel `overlay` driver is usually unavailable nested), and
-# slirp4netns for user-mode networking. This script installs and configures all
-# of them idempotently; re-running it is safe.
+# It installs and configures, idempotently: the Podman packages, subordinate
+# UID/GID ranges for the user, the fuse-overlayfs storage driver where the kernel
+# `overlay` driver is unavailable to rootless users, slirp4netns for user-mode
+# networking, crun, and podman-compose. Re-running it is safe.
 #
-# Caveats (documented in docs/containerized-runtime.md):
-#   * This is rootless Podman nested inside a privileged docker-in-docker dev
-#     container — workable for QA, but expect occasional storage/cgroup friction.
-#     On a real host (no DinD layer) rootless Podman is cleaner.
-#   * If fuse-overlayfs cannot be used (no /dev/fuse), Podman falls back to the
-#     slow `vfs` driver; this script configures fuse-overlayfs when available.
+# If fuse-overlayfs cannot be used (no /dev/fuse), Podman falls back to the slow
+# `vfs` driver. See docs/containerized-runtime.md.
 #
 # Usage:
 #   scripts/setup-podman.sh          # install + configure rootless Podman
 #   scripts/setup-podman.sh --check  # report whether Podman is set up, change nothing
 #
-# Requires sudo for the apt install step (the `vscode` dev-container user has
-# passwordless sudo).
+# Requires sudo. The devcontainer profiles do not include Podman (rootless
+# Podman cannot run in the unprivileged default profile) and give no sudo, so
+# run this on a machine you administer.
 
 set -euo pipefail
 
@@ -145,7 +139,7 @@ else
 fi
 
 # --- 4. Select crun as the OCI runtime ---------------------------------------
-# Nested rootless Podman in this dev container cannot create per-container cgroup
+# Rootless Podman often cannot create per-container cgroup
 # v2 subtrees: /sys/fs/cgroup is root-owned and not delegated to the remote user.
 # With the default `runc`, starting any container then fails with:
 #   "rootless needs no limits + no cgrouppath when no permission is granted for
@@ -172,31 +166,32 @@ else
 fi
 
 # --- 5. Install podman-compose (fallback) -----------------------------------
-# In the dev container this is already baked into the /opt/venv virtualenv at
-# image-build time (.devcontainer/Dockerfile.devcontainer-default, gated by the
-# INSTALL_PODMAN_DEPS build arg), so the `command -v` check below short-circuits
-# and this block does nothing. It remains as a fallback for STANDALONE use — when
-# the script is run on a bare host (no devcontainer image) or after a build with
-# INSTALL_PODMAN_DEPS=false. When it does run, the install is hash-pinned from
-# requirements-podman-compose.txt (--require-hashes), skips pip's download cache
+# Installed only when podman-compose is not already on PATH. The install is
+# hash-pinned from requirements-podman-compose.txt (--require-hashes), skips pip's download cache
 # (--no-cache-dir) and refuses sdists (--only-binary=:all:) so no build backend
 # runs at install time, matching the supply-chain posture used elsewhere in the
-# repo. pipx (preferred for isolation) cannot consume a hashed `-r` file via
-# `pipx install`, so we create the venv and then re-install the whole closure
-# with `pipx runpip ... --require-hashes`, the same two-step integrity gate as
-# Dockerfile.graphify.
+# repo. It goes into its own virtualenv (isolated from the system Python), and
+# both installs into that venv are verified: first the hash-pinned pip from
+# requirements-pip.txt, then podman-compose and its dependencies. (pipx was used
+# before, but `pipx install podman-compose` resolves an unpinned, unverified copy
+# first, so a plain venv is used instead.) The console script is linked into
+# ~/.local/bin.
+REQ_PIP="${REPO_ROOT}/requirements-pip.txt"
 REQ_PODMAN_COMPOSE="${REPO_ROOT}/requirements-podman-compose.txt"
+PODMAN_COMPOSE_VENV="${XDG_DATA_HOME:-${HOME}/.local/share}/heroforge/podman-compose-venv"
 if ! command -v podman-compose >/dev/null 2>&1; then
-    if command -v pipx >/dev/null 2>&1; then
-        echo "Installing podman-compose via pipx (hash-pinned) ..."
-        pipx install --pip-args='--only-binary=:all:' podman-compose
-        pipx runpip podman-compose install --no-cache-dir --only-binary=:all: \
-            --require-hashes -r "${REQ_PODMAN_COMPOSE}" --force-reinstall
-    else
-        echo "Installing podman-compose via pip (--user, hash-pinned) ..."
-        python3 -m pip install --user --no-cache-dir --only-binary=:all: \
-            --require-hashes -r "${REQ_PODMAN_COMPOSE}"
-    fi
+    echo "Installing podman-compose into ${PODMAN_COMPOSE_VENV} (hash-pinned) ..."
+    python3 -m venv "${PODMAN_COMPOSE_VENV}"
+    "${PODMAN_COMPOSE_VENV}/bin/python" -m pip install --no-cache-dir --only-binary=:all: \
+        --require-hashes -r "${REQ_PIP}"
+    "${PODMAN_COMPOSE_VENV}/bin/python" -m pip install --no-cache-dir --only-binary=:all: \
+        --require-hashes -r "${REQ_PODMAN_COMPOSE}"
+    mkdir -p "${HOME}/.local/bin"
+    ln -sf "${PODMAN_COMPOSE_VENV}/bin/podman-compose" "${HOME}/.local/bin/podman-compose"
+    case ":${PATH}:" in
+        *":${HOME}/.local/bin:"*) ;;
+        *) echo "note: add ~/.local/bin to PATH to use podman-compose." ;;
+    esac
 else
     echo "podman-compose already installed (baked into the image or present) — skipping."
 fi
@@ -207,7 +202,7 @@ echo "Verifying rootless Podman can run ..."
 if podman info >/dev/null 2>&1; then
     echo "OK: 'podman info' succeeded."
 else
-    err "'podman info' failed. Rootless Podman nested in DinD can be finicky;"
+    err "'podman info' failed. Rootless Podman setup failed;"
     err "check /dev/fuse availability and the subuid/subgid ranges above."
 fi
 

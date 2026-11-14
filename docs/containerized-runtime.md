@@ -4,42 +4,96 @@ HeroForge-Anew ships two complementary, **isolated** container setups:
 
 | Purpose | Lives in | What it is |
 | --- | --- | --- |
-| **Develop** the code | `.devcontainer/` | A Codespaces / Dev Containers definition with Python 3.12, PyQt6 runtime libraries, and Docker-in-Docker. |
+| **Develop** the code | `.devcontainer/` | Two Codespaces / Dev Containers profiles on one image (Python 3.12, PyQt6 runtime libraries): the default, unprivileged profile, and an opt-in QA profile with Docker-in-Docker. |
 | **Run** the GUI for QA | `Dockerfile.heroforge-app` + `Dockerfile.display` + `docker-compose.yml` | A two-container Compose stack: a `display` sidecar that hosts the viewable desktop (Xvfb + noVNC) and an `app` container that runs the Qt application. |
 
 The two are deliberately separate: the dev container is where you edit, lint and
 test; the Compose stack is a clean, reproducible way to *run* the desktop app for
-"developer-in-the-loop" QA without polluting your environment. The viewable
-desktop is hosted **inside the Compose stack**, not in the editor container.
+"developer-in-the-loop" QA in an isolated container. In the default profile,
+which cannot run containers, `scripts/run-gui-local.sh` shows the same desktop
+as plain processes instead.
 
 ---
 
 ## 1. Develop in a Codespace / Dev Container
 
-Open the repository in a GitHub Codespace (or locally via **Dev Containers:
-Reopen in Container**). The container defined in
-[`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json):
+There are two profiles. When you create a Codespace, pick one under
+*Dev container configuration* (or in VS Code, **Dev Containers: Reopen in
+Container** lists both). The Codespace must be created from a branch that
+contains `.devcontainer/`; otherwise Codespaces falls back to its generic
+universal image and none of this applies.
 
-- builds [`.devcontainer/Dockerfile.devcontainer-default`](../.devcontainer/Dockerfile.devcontainer-default) — the official
-  devcontainers Python 3.12 image plus the Qt/X11 system libraries PyQt6 needs,
-  the rootless-Podman runtime packages **and the `podman-compose` CLI** (all
-  gated by the `INSTALL_PODMAN_DEPS` build arg), and the hash-pinned third-party
-  dependencies (`requirements-pip.txt` + `requirements-dev.txt`) baked into a
-  `vscode`-owned virtual environment at `/opt/venv`;
-- adds the **docker-in-docker** feature, so the QA Compose stack can be built and
-  run from inside the Codespace;
-- on creation installs only the editable project into that venv
-  (`/opt/venv/bin/python -m pip install --only-binary=:all: --no-deps -e .`,
-  since the workspace is bind-mounted at runtime and absent at build time) and
-  then
-  `scripts/setup-podman.sh` (which provisions the per-user rootless-Podman
-  configuration — subuid/subgid ranges, storage and runtime config — and installs
-  `podman-compose` only as a fallback if it was not baked into the image;
-  it is optional, so a failure only warns), and runs as the non-root `vscode`
-  user.
+| | Default — `.devcontainer/devcontainer.json` | QA — `.devcontainer/qa/devcontainer.json` |
+| --- | --- | --- |
+| Use for | Everyday development, and **all unattended agents** | Running the containerized Compose QA stack |
+| Privileged | No; also `no-new-privileges`, all capabilities dropped except the few root needs for Codespaces setup, 4096-process and 6 GiB memory limits | Yes (Docker-in-Docker requires it) |
+| Containers | None | Docker CE, feature and engine pinned to exact versions |
+| GUI | `scripts/run-gui-local.sh` (plain processes) | `scripts/run-gui.sh` (Compose stack) |
+| sudo | None | None, and `no-new-privileges` blocks setuid programs |
+| Root equivalent | None | **Yes**: `vscode` is in the `docker` group, which is equivalent to root on the Codespace VM |
 
-The editor container does **not** run a desktop of its own; the QA stack's
-`display` sidecar provides the viewable GUI on port **6080** while it is running.
+Both build [`.devcontainer/Dockerfile.devcontainer-default`](../.devcontainer/Dockerfile.devcontainer-default):
+the official devcontainers Python 3.12 image (pinned by digest) plus the Qt/X11
+libraries PyQt6 needs, the desktop tools for `run-gui-local.sh` (default profile
+only), and the hash-pinned `requirements-pip.txt` + `requirements-dev.txt` in a
+virtual environment at `/opt/venv`. Two hardening choices apply to both:
+
+- **No sudo.** The base image's passwordless sudo rule for `vscode` is removed
+  at build time, so nothing running as the editor user can become root.
+  Installing system packages means changing the Dockerfile and rebuilding.
+- **Read-only toolchain.** `/opt/venv` is owned by root, and so are the base
+  image's tool directories on `PATH` (`/usr/local/py-utils`,
+  `/usr/local/share/nvm`), so a compromised tool or dependency cannot replace
+  pytest, black, ruff, git, a library, or any other program that later runs
+  with your credentials. To change a Python dependency, update the lock file and
+  rebuild. The project itself is not pip-installed; `PYTHONPATH` points at
+  `src/` instead, so run the app with `python -m heroforge`. The image build
+  fails if `vscode` could write any directory on `PATH` or any system login
+  script, so a base-image update cannot quietly undo this.
+
+  What this does **not** stop: your home directory (`~/.bashrc` and similar) and
+  the workspace stay writable, as development needs. Code running as `vscode`
+  can still leave a persistent foothold there, for example a
+  `src/sitecustomize.py`, which every Python process would import because `src/`
+  is on `PYTHONPATH`. Review untracked files (`git status`) after running
+  untrusted code or agents.
+
+Why the default profile cannot run containers: Docker-in-Docker needs a
+privileged container, which can take over the Codespace VM, and rootless Podman
+was tested and cannot start in an unprivileged container (creating its user
+namespace fails even with seccomp and AppArmor disabled). So container work lives
+only in the opt-in QA profile. Never point unattended agents at the QA profile.
+Treat a QA Codespace as short-lived: create it for a QA session, then delete it,
+rather than doing everyday work in it.
+
+### Unattended agents and the Codespace token
+
+Codespaces gives every Codespace a `GITHUB_TOKEN`. It is in the environment of
+every process, Codespaces' git credential helper uses it for `git push`, and it
+is also stored in files under `/workspaces/.codespaces/shared/` that the
+`vscode` user owns and can read. So **anything running as `vscode`, an agent
+included, can use that token**, whatever its environment says. Removing the
+variable from a process (as `scripts/run-gui-local.sh` does) stops accidental
+leaks into logs and child processes; it is not a boundary against code that goes
+looking.
+
+The controls that do work:
+
+- **Limit what the token can do.** In your GitHub settings under *Codespaces*,
+  keep the Codespace's access to this repository only. This repository's
+  `devcontainer.json` files request no extra repository permissions; keep it
+  that way.
+- **Give unattended agents a Codespace without write access**, or run them where
+  the token cannot push (for example a fork, or a branch protected so that only
+  reviewed pull requests can change it). An agent that must push should use its
+  own fine-grained token, limited to this repository and the permissions it
+  needs, rather than the Codespace's.
+- **Review an agent's work before it reaches a protected branch.** Branch
+  protection on `master`, and on the integration branches, is the backstop.
+
+Blanking `GITHUB_TOKEN` for the whole Codespace (`remoteEnv`) is not used: it
+would break `git push` and VS Code's GitHub features while leaving the token
+readable in the files above.
 
 Once the container is up you can immediately develop and test:
 
@@ -51,43 +105,107 @@ black src/ tests/
 
 ---
 
+## 2a. Run the GUI in the default profile (no containers)
+
+The default devcontainer profile has no container engine, so it shows the GUI
+with plain processes:
+
+```bash
+scripts/run-gui-local.sh
+```
+
+It starts the same desktop the Compose `display` sidecar runs
+([`scripts/display-entrypoint.sh`](../scripts/display-entrypoint.sh): Xvfb,
+fluxbox, x11vnc and websockify/noVNC) in the background, prints a one-time VNC
+password, and runs the app in the foreground on that display. Open the forwarded
+**port 6080** from the *Ports* panel (or `https://localhost:6080/vnc.html`) and
+enter the password. Closing the app or pressing Ctrl-C stops the desktop.
+
+- noVNC listens on `127.0.0.1` only and serves TLS only, so it is reachable just
+  through the private Codespaces / VS Code port forward.
+- **Blank page or "HTTP Error 502":** the port forward is using plain HTTP, which
+  websockify refuses (its log says `non-SSL connection received but
+  disallowed`). In the *Ports* panel, right-click port 6080, choose
+  **Change Port Protocol → HTTPS**, and reload. `devcontainer.json` requests
+  HTTPS for 6080, but Codespaces keeps a port's earlier setting if it was first
+  forwarded as HTTP. The same applies to the Compose stack in section 2.
+- **The terminal goes quiet after printing the password:** that is expected. The
+  app runs in the foreground and logs nothing during normal use; the desktop is
+  ready to open.
+- The password, X cookie, TLS key and desktop config live in a private `0700`
+  directory on a RAM-backed tmpfs and are deleted on exit. The password file is
+  deleted as soon as the desktop is up, and the password is never on a command
+  line.
+- The desktop and the app start from an empty environment plus a short
+  allowlist (locale, terminal, Qt, `HEROFORGE_*`, `LOG_LEVEL`), so the
+  Codespace's `GITHUB_TOKEN`, Codespaces secrets, the SSH agent and the VS Code
+  IPC socket are not passed to them. This keeps them out of logs and child
+  processes; it is not a hard boundary, because code running as your user can
+  still read the token from Codespaces' files (see
+  [Unattended agents and the Codespace token](#unattended-agents-and-the-codespace-token)).
+- Difference from the Compose stack: the **app runs as your own user**, with your
+  network access and your workspace, not in a network-less, read-only
+  container. Use the QA profile and section 2 when you need that isolation.
+
 ## 2. Run the GUI for QA (Docker / Podman)
 
-The QA stack requires a **VNC password** that gates access to the noVNC desktop.
-It is read from a git-ignored `.env` file in the project root. The easiest path
-is to let the helper script manage it for you:
+The QA desktop is gated by a **one-time VNC password**. Let the helper script
+manage it:
 
 ```bash
-scripts/run-gui.sh                      # build (first run) and launch the GUI
-scripts/run-gui.sh --build              # force a rebuild
-scripts/run-gui.sh --generate-password  # rotate the VNC password, then launch
-scripts/run-gui.sh down                 # tear the stack down
+scripts/run-gui.sh            # build (first run) and launch the GUI
+scripts/run-gui.sh --build    # force a rebuild
+scripts/run-gui.sh down       # tear the stack down
 ```
 
-On launch the script ensures `.env` exists (seeding it from `.env.example`) and
-that it carries a strong, randomly generated `VNC_PASSWORD`: one is created
-whenever the value is missing, empty, or still the `change-me` placeholder, and
-`--generate-password` forces a fresh one even if a real password is already set.
-The active password is always written back to `.env` for you to read. (VNC's
-classic auth only honours the first **8 characters**, so the generated secret is
-exactly 8 alphanumeric characters.)
+Every launch generates a fresh random password and prints it once, straight to
+the terminal (not to stdout, so piping or logging the script's output does not
+capture it):
 
-The script then writes that password into a git-ignored `secrets/vnc_password`
-file, which Compose mounts into the display sidecar as a **secret** at
-`/run/secrets/vnc_password` instead of injecting it as an environment variable.
-This keeps the password out of the container environment (so it does not appear
-in `docker inspect` or `/proc/<pid>/environ`).
-
-To set it yourself instead, edit `.env` by hand and materialize the secret file:
-
-```bash
-cp .env.example .env
-# then edit .env and set a strong VNC_PASSWORD
-mkdir -p secrets && printf '%s' "$VNC_PASSWORD" > secrets/vnc_password
+```text
+  VNC password for this session: 4toN5hXw
 ```
 
-Then open the forwarded **port 6080** (noVNC) and enter your `VNC_PASSWORD` — the
-HeroForge-Anew window appears on the desktop, ready to click through for QA.
+Once connected, clear the terminal (Ctrl+K in VS Code, or `clear`): VS Code can
+save terminal scrollback and restore it after a restart.
+
+Open the forwarded **port 6080** from VS Code's *Ports* panel (or
+`https://localhost:6080/vnc.html`) and enter that password. The HeroForge-Anew
+window appears on the desktop, ready to click through for QA. (VNC's classic
+auth only honours the first **8 characters**, so the generated secret is exactly
+8 alphanumeric characters.)
+
+How the password is kept short-lived:
+
+- It is **never written to `.env` or anywhere in the repository**. The script
+  writes it to a `0600` file inside a new `0700` directory on a RAM-backed tmpfs
+  (`$XDG_RUNTIME_DIR`, else `/dev/shm`) and passes that path to Compose in
+  `HEROFORGE_VNC_SECRET_FILE`.
+- Compose mounts the file into the display sidecar as a **secret** at
+  `/run/secrets/vnc_password`, not as an environment variable, so it does not
+  appear in `docker inspect` or `/proc/<pid>/environ`.
+- A background watcher **deletes the host file** as soon as a display container
+  created by this launch is running (the container keeps its mounted copy), or
+  when Compose exits, or after 30 minutes at most. The script refuses to start
+  while something else holds port 6080, and recreates the containers on every
+  launch so each one mounts that launch's secret.
+- Inside the sidecar the entrypoint passes the password to x11vnc through a
+  private copy and `-passwdfile rm:<file>`, so it never appears on a command
+  line, and x11vnc deletes that copy as soon as it has read it.
+
+What remains, and is **accepted**: the secret mount itself stays readable at
+`/run/secrets/vnc_password` for the life of the display container, to every
+process in that container (they all run as the same user) and to anyone who can
+use the container engine (`docker cp`). Its file on the host tmpfs is unlinked
+but stays allocated until the container is removed. The display container runs
+only the desktop stack, engine access already means full control of every
+container, and the password changes on every launch, so this is not engineered
+around.
+
+Restarting the stack gives a new password. Older versions stored the password
+in `.env` and `secrets/vnc_password`; the script deletes the old
+`secrets/vnc_password` and tells you to remove any leftover `VNC_PASSWORD` line
+from `.env`.
 
 The script auto-detects a container engine, preferring **Podman** (rootless, more
 secure) and falling back to Docker:
@@ -98,19 +216,24 @@ secure) and falling back to Docker:
 4. `docker-compose`
 
 It aligns the in-container user with your UID/GID and, as described above,
-provisions a `VNC_PASSWORD` automatically when one is not already present.
+supplies a one-time VNC password for each launch.
 
 ### Doing it by hand
 
 ```bash
-cp .env.example .env   # set a strong VNC_PASSWORD (once)
-mkdir -p secrets && printf '%s' "$VNC_PASSWORD" > secrets/vnc_password
+# Put a one-time password in a private tmpfs file (deleted again below).
+export HEROFORGE_VNC_SECRET_FILE="$(mktemp -d /dev/shm/heroforge-vnc.XXXXXXXX)/vnc_password"
+( umask 077; LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 8 >"$HEROFORGE_VNC_SECRET_FILE" )
+cat "$HEROFORGE_VNC_SECRET_FILE"; echo   # your password for this session
 export APP_UID=$(id -u) APP_GID=$(id -g)
 
 # Podman (preferred)
 podman-compose -f docker-compose.yml up --build
 # …or Docker
 docker compose -f docker-compose.yml up --build
+
+# In another terminal, once port 6080 answers, delete the host copy:
+rm -rf "$(dirname "$HEROFORGE_VNC_SECRET_FILE")"
 ```
 
 ### How the display works
@@ -179,8 +302,9 @@ locations are explicit mounts:
   the non-root `app` user so the volume inherits that ownership on first use.
 - **`/tmp` and `/home/app`** — in-RAM `tmpfs` mounts (wiped on stop) for X/Qt
   scratch files, the runtime VNC password and fluxbox config. `/home/app` is
-  mounted `mode=0o1777` because a `tmpfs` over the image directory would
-  otherwise mount root-owned and lock out the non-root user.
+  mounted owned by the non-root `app` user (`uid`/`gid` from `APP_UID`/`APP_GID`)
+  with mode `0700`, because a `tmpfs` over the image directory would otherwise
+  mount root-owned and lock that user out; no other user can read it.
 
 The application source is bind-mounted **read-only** into the `app` container
 (`./src`, `./pyproject.toml`, and the seed data/workbooks under
@@ -232,21 +356,26 @@ cannot modify the repo.
   encrypted and plaintext `ws://`/`http://` is refused (see *TLS on the noVNC
   WebSocket* above).
 - noVNC is published on **loopback only** (`127.0.0.1:6080`) and gated by a
-  **required** VNC password. The password is set in the git-ignored `.env` file
-  but delivered to the display sidecar as a **Compose secret** (a file mounted at
-  `/run/secrets/vnc_password`, sourced from a git-ignored `secrets/vnc_password`
-  file that `scripts/run-gui.sh` materializes from `.env`) rather than an
+  **required**, **one-time** VNC password. `scripts/run-gui.sh` generates a
+  fresh one per launch and prints it once; it is never stored in `.env` or the
+  repository. It reaches the display sidecar as a **Compose secret** (a file
+  mounted at `/run/secrets/vnc_password`, sourced from a `0600` file on a
+  RAM-backed tmpfs that is deleted once the container is up) rather than an
   environment variable, so it never appears in the container environment
-  (`docker inspect` / `/proc/<pid>/environ`). The stack refuses to start without
-  a password (and rejects the `change-me` placeholder). `scripts/run-gui.sh`
-  generates a strong password automatically — see section 2.
+  (`docker inspect` / `/proc/<pid>/environ`). x11vnc reads it through
+  `-passwdfile rm:`, which deletes that copy too, so the password is never on a
+  command line. The stack refuses to start without a password (and rejects the
+  `change-me` placeholder) — see section 2.
+- The **main access control is the port forward itself**: Codespaces forwards
+  port 6080 **privately** (only your signed-in GitHub account can open it). Keep
+  it private; never set the port's visibility to *Public*.
 - Both base images are **pinned by digest** (not just a mutable tag) in
   `Dockerfile.heroforge-app` and `Dockerfile.display`, making builds reproducible and resistant
   to tag re-pointing / supply-chain tampering. Third-party Python wheels are
   installed with `--only-binary=:all:` to avoid executing sdist build code.
-- Docker-in-Docker requires a privileged dev container; if you prefer a
-  stricter, rootless model, run the Compose stack with **Podman**
-  (`podman-compose`), which the helper script selects automatically when present.
+- Docker-in-Docker requires a privileged dev container, so it is confined to
+  the opt-in QA profile (`.devcontainer/qa/`); the default profile is
+  unprivileged and has no container engine (see section 1).
 
 ### Residual / accepted risks
 
@@ -261,6 +390,16 @@ stack rather than engineered around:
   The exposure is already narrowed by publishing noVNC on **loopback only** and
   serving it **over TLS** (see above), so the password is never the sole control
   and never crosses the wire in cleartext.
+- **Debian (apt) packages are not pinned to exact versions.** The base images
+  are pinned by digest and every Python wheel by hash, but the Qt libraries,
+  Podman, Xvfb/x11vnc/noVNC and git come from `apt-get install` of the current
+  bookworm packages at build time. apt verifies every package against Debian's
+  signed release files, so a tampered mirror cannot inject a package; what is
+  lost is byte-for-byte reproducibility. Pinning exact versions is deliberately
+  not done: Debian drops superseded versions from its mirrors once a security
+  update lands, so pinned builds would break exactly when a fix ships, and
+  stale pins would hold back security fixes. If reproducible builds become a
+  requirement, point apt at a dated `snapshot.debian.org` mirror instead.
 - **Dependabot security alerts are a repository-settings toggle, not a repo
   file.** `.github/dependabot.yml` configures **version-update** PRs only.
   Vulnerability **security alerts/updates** are enabled separately under the
@@ -281,10 +420,12 @@ privileged user. It complements the per-container `cap_drop: ALL`,
 This is a **daemon-level** setting, not a per-Compose option, so which daemon you
 apply it to matters:
 
-- **The inner docker-in-docker daemon (enforceable from here).** The QA stack
-  runs against the *inner* `dockerd` that the docker-in-docker feature starts
-  inside this dev container — a daemon you fully own. Enable remapping on it with
-  the helper script:
+- **The inner docker-in-docker daemon.** The QA stack runs against the *inner*
+  `dockerd` that the docker-in-docker feature starts inside the QA profile.
+  Changing its configuration needs root, and neither devcontainer profile gives
+  the `vscode` user sudo any more, so the helper script below only works where
+  you do have root (for example a Docker host you administer, or a custom image
+  that runs it at build time):
 
   ```bash
   scripts/enable-userns-remap.sh           # enable, then restart the inner daemon
@@ -327,40 +468,28 @@ apply it to matters:
 
 `scripts/run-gui.sh` prefers **Podman** over Docker when it is present
 (`podman-compose` → `podman compose` → `docker compose` → `docker-compose`), so
-running the QA stack rootless needs no flags once Podman is installed. The dev
-container provisions it automatically: the `postCreateCommand` in
-[`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json) runs
-[`scripts/setup-podman.sh`](../scripts/setup-podman.sh) after the editable-project
-install (non-fatally — a failure only warns, since Docker remains available).
+on a host with rootless Podman the QA stack runs rootless with no flags.
 
-You can also run it (or re-run it — it is idempotent) by hand:
+Neither devcontainer profile includes Podman: the default profile cannot run it
+(see section 1), and in the privileged QA profile it would add no isolation over
+Docker. [`scripts/setup-podman.sh`](../scripts/setup-podman.sh) remains for
+setting up rootless Podman on a machine you administer (it needs sudo):
 
 ```bash
 scripts/setup-podman.sh          # install + configure rootless Podman
 scripts/setup-podman.sh --check  # report state, change nothing
 ```
 
-Rootless Podman *nested* inside the docker-in-docker dev container needs a few
-prerequisites that the script installs and configures:
+It installs and configures:
 
 - **`uidmap`** — the `newuidmap`/`newgidmap` setuid helpers Podman uses to map
   container UIDs onto the user's delegated range.
-- **Subordinate UID/GID ranges** for the remote user in `/etc/subuid` and
-  `/etc/subgid` (the base image usually seeds these for `vscode`; the script
-  adds them if missing).
-- **`fuse-overlayfs`** — a nested container typically cannot use the kernel
-  `overlay` storage driver, so the script points Podman at fuse-overlayfs via
-  `~/.config/containers/storage.conf`. Without `/dev/fuse` Podman falls back to
-  the slow `vfs` driver.
+- **Subordinate UID/GID ranges** for the user in `/etc/subuid` and `/etc/subgid`.
+- **`fuse-overlayfs`** — for hosts where the kernel `overlay` driver is
+  unavailable to rootless users. Without `/dev/fuse` Podman falls back to the
+  slow `vfs` driver.
 - **`slirp4netns`** — rootless user-mode networking.
-- **`podman-compose`** — in the dev container this is baked into the `/opt/venv`
-  virtualenv at image-build time (gated by `INSTALL_PODMAN_DEPS`); the script
-  installs it (hash-pinned, via `pipx` when available else `pip --user`) only as
-  a fallback for standalone/bare-host use or an `INSTALL_PODMAN_DEPS=false` build.
-
-**Caveat:** this is rootless Podman nested inside a *privileged* docker-in-docker
-dev container — workable for QA, but expect occasional storage/cgroup friction.
-On a real host (no DinD layer) rootless Podman is cleaner, since there is no
-nesting and it already maps to the invoking user's subordinate-ID range.
+- **`podman-compose`** — installed hash-pinned into its own virtualenv when it
+  is not already on `PATH`.
 
 

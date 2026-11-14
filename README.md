@@ -23,6 +23,12 @@ HeroForge Anew is a D&D 3.5 character builder. Originally implemented in Excel/V
 
 ### Installation
 
+These steps are for a local checkout outside the devcontainer. In a Codespace or
+Dev Container, skip them: the dependencies are already installed in `/opt/venv`
+(read-only), the project is not pip-installed, and `PYTHONPATH` points at `src/`,
+so run the app with `python -m heroforge`. See
+[docs/containerized-runtime.md](docs/containerized-runtime.md).
+
 ```bash
 # Clone the repository
 git clone https://github.com/chaoscommencer/HeroForge-Anew.git
@@ -76,8 +82,10 @@ The project ships an isolated runtime environment so you can develop and QA the
 PyQt6 GUI without installing anything locally:
 
 - **Develop** in a ready-to-code Codespace / Dev Container
-  (`.devcontainer/`) — Python 3.12, PyQt6 system libraries, and
-  Docker-in-Docker.
+  (`.devcontainer/`) — Python 3.12 and the PyQt6 system libraries. The default
+  profile is unprivileged and shows the GUI with `scripts/run-gui-local.sh`; an
+  opt-in QA profile (`.devcontainer/qa/`) adds Docker-in-Docker for the Compose
+  stack.
 
   > **Note:** The dev container is currently pinned to Python 3.12
   > (`mcr.microsoft.com/devcontainers/python:3-3.12-bookworm@sha256:…`). Consider
@@ -88,12 +96,11 @@ PyQt6 GUI without installing anything locally:
   (`Dockerfile.heroforge-app` + `Dockerfile.display` + `docker-compose.yml`): an
   `app` container running the
   Qt application plus a `display` sidecar that hosts the viewable desktop
-  (Xvfb + noVNC). The desktop is gated by a required `VNC_PASSWORD` you set in a
-  git-ignored `.env` file:
+  (Xvfb + noVNC). The desktop is gated by a one-time VNC password that the
+  helper prints on each launch:
 
   ```bash
-  cp .env.example .env      # set a strong VNC_PASSWORD (once)
-  scripts/run-gui.sh        # build + launch; view at http://localhost:6080
+  scripts/run-gui.sh        # build + launch; open the forwarded port 6080
   ```
 
   The helper auto-detects Podman (preferred) or Docker. See
