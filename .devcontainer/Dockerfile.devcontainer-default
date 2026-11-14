@@ -66,6 +66,14 @@ RUN export DEBIAN_FRONTEND=noninteractive \
         libsm6 \
         libice6
 
+# Debian's own Python (/usr/bin/python3), separate from the image's /usr/local
+# Python and the /opt/venv toolchain. persist-claude-state.sh (below) runs on it
+# by absolute path, in isolated mode, so nothing the user can write (PATH,
+# site-packages, the venv) changes what it runs. Usually present already as a
+# dependency; installed explicitly so both profiles are sure to have it.
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get install --no-install-recommends -y python3
+
 # Desktop tools for scripts/run-gui-local.sh (the default profile's GUI): the
 # same stack the Compose `display` sidecar runs (see Dockerfile.display), started
 # as plain processes. Rootless Podman was evaluated for this instead and cannot
@@ -174,6 +182,25 @@ if [ -d "${VENV_PATH}/bin" ]; then
     unset _hf_path
 fi
 EOF
+
+# --- Claude Code state across rebuilds (issue #141) ----------------------------
+# persist-claude-state.sh, which devcontainer.json runs when the container is
+# created and at every start, keeps Claude Code's conversations, memory and
+# settings on the persistent /workspaces disk. It runs outside Claude Code and
+# with the user's own rights, so it is baked in here rather than run from the
+# workspace: owned by root and read-only (directories 0555, files 0444, the
+# script 0555), so neither a branch checkout nor any process in the container
+# changes what runs until the next rebuild. The build fails if anything but a
+# directory or a regular file came along, a link included.
+COPY .devcontainer/development/scripts/persist-claude-state \
+     /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/
+RUN set -eu; \
+    tree=/usr/local/libexec/heroforge-anew; \
+    test -z "$(find "${tree}" ! -type d ! -type f)"; \
+    chown -R root:root "${tree}"; \
+    find "${tree}" -type d -exec chmod 0555 {} +; \
+    find "${tree}" -type f -exec chmod 0444 {} +; \
+    chmod 0555 "${tree}/devcontainer-scripts/persist-claude-state/persist-claude-state.sh"
 
 # --- Base-image tool directories ----------------------------------------------
 # The base image installs its pipx tools under /usr/local/py-utils and nvm under

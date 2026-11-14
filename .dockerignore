@@ -49,8 +49,10 @@ graphify-out/
 docs/
 tests/
 
-# Container definitions themselves
+# Container definitions themselves, except the scripts the devcontainer image
+# bakes in (persist-claude-state, see Dockerfile.devcontainer-default).
 .devcontainer/
+!.devcontainer/development/scripts/
 
 # Secrets and local credentials. No Dockerfile COPYs these, but excluding them
 # keeps them out of the build context entirely, so a future broad COPY (or a
