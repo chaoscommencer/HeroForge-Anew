@@ -24,9 +24,10 @@
 # Credentials: the desktop and the app start from an empty environment plus a
 # short allowlist (see safe_env below), so the Codespace's GITHUB_TOKEN, any
 # Codespaces secrets, the SSH agent and the VS Code IPC socket are not passed
-# to them. A malicious save file or a websockify bug then runs without the
-# token. They still run as your user, so files your user can read (including
-# ~/.gitconfig and the workspace) remain reachable.
+# to them, and cannot leak into their logs, crash reports or child processes.
+# This is not a hard boundary: they still run as your user, and Codespaces
+# stores the token in files under /workspaces/.codespaces/shared/ that your user
+# can read. For real isolation use the Compose stack (QA profile).
 #
 # Usage:
 #   scripts/run-gui-local.sh [app arguments...]

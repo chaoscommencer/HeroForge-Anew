@@ -66,6 +66,35 @@ only in the opt-in QA profile. Never point unattended agents at the QA profile.
 Treat a QA Codespace as short-lived: create it for a QA session, then delete it,
 rather than doing everyday work in it.
 
+### Unattended agents and the Codespace token
+
+Codespaces gives every Codespace a `GITHUB_TOKEN`. It is in the environment of
+every process, Codespaces' git credential helper uses it for `git push`, and it
+is also stored in files under `/workspaces/.codespaces/shared/` that the
+`vscode` user owns and can read. So **anything running as `vscode`, an agent
+included, can use that token**, whatever its environment says. Removing the
+variable from a process (as `scripts/run-gui-local.sh` does) stops accidental
+leaks into logs and child processes; it is not a boundary against code that goes
+looking.
+
+The controls that do work:
+
+- **Limit what the token can do.** In your GitHub settings under *Codespaces*,
+  keep the Codespace's access to this repository only. This repository's
+  `devcontainer.json` files request no extra repository permissions; keep it
+  that way.
+- **Give unattended agents a Codespace without write access**, or run them where
+  the token cannot push (for example a fork, or a branch protected so that only
+  reviewed pull requests can change it). An agent that must push should use its
+  own fine-grained token, limited to this repository and the permissions it
+  needs, rather than the Codespace's.
+- **Review an agent's work before it reaches a protected branch.** Branch
+  protection on `master`, and on the integration branches, is the backstop.
+
+Blanking `GITHUB_TOKEN` for the whole Codespace (`remoteEnv`) is not used: it
+would break `git push` and VS Code's GitHub features while leaving the token
+readable in the files above.
+
 Once the container is up you can immediately develop and test:
 
 ```bash
@@ -101,7 +130,10 @@ enter the password. Closing the app or pressing Ctrl-C stops the desktop.
 - The desktop and the app start from an empty environment plus a short
   allowlist (locale, terminal, Qt, `HEROFORGE_*`, `LOG_LEVEL`), so the
   Codespace's `GITHUB_TOKEN`, Codespaces secrets, the SSH agent and the VS Code
-  IPC socket are not passed to them.
+  IPC socket are not passed to them. This keeps them out of logs and child
+  processes; it is not a hard boundary, because code running as your user can
+  still read the token from Codespaces' files (see
+  [Unattended agents and the Codespace token](#unattended-agents-and-the-codespace-token)).
 - Difference from the Compose stack: the **app runs as your own user**, with your
   network access and your workspace, not in a network-less, read-only
   container. Use the QA profile and section 2 when you need that isolation.
