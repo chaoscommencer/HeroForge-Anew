@@ -203,6 +203,26 @@ def test_a_linked_persistent_directory_is_refused(
     assert list(elsewhere.iterdir()) == []
 
 
+@pytest.mark.parametrize("persist", ["file", "/usr"])
+def test_a_persistent_directory_not_of_this_user_is_refused(
+    layout: Layout, tmp_path: Path, persist: str
+) -> None:
+    if persist == "file":
+        target = tmp_path / "not-a-directory"
+        target.write_text("")
+    else:
+        # A directory of another user's (root's), which no non-root run owns.
+        target = Path(persist)
+    (layout.script.parent / "persist-directory").write_text(f"{target}\n")
+    seed_state(layout.claude)
+
+    result = layout.run("link")
+
+    assert result.returncode == 1
+    assert "is not a directory of this user's own" in result.stderr
+    assert not (layout.claude / "projects").is_symlink()
+
+
 def test_an_entry_holding_a_link_is_left_out(layout: Layout, tmp_path: Path) -> None:
     seed_state(layout.claude)
     target = tmp_path / "bashrc"

@@ -137,13 +137,18 @@ narrow_no_follow() {
 }
 
 # Each of the two directories must be one of this user's own, never a link:
-# what a link leads to, another user's directory say, is no place to persist
-# into or link from, so the run stops before anything is made in either
-#.  narrow_no_follow below then finds no link there, but for one
-# swapped in since, which it changes nothing through.
+# what a link leads to, or another user's directory (one restored from an
+# archive made elsewhere, say), is no place to persist into or link from, so
+# the run stops before anything is made in either.  -O tests the kernel's
+# effective uid, never bash's EUID variable.  narrow_no_follow below then finds
+# no link there, but for one swapped in since, which it changes nothing through.
 for top in "$PERSIST" "$CLAUDE_HOME"; do
   if [ -L "$top" ]; then
     echo "persist-claude-state: $top is a link; it must be a directory of this user's own, so nothing was persisted." >&2
+    exit 1
+  fi
+  if [ -e "$top" ] && { [ ! -d "$top" ] || [ ! -O "$top" ]; }; then
+    echo "persist-claude-state: $top is not a directory of this user's own, so nothing was persisted; remove it or give it to this user, then restart the Codespace." >&2
     exit 1
   fi
 done
@@ -248,10 +253,10 @@ tighten() {
   local -a entries=()
   local d f
   for d in "${DIRS[@]}"; do
-    [[ " ${SKIPPED[*]} " == *" $d "* ]] || entries+=(directory "$PERSIST/$d")
+    one_of "$d" "${SKIPPED[@]}" || entries+=(directory "$PERSIST/$d")
   done
   for f in "${FILES[@]}"; do
-    [[ " ${SKIPPED[*]} " == *" $f "* ]] || entries+=(file "$PERSIST/$f")
+    one_of "$f" "${SKIPPED[@]}" || entries+=(file "$PERSIST/$f")
   done
   narrow_no_follow "${entries[@]}"
 }
