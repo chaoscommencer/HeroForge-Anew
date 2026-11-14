@@ -168,7 +168,12 @@ jobs:
             TRIGGER_DESC="manual run"
           fi
           if [ "$ALLOW_RECENT" = "true" ]; then
-            GATE="**Age gate skipped** (allow_recent). Reason given: ${REASON:-none given}"
+            # The reason is free text typed into the run form. It cannot inject
+            # shell (it is only expanded inside a heredoc), but it could inject
+            # Markdown, links or @mentions into the PR body, so keep a single
+            # line of plain characters, at most 200 of them.
+            REASON_SAFE=$(printf '%s' "${REASON:-}" | tr -cd '[:alnum:] .,:/#()_-' | cut -c1-200)
+            GATE="**Age gate skipped** (allow_recent). Reason given: ${REASON_SAFE:-none given}"
           else
             GATE="Passed the ${MIN_AGE_DAYS}-day age gate."
           fi
