@@ -215,12 +215,17 @@ x11vnc -display "${DISPLAY}" -passwdfile "rm:${vnc_pass_file}" \
 
 # Generate a self-signed certificate and key for TLS encryption of the noVNC
 # WebSocket. The cert is loopback-only (CN=localhost), so self-signed is
-# appropriate here. The key is written 0600 (readable only by this user).
+# appropriate here. openssl runs under umask 077, so the key is created 0600
+# (readable only by this user) rather than briefly getting the default umask's
+# wider mode before a later chmod; the chmod stays as a backstop.
 cert_file="${HOME}/novnc-cert.pem"
 key_file="${HOME}/novnc-key.pem"
-openssl req -x509 -newkey rsa:2048 -nodes \
-    -keyout "${key_file}" -out "${cert_file}" \
-    -days 3650 -subj '/CN=localhost' >/dev/null 2>&1
+(
+    umask 077
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "${key_file}" -out "${cert_file}" \
+        -days 3650 -subj '/CN=localhost' >/dev/null 2>&1
+)
 chmod 0600 "${cert_file}" "${key_file}"
 
 # Serve the noVNC web client and bridge its WebSocket traffic to x11vnc over TLS.
