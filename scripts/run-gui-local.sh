@@ -71,6 +71,23 @@ if ((${#missing[@]})); then
     echo "       Codespace from .devcontainer/devcontainer.json." >&2
     exit 1
 fi
+# The app's interpreter. In the devcontainer use the baked venv directly
+# (VENV_PATH, set by the image), which holds PyQt6 and the pinned dependencies,
+# whatever the caller's PATH resolves `python` to. Elsewhere (a local checkout
+# with its own activated venv) use python3 from PATH. Either way, check PyQt6
+# before starting a desktop the app could not draw on.
+if [[ -n "${VENV_PATH:-}" && -x "${VENV_PATH}/bin/python" ]]; then
+    PYTHON="${VENV_PATH}/bin/python"
+else
+    PYTHON="$(command -v python3 || command -v python || true)"
+fi
+if [[ -z "${PYTHON}" ]] || ! "${PYTHON}" -c 'import PyQt6.QtWidgets' >/dev/null 2>&1; then
+    echo "error: PyQt6 is not available to ${PYTHON:-python3} (the app's interpreter)." >&2
+    echo "       In the devcontainer it lives in /opt/venv; rebuild the container if" >&2
+    echo "       that is missing. On a local checkout, activate the venv that has the" >&2
+    echo "       project's dependencies (see README.md)." >&2
+    exit 1
+fi
 if [[ -e "/tmp/.X11-unix/X${DISPLAY_NAME#:}" ]]; then
     echo "error: display ${DISPLAY_NAME} is already in use; set HEROFORGE_DISPLAY." >&2
     exit 1
@@ -167,5 +184,5 @@ status=0
 env -i "${safe_env[@]}" \
     DISPLAY="${DISPLAY_NAME}" XAUTHORITY="${RUN_DIR}/Xauthority" \
     PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}" \
-    python -m heroforge "$@" || status=$?
+    "${PYTHON}" -m heroforge "$@" || status=$?
 exit "${status}"
