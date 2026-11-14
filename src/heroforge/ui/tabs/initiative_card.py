@@ -1,0 +1,131 @@
+"""Initiative Card tab for HeroForge-Anew."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QPushButton,
+    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+if TYPE_CHECKING:
+    from heroforge.ui.main_window import CharacterModel
+
+
+class InitiativeCardTab(QWidget):
+    """Combat initiative tracker for all participants."""
+
+    def __init__(
+        self, model: CharacterModel | None = None, parent: QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+        self._model = model
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+
+        layout.addWidget(
+            QLabel("<b>Initiative Tracker</b> – Add all combatants and sort.")
+        )
+
+        headers = ["Name", "Initiative", "HP", "AC", "Status", "Remove"]
+        self._table = QTableWidget(0, len(headers))
+        self._table.setHorizontalHeaderLabels(headers)
+        self._table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self._table.verticalHeader().setVisible(False)
+        layout.addWidget(self._table)
+
+        btn_row = QHBoxLayout()
+        add_btn = QPushButton("Add Combatant")
+        sort_btn = QPushButton("Sort by Initiative")
+        clear_btn = QPushButton("Clear All")
+        add_btn.clicked.connect(self._add_row)
+        sort_btn.clicked.connect(self._sort)
+        clear_btn.clicked.connect(self._table.clearContents)
+        clear_btn.clicked.connect(lambda: self._table.setRowCount(0))
+        btn_row.addWidget(add_btn)
+        btn_row.addWidget(sort_btn)
+        btn_row.addWidget(clear_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+    def _make_init_spin(self, value: int = 0) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setRange(-10, 50)
+        spin.setValue(value)
+        return spin
+
+    def _make_hp_spin(self, value: int = 0) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setRange(0, 9999)
+        spin.setValue(value)
+        return spin
+
+    def _make_ac_spin(self, value: int = 0) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setRange(0, 60)
+        spin.setValue(value)
+        return spin
+
+    def _make_remove_button(self) -> QPushButton:
+        btn = QPushButton("×")
+        btn.clicked.connect(lambda _, b=btn: self._remove_row(b))
+        return btn
+
+    def _add_row(self) -> None:
+        row = self._table.rowCount()
+        self._table.insertRow(row)
+        self._table.setItem(row, 0, QTableWidgetItem("Combatant"))
+        self._table.setCellWidget(row, 1, self._make_init_spin())
+        self._table.setCellWidget(row, 2, self._make_hp_spin())
+        self._table.setCellWidget(row, 3, self._make_ac_spin())
+        self._table.setItem(row, 4, QTableWidgetItem("Active"))
+        self._table.setCellWidget(row, 5, self._make_remove_button())
+
+    def _remove_row(self, button: QPushButton) -> None:
+        for row in range(self._table.rowCount()):
+            if self._table.cellWidget(row, 5) is button:
+                self._table.removeRow(row)
+                return
+
+    def _sort(self) -> None:
+        rows = self._table.rowCount()
+        snapshots = []
+        for r in range(rows):
+            name_item = self._table.item(r, 0)
+            init_widget = self._table.cellWidget(r, 1)
+            hp_widget = self._table.cellWidget(r, 2)
+            ac_widget = self._table.cellWidget(r, 3)
+            status_item = self._table.item(r, 4)
+            snapshots.append(
+                (
+                    name_item.text() if name_item else "",
+                    init_widget.value() if init_widget else 0,
+                    hp_widget.value() if hp_widget else 0,
+                    ac_widget.value() if ac_widget else 0,
+                    status_item.text() if status_item else "",
+                )
+            )
+        snapshots.sort(key=lambda x: (-x[1], x[0]))
+        self._table.setRowCount(0)
+        for name, init, hp, ac, status in snapshots:
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+            self._table.setItem(row, 0, QTableWidgetItem(name))
+            self._table.setCellWidget(row, 1, self._make_init_spin(init))
+            self._table.setCellWidget(row, 2, self._make_hp_spin(hp))
+            self._table.setCellWidget(row, 3, self._make_ac_spin(ac))
+            self._table.setItem(row, 4, QTableWidgetItem(status))
+            self._table.setCellWidget(row, 5, self._make_remove_button())

@@ -1,0 +1,1903 @@
+"""Persistence and rules-integration tests for the character-backed tabs.
+
+These exercise the conversion of the formerly widget-only "mock" tabs into
+data-driven, character-backed widgets:
+
+* option lists are loaded from a seeded SQLite catalogue,
+* selections are written to the central :class:`CharacterModel`,
+* rules/limits are enforced (language slots, trait caps, graft slot conflicts,
+  armour-class maths), and
+* the resulting character state round-trips through ``save_character`` /
+  ``load_character``.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from heroforge.db.schema import initialize_database
+from heroforge.logic.languages import automatic_languages, bonus_language_slots
+
+# ---------------------------------------------------------------------------
+# Pure-logic tests (no Qt required)
+# ---------------------------------------------------------------------------
+
+
+class TestLanguageRules:
+    def test_common_always_automatic(self) -> None:
+        assert "Common" in automatic_languages("")
+        assert "Common" in automatic_languages("Human")
+
+    def test_racial_automatic_language(self) -> None:
+        elf = automatic_languages("Elf")
+        assert "Common" in elf
+        assert "Elven" in elf
+
+    def test_bonus_slots_track_int_modifier(self) -> None:
+        # INT 10 -> +0, INT 12 -> +1, INT 16 -> +3, INT 8 -> 0 (never negative).
+        assert bonus_language_slots(10) == 0
+        assert bonus_language_slots(12) == 1
+        assert bonus_language_slots(16) == 3
+        assert bonus_language_slots(8) == 0
+
+    def test_subtype_prefix_resolves_to_base_race(self) -> None:
+        assert "Dwarven" in automatic_languages("Mountain Dwarf")
+        assert "Elven" in automatic_languages("Wood Elf")
+
+    def test_incidental_substring_does_not_match(self) -> None:
+        # "elf" appears inside "selfish" but must not grant Elven.
+        assert automatic_languages("Selfish Construct") == ["Common"]
+        # "half" appears inside "halfling" but Halfling must resolve to Halfling
+        # (its own entry), not to the "half-elf"/"half-orc" entries.
+        assert automatic_languages("Halfling") == ["Common", "Halfling"]
+
+
+# ---------------------------------------------------------------------------
+# Widget fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def catalog_db(tmp_path: Path) -> Path:
+    """Seed a small game database covering the new catalogue tables."""
+    db_path = tmp_path / "game.db"
+    conn = initialize_database(db_path)
+    try:
+        conn.executemany(
+            "INSERT INTO languages (name) VALUES (?)",
+            [("Draconic",), ("Goblin",), ("Elven",), ("Dwarven",), ("Orc",)],
+        )
+        conn.executemany(
+            "INSERT INTO traits (name, source) VALUES (?, ?)",
+            [("Aggressive", "UA"), ("Cautious", "UA"), ("Brawler", "UA")],
+        )
+        conn.executemany(
+            "INSERT INTO flaws (name, source) VALUES (?, ?)",
+            [("Shaky", "UA"), ("Frail", "UA"), ("Noncombatant", "UA")],
+        )
+        conn.executemany(
+            "INSERT INTO skill_tricks (name, cost, prerequisite) VALUES (?, ?, ?)",
+            [("Acrobatic Backstab", 2, "Tumble 12"), ("Back on Your Feet", 2, "")],
+        )
+        conn.executemany(
+            "INSERT INTO grafts (name, type, body_slot, source) VALUES (?, ?, ?, ?)",
+            [
+                ("Fiendish Arm", "Fiendish", "Arms", "FF"),
+                ("Fiendish Eye", "Fiendish", "Eyes", "FF"),
+                ("Demon Arm", "Fiendish", "Arms", "FF"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO graft_abilities (graft_name, ability_name, description) "
+            "VALUES (?, ?, ?)",
+            [
+                ("Fiendish Arm", "Claw Attack", "Primary claw dealing 1d6 damage."),
+                ("Fiendish Arm", "Strength Boost", "+2 Strength."),
+                ("Fiendish Eye", "Darkvision", "Darkvision out to 60 feet."),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO soulmelds (name, chakra, essentia_capacity, source) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("Airstep Sandals", "Feet", 3, "MoI"),
+                ("Mage's Spectacles", "Brow", 3, "MoI"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO psionic_powers (name, discipline, power_points, source) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("Mind Thrust", "Telepathy", 1, "EPH"),
+                ("Energy Ray", "Psychokinesis", 1, "EPH"),
+            ],
+        )
+        # Psion power-point progression (key ability INT), as seeded from the
+        # workbook's "Psionic Info" sheet, so the Psionics tab can auto-calc.
+        _psion_pp = [
+            0, 2, 6, 11, 17, 25, 35, 46, 58, 72, 88,
+            106, 126, 147, 170, 195, 221, 250, 280, 311, 343,
+        ]  # fmt: skip
+        conn.executemany(
+            "INSERT INTO psionic_progression "
+            "(class_name, key_ability, manifester_level, power_points) "
+            "VALUES (?, ?, ?, ?)",
+            [("Psion", "INT", level, pp) for level, pp in enumerate(_psion_pp)],
+        )
+        conn.executemany(
+            "INSERT INTO maneuvers (name, discipline, level, type, source) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                ("Sapphire Nightmare Blade", "Diamond Mind", 1, "Strike", "ToB"),
+                ("Punishing Stance", "Iron Heart", 1, "Stance", "ToB"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO armor (name, type, ac_bonus, max_dex_bonus, check_penalty, "
+            "arcane_spell_failure, weight, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("Full Plate", "Heavy", 8, 1, -6, 35, 50.0, "PHB"),
+                ("Leather", "Light", 2, 6, 0, 10, 15.0, "PHB"),
+                ("Heavy Steel Shield", "Shield", 2, None, -2, 15, 15.0, "PHB"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO weapons (name, category, size, special, damage_medium, "
+            "critical, range_increment, damage_type, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("Longsword", "Martial", "O", "", "1d8", "19-20/x2", 0, "S", "PHB"),
+                ("Longbow", "Martial", "R", "", "1d8", "x3", 100, "P", "PHB"),
+                ("Greatsword", "Martial", "T", "", "2d6", "19-20/x2", 0, "S", "PHB"),
+                ("Javelin", "Simple", "R", "T", "1d6", "x2", 30, "P", "PHB"),
+                ("Dagger", "Simple", "L", "", "1d4", "19-20/x2", 10, "P/S", "PHB"),
+                ("Short Sword", "Martial", "L", "", "1d6", "19-20/x2", 0, "P", "PHB"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO magic_enhancements (name, type, bonus_equivalent, source) "
+            "VALUES (?, ?, ?, ?)",
+            [("Flaming", "Weapon", 1, "DMG"), ("Fortification", "Armor", 1, "DMG")],
+        )
+        conn.executemany(
+            "INSERT INTO magic_equipment (name, slot, source) VALUES (?, ?, ?)",
+            [
+                ("Cloak of Resistance +1", "Shoulders", "DMG"),
+                ("Handy Haversack", "Wondrous", "DMG"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO creatures (name, size, type, hit_dice, str_score, dex_score, "
+            "con_score, int_score, wis_score, cha_score, natural_armor, source) VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("Wolf", "Medium", "Animal", "2d8+4", 13, 15, 15, 2, 12, 6, 14, "MM"),
+                ("Hawk", "Tiny", "Animal", "1d8", 6, 17, 10, 2, 14, 6, 17, "MM"),
+            ],
+        )
+        conn.executemany(
+            "INSERT INTO classes (name, is_prestige, hit_die, bab_progression, "
+            "fort_progression, ref_progression, will_progression, "
+            "skill_points_per_level, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ("Fighter", 0, 10, "fast", "good", "poor", "poor", 2, "PHB"),
+                ("Arcane Archer", 1, 8, "fast", "poor", "good", "poor", 4, "DMG"),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return db_path
+
+
+@pytest.fixture()
+def model(qapp: object, catalog_db: Path) -> object:
+    from heroforge.db.data_access import GameDataRepository
+    from heroforge.ui.main_window import CharacterModel
+
+    return CharacterModel(game_data=GameDataRepository(str(catalog_db)))
+
+
+def _round_trip(character: object, tmp_path: Path) -> object:
+    """Persist *character* to a fresh character DB and reload it."""
+    from heroforge.db.character_repo import load_character, save_character
+    from heroforge.db.schema import initialize_character_database
+
+    conn = initialize_character_database(tmp_path / "chars.hfc")
+    try:
+        cid = save_character(conn, character)  # type: ignore[arg-type]
+        return load_character(conn, cid)
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Languages
+# ---------------------------------------------------------------------------
+
+
+class TestLanguagesTab:
+    def test_options_loaded_from_catalogue(self, model: object) -> None:
+        assert "Draconic" in model.game_data().list_languages()
+
+    def test_add_persists_and_enforces_int_budget(self, model: object) -> None:
+        from heroforge.ui.tabs.languages import LanguagesTab
+
+        model.character.race = "Human"
+        model.character.ability_scores["INT"] = 14  # +2 modifier = 2 bonus slots
+        tab = LanguagesTab(model=model)
+        model.derived_stats_changed.emit()
+
+        assert tab.add_language("Draconic") is True
+        assert tab.add_language("Goblin") is True
+        # Third language exceeds the two-slot budget.
+        assert tab.add_language("Elven") is False
+        assert model.character.languages == ["Draconic", "Goblin"]
+
+    def test_rejects_automatic_language(self, model: object) -> None:
+        from heroforge.ui.tabs.languages import LanguagesTab
+
+        model.character.race = "Elf"  # Elven is automatic
+        model.character.ability_scores["INT"] = 16
+        tab = LanguagesTab(model=model)
+        model.derived_stats_changed.emit()
+
+        assert tab.add_language("Elven") is False
+
+    def test_syncs_from_model_on_load(self, model: object) -> None:
+        from heroforge.ui.tabs.languages import LanguagesTab
+
+        tab = LanguagesTab(model=model)
+        model.character.languages = ["Draconic", "Goblin"]
+        model.character_loaded.emit(0)
+        assert tab._chosen() == ["Draconic", "Goblin"]
+
+
+# ---------------------------------------------------------------------------
+# Traits & Flaws
+# ---------------------------------------------------------------------------
+
+
+class TestTraitsAndFlawsTab:
+    def test_caps_and_persistence(self, model: object) -> None:
+        from heroforge.ui.tabs.traits_and_flaws import TraitsAndFlawsTab
+
+        tab = TraitsAndFlawsTab(model=model)
+        assert tab.add_trait("Aggressive") is True
+        assert tab.add_trait("Cautious") is True
+        # A character may take at most two traits.
+        assert tab.add_trait("Brawler") is False
+        assert tab.add_trait("Shaky", is_flaw=True) is True
+
+        traits = [t for t in model.character.traits if not t["is_flaw"]]
+        flaws = [t for t in model.character.traits if t["is_flaw"]]
+        assert {t["trait_name"] for t in traits} == {"Aggressive", "Cautious"}
+        assert {f["trait_name"] for f in flaws} == {"Shaky"}
+
+    def test_sync_from_model(self, model: object) -> None:
+        from heroforge.ui.tabs.traits_and_flaws import TraitsAndFlawsTab
+
+        tab = TraitsAndFlawsTab(model=model)
+        model.character.traits = [
+            {"trait_name": "Aggressive", "is_flaw": False},
+            {"trait_name": "Shaky", "is_flaw": True},
+        ]
+        model.character_loaded.emit(0)
+        assert tab._names("traits") == ["Aggressive"]
+        assert tab._names("flaws") == ["Shaky"]
+
+
+# ---------------------------------------------------------------------------
+# Skill tricks
+# ---------------------------------------------------------------------------
+
+
+class TestSkillTricksTab:
+    def test_learn_persists_and_dedupes(self, model: object) -> None:
+        from heroforge.ui.tabs.skill_tricks import SkillTricksTab
+
+        tab = SkillTricksTab(model=model)
+        assert tab.learn("Acrobatic Backstab") is True
+        assert tab.learn("Acrobatic Backstab") is False  # duplicate
+        assert model.character.skill_tricks == ["Acrobatic Backstab"]
+
+
+# ---------------------------------------------------------------------------
+# Grafts
+# ---------------------------------------------------------------------------
+
+
+class TestGraftsTab:
+    def test_slot_conflict_rejected(self, model: object) -> None:
+        from heroforge.ui.tabs.grafts import GraftsTab
+
+        tab = GraftsTab(model=model)
+        assert tab.add_graft("Fiendish Arm", "Arms") is True
+        # A second graft in the same body slot is rejected.
+        assert tab.add_graft("Demon Arm", "Arms") is False
+        # A different slot is fine.
+        assert tab.add_graft("Fiendish Eye", "Eyes") is True
+        slots = {g["body_slot"] for g in model.character.grafts}
+        assert slots == {"Arms", "Eyes"}
+
+    def test_abilities_displayed_for_selected_graft(self, model: object) -> None:
+        from heroforge.ui.tabs.grafts import GraftsTab
+
+        tab = GraftsTab(model=model)
+        assert tab.add_graft("Fiendish Arm", "Arms") is True
+        tab._graft_list.setCurrentRow(0)
+        labels = [
+            tab._abilities_list.item(i).text()
+            for i in range(tab._abilities_list.count())
+        ]
+        assert any("Claw Attack" in label for label in labels)
+        assert any("Strength Boost" in label for label in labels)
+
+    def test_abilities_displayed_when_userdata_absent(self, model: object) -> None:
+        """Abilities still load when UserRole data is missing (fallback path).
+
+        Simulates corrupted/legacy items where setData was never called, so the
+        lookup key must be derived by stripping the slot suffix from the label.
+        """
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QListWidgetItem
+
+        from heroforge.ui.tabs.grafts import GraftsTab
+
+        tab = GraftsTab(model=model)
+        # Insert a raw item with the display label but no UserRole payload.
+        raw = QListWidgetItem("Fiendish Arm (Arms)")
+        raw.setData(Qt.ItemDataRole.UserRole, None)
+        tab._graft_list.addItem(raw)
+        tab._graft_list.setCurrentRow(0)
+        labels = [
+            tab._abilities_list.item(i).text()
+            for i in range(tab._abilities_list.count())
+        ]
+        assert any("Claw Attack" in label for label in labels)
+        assert any("Strength Boost" in label for label in labels)
+
+
+# ---------------------------------------------------------------------------
+# Armour (AC maths + equipment partitioning)
+# ---------------------------------------------------------------------------
+
+
+class TestArmorTab:
+    def test_ac_computation(self, model: object) -> None:
+        from heroforge.ui.tabs.armor import ArmorTab
+
+        model.character.ability_scores["DEX"] = 14  # +2, capped to +1 by Full Plate
+        tab = ArmorTab(model=model)
+
+        catalog = {a.name: a for a in model.game_data().list_armor()}
+        tab._set_item("Body Armor", catalog["Full Plate"])
+        tab._set_item("Shield", catalog["Heavy Steel Shield"])
+        tab._sync_to_model()
+        tab._refresh_summary()
+
+        # 10 + 8 (plate) + 2 (shield) + 1 (DEX capped) = 21
+        assert tab._total_ac_lbl.text() == "21"
+        # Touch ignores armour/shield: 10 + 1 = 11
+        assert tab._touch_ac_lbl.text() == "11"
+        # Flat-footed loses DEX: 10 + 8 + 2 = 20
+        assert tab._ff_ac_lbl.text() == "20"
+        # ACP: -6 + -2 = -8
+        assert tab._acp_lbl.text() == "-8"
+
+    def test_derived_ac_ignores_armor_special_ability_bonus_equivalent(
+        self, model: object
+    ) -> None:
+        model.character.ability_scores["DEX"] = 14  # +2, capped to +1 by Full Plate
+        model.character.equipment = [
+            {"slot": "Body Armor", "item_name": "Full Plate"},
+            {"slot": "Shield", "item_name": "Heavy Steel Shield"},
+        ]
+        model.character.enhancements = [
+            {
+                "target": "Armor",
+                "bonus_type": "Fortification",
+                "value": 1,
+                "notes": "",
+            }
+        ]
+
+        stats = model.derived_stats()
+
+        # Fortification's +1 is a pricing equivalent, not an AC bonus.
+        assert stats.armor_class == 21
+        assert stats.touch_ac == 11
+        assert stats.flat_footed_ac == 20
+
+    def test_heavy_armor_reduces_speed(self, model: object) -> None:
+        """Full plate slows a 30 ft. character to 20 ft. and a x3 run."""
+        model.character.ability_scores["STR"] = 18  # 100 lb. light load
+        model.character.equipment = [
+            {"slot": "Body Armor", "item_name": "Full Plate", "equipped": True},
+        ]
+        stats = model.derived_stats()
+        assert (stats.speed, stats.run_multiplier) == (20, 3)
+
+        model.character.equipment[0]["equipped"] = False
+        stats = model.derived_stats()
+        assert (stats.speed, stats.run_multiplier) == (30, 4)
+
+    def test_light_armor_keeps_speed(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 18
+        model.character.equipment = [{"slot": "Body Armor", "item_name": "Leather"}]
+        assert model.derived_stats().speed == 30
+
+    def test_dwarf_keeps_speed_in_heavy_armor(self, model: object) -> None:
+        model.character.race = "Dwarf"
+        model.character.ability_scores["STR"] = 18
+        model.character.equipment = [{"slot": "Body Armor", "item_name": "Full Plate"}]
+        stats = model.derived_stats()
+        assert (stats.speed, stats.run_multiplier) == (30, 3)
+
+    def test_unequipped_armor_excluded_from_ac(self, model: object) -> None:
+        """Unequipped items must not contribute to the derived AC."""
+        model.character.ability_scores["DEX"] = 10
+        model.character.equipment = [
+            {
+                "slot": "Body Armor",
+                "item_name": "Full Plate",
+                "equipped": False,  # explicitly unequipped
+            },
+        ]
+
+        stats = model.derived_stats()
+
+        # No armor bonus; bare AC = 10 + 0 DEX mod = 10
+        assert stats.armor_class == 10
+
+    def test_duplicate_same_type_armor_uses_max_not_sum(self, model: object) -> None:
+        """Two Body Armor entries (same type) should use the max bonus, not sum.
+
+        PHB p139: armor bonuses are the same bonus type and do not stack.
+        ``aggregate_ac_bonuses`` takes the highest value for same-type bonuses.
+        """
+        model.character.ability_scores["DEX"] = 10
+        model.character.equipment = [
+            # A higher-bonus suit in the Body Armor slot
+            {"slot": "Body Armor", "item_name": "Full Plate", "equipped": True},
+            # A duplicate / second-body-armor entry (data anomaly)
+            {"slot": "Body Armor", "item_name": "Leather", "equipped": True},
+        ]
+
+        stats = model.derived_stats()
+
+        # aggregate_ac_bonuses: max("armor" bonuses) = max(8, 2) = 8; not 8+2=10
+        # 10 + 8 (plate, the higher armor bonus) = 18
+        assert stats.armor_class == 18
+
+    def test_equipment_persisted_with_slots(self, model: object) -> None:
+        from heroforge.ui.tabs.armor import ArmorTab
+
+        tab = ArmorTab(model=model)
+        catalog = {a.name: a for a in model.game_data().list_armor()}
+        tab._set_item("Body Armor", catalog["Leather"])
+        tab._sync_to_model()
+        slots = {e["slot"]: e["item_name"] for e in model.character.equipment}
+        assert slots == {"Body Armor": "Leather"}
+
+
+# ---------------------------------------------------------------------------
+# Armour + magic-equipment slot partitioning
+# ---------------------------------------------------------------------------
+
+
+class TestEquipmentPartitioning:
+    def test_armor_and_magic_tabs_do_not_clobber(self, model: object) -> None:
+        from heroforge.ui.tabs.armor import ArmorTab
+        from heroforge.ui.tabs.magic_equipment import MagicEquipmentTab
+
+        armor = ArmorTab(model=model)
+        magic = MagicEquipmentTab(model=model)
+
+        catalog = {a.name: a for a in model.game_data().list_armor()}
+        armor._set_item("Body Armor", catalog["Full Plate"])
+        armor._sync_to_model()
+
+        magic.add_extra("Handy Haversack")
+
+        slots = {e["slot"] for e in model.character.equipment}
+        assert "Body Armor" in slots
+        assert "Wondrous" in slots
+        # The magic tab writing wondrous items must not drop the armour entry.
+        names = {e["item_name"] for e in model.character.equipment}
+        assert {"Full Plate", "Handy Haversack"} <= names
+
+
+# ---------------------------------------------------------------------------
+# Magic equipment bonuses, weight and encumbrance
+# ---------------------------------------------------------------------------
+
+
+def _magic_item(
+    name: str, slot: str, target: str, bonus_type: str, value: int
+) -> dict[str, object]:
+    return {
+        "item_name": name,
+        "quantity": 1,
+        "weight": 0.0,
+        "equipped": 1,
+        "slot": slot,
+        "notes": "",
+        "bonuses": [{"target": target, "bonus_type": bonus_type, "value": value}],
+    }
+
+
+def _typed_buff(
+    name: str, bonus_type: str, target: str, amount: int
+) -> dict[str, object]:
+    return {
+        "id": name,
+        "name": name,
+        "bonus_type": bonus_type,
+        "target_stat": target,
+        "amount": amount,
+    }
+
+
+class TestMagicEquipmentIntegration:
+    def test_item_and_buff_enhancements_do_not_stack(self, model: object) -> None:
+        # PHB p176: Bull's Strength (+4 enhancement) and Gauntlets of ogre power
+        # (+2 enhancement) are the same bonus type, so only the +4 applies.
+        model.character.ability_scores["STR"] = 10
+        model.character.equipment = [
+            _magic_item(
+                "Gauntlets of ogre power", "Hands/Rings (x2)", "STR", "enhancement", 2
+            ),
+        ]
+        model.character.buffs = [
+            _typed_buff("Bull's Strength", "enhancement", "STR", 4),
+        ]
+        stats = model.derived_stats()
+        assert stats.effective_ability_scores["STR"] == 14
+
+    def test_item_and_buff_resistance_saves_do_not_stack(self, model: object) -> None:
+        model.character.equipment = [
+            _magic_item("Cloak of resistance", "Shoulders", "fort", "resistance", 1),
+        ]
+        model.character.buffs = [
+            _typed_buff("Resistance", "resistance", "fort", 1),
+        ]
+        stats = model.derived_stats()
+        assert stats.fortitude == 1
+
+    def test_item_and_buff_of_different_types_stack(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10
+        model.character.equipment = [
+            _magic_item(
+                "Gauntlets of ogre power", "Hands/Rings (x2)", "STR", "enhancement", 2
+            ),
+        ]
+        model.character.buffs = [_typed_buff("Rage", "morale", "STR", 4)]
+        stats = model.derived_stats()
+        assert stats.effective_ability_scores["STR"] == 16
+
+    def test_item_deflection_ac_does_not_stack_with_buff(self, model: object) -> None:
+        model.character.ability_scores["DEX"] = 10
+        model.character.equipment = [
+            _magic_item("Protection", "Hands/Rings (x2)", "AC", "deflection", 1),
+        ]
+        model.character.buffs = [
+            _typed_buff("Shield of Faith", "deflection", "AC", 2),
+        ]
+        stats = model.derived_stats()
+        assert stats.armor_class == 12
+
+
+@pytest.fixture()
+def slot_catalog_model(qapp: object, catalog_db: Path) -> object:
+    """A model whose catalogue holds one item per seeded workbook slot."""
+    import sqlite3
+
+    from heroforge.db.data_access import GameDataRepository
+    from heroforge.db.seed import _MAGIC_EQUIPMENT_SLOTS
+    from heroforge.ui.main_window import CharacterModel
+
+    conn = sqlite3.connect(catalog_db)
+    try:
+        conn.execute("DELETE FROM magic_equipment")
+        conn.executemany(
+            "INSERT INTO magic_equipment (name, slot, weight) VALUES (?, ?, ?)",
+            [(f"{slot} item", slot, 1.0) for slot, *_columns in _MAGIC_EQUIPMENT_SLOTS],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return CharacterModel(game_data=GameDataRepository(str(catalog_db)))
+
+
+class TestMagicEquipmentSlotCatalogue:
+    @pytest.mark.parametrize(
+        ("tab_slot", "expected"),
+        [
+            ("Head", {"Head item"}),
+            ("Face/Eyes", {"Face item"}),
+            ("Throat/Neck", {"Neck item"}),
+            ("Shoulders", {"Shoulders item"}),
+            ("Body", {"Body item"}),
+            ("Torso", {"Torso item"}),
+            ("Arms/Wrists", {"Arm item"}),
+            ("Hands/Rings (x2)", {"Hand item", "Ring item"}),
+            ("Waist", {"Waist item"}),
+            ("Feet", {"Feet item"}),
+        ],
+    )
+    def test_slot_picker_lists_only_that_slots_items(
+        self, slot_catalog_model: object, tab_slot: str, expected: set[str]
+    ) -> None:
+        from heroforge.ui.tabs.magic_equipment import MagicEquipmentTab
+
+        tab = MagicEquipmentTab(model=slot_catalog_model)
+        assert set(tab._merged_item_catalog(tab_slot)) == expected
+
+
+@pytest.fixture()
+def gear_model(qapp: object, catalog_db: Path) -> object:
+    """A model whose catalogue holds weighted big-six magic items."""
+    import sqlite3
+
+    from heroforge.db.data_access import GameDataRepository
+    from heroforge.ui.main_window import CharacterModel
+
+    conn = sqlite3.connect(catalog_db)
+    try:
+        conn.executemany(
+            "INSERT INTO magic_equipment (name, slot, weight, price_gp) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                ("Gauntlets of ogre power", "Hand", 4.0, 4000),
+                ("Cloak of resistance", "Shoulders", 1.0, 1000),
+                ("Boots of elvenkind", "Feet", 1.0, 2500),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return CharacterModel(game_data=GameDataRepository(str(catalog_db)))
+
+
+def _assign(tab: object, slot: str, name: str, monkeypatch: object) -> None:
+    from heroforge.ui.tabs import magic_equipment
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        magic_equipment, "pick_from_catalog", lambda *_args: name
+    )
+    tab._slots_table.setCurrentCell(magic_equipment._SLOTS.index(slot), 1)
+    tab._assign_slot()
+
+
+class TestMagicEquipmentTabBonuses:
+    def test_assigning_known_item_applies_its_bonus(
+        self, gear_model: object, monkeypatch: object
+    ) -> None:
+        from PyQt6.QtTest import QSignalSpy
+
+        from heroforge.ui.tabs.magic_equipment import MagicEquipmentTab
+
+        gear_model.character.ability_scores["STR"] = 10
+        tab = MagicEquipmentTab(model=gear_model)
+        spy = QSignalSpy(gear_model.derived_stats_changed)
+        _assign(tab, "Hands/Rings (x2)", "Gauntlets of ogre power", monkeypatch)
+
+        stats = gear_model.derived_stats()
+        assert stats.effective_ability_scores["STR"] == 12
+        assert stats.ability_modifiers["STR"] == 1
+        assert len(spy) >= 1
+        entry = next(
+            e
+            for e in gear_model.character.equipment
+            if e["item_name"] == "Gauntlets of ogre power"
+        )
+        # Catalogue weight is stamped onto the entry.
+        assert entry["weight"] == 4.0
+
+    def test_user_entered_bonus_applies_and_survives_reload(
+        self, gear_model: object, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        from heroforge.ui.tabs.magic_equipment import _SLOTS, MagicEquipmentTab
+
+        tab = MagicEquipmentTab(model=gear_model)
+        _assign(tab, "Shoulders", "Cloak of resistance", monkeypatch)
+        row = _SLOTS.index("Shoulders")
+        # Upgrade the cloak's default +1 to +3.
+        tab._slots_table.item(row, 4).setText("3")
+        assert gear_model.derived_stats().fortitude == 3
+        assert gear_model.derived_stats().will == 3
+
+        loaded = _round_trip(gear_model.character, tmp_path)
+        gear_model.character = loaded
+        tab._sync_from_model()
+        assert tab._slots_table.item(row, 2).text() == "Saves"
+        assert tab._slots_table.item(row, 3).text() == "resistance"
+        assert tab._slots_table.item(row, 4).text() == "3"
+        assert gear_model.derived_stats().reflex == 3
+
+    def test_bonus_edit_on_unknown_item(
+        self, gear_model: object, monkeypatch: object
+    ) -> None:
+        from heroforge.ui.tabs.magic_equipment import _SLOTS, MagicEquipmentTab
+
+        tab = MagicEquipmentTab(model=gear_model)
+        _assign(tab, "Feet", "Boots of elvenkind", monkeypatch)
+        row = _SLOTS.index("Feet")
+        # No default bonus is known for these boots.
+        assert tab._slots_table.item(row, 2).text() == ""
+        tab._slots_table.item(row, 2).setText("AC")
+        tab._slots_table.item(row, 3).setText("dodge")
+        tab._slots_table.item(row, 4).setText("1")
+        assert gear_model.derived_stats().armor_class == 11
+
+    def test_extra_bonus_specs_survive_tab_edits(self, gear_model: object) -> None:
+        from heroforge.ui.tabs.magic_equipment import _SLOTS, MagicEquipmentTab
+
+        gear_model.character.equipment = [
+            _magic_item(
+                "Gauntlets of ogre power", "Hands/Rings (x2)", "STR", "enhancement", 2
+            )
+        ]
+        gear_model.character.equipment[0]["bonuses"].append(
+            {"target": "fort", "bonus_type": "luck", "value": 1}
+        )
+        tab = MagicEquipmentTab(model=gear_model)
+        # Editing an unrelated slot rewrites every entry from the table.
+        tab._slots_table.item(_SLOTS.index("Head"), 5).setText("note")
+        entry = next(
+            e
+            for e in gear_model.character.equipment
+            if e["item_name"] == "Gauntlets of ogre power"
+        )
+        assert entry["bonuses"] == [
+            {"target": "STR", "bonus_type": "enhancement", "value": 2},
+            {"target": "fort", "bonus_type": "luck", "value": 1},
+        ]
+
+
+def _gear(name: str, slot: str, weight: float, equipped: int = 1) -> dict:
+    return {
+        "item_name": name,
+        "quantity": 1,
+        "weight": weight,
+        "equipped": equipped,
+        "slot": slot,
+        "notes": "",
+    }
+
+
+class TestEncumbrance:
+    """Carried weight sets the load, which caps Max Dex and adds an ACP.
+
+    PHB p162; the workbook's LoadMaxDex/LoadACP (Armor!R12/R14) use the same
+    3/1 Max Dex and -3/-6 penalties for medium and heavy loads.
+    """
+
+    def test_carried_weight_sets_load_category(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10  # 33 / 66 / 100 lb.
+        model.character.equipment = [
+            _gear("Leather", "Body Armor", 15.0),
+            _gear("Handy Haversack", "Wondrous", 5.0, equipped=0),
+        ]
+        stats = model.derived_stats()
+        assert stats.carried_weight == 20.0
+        assert stats.load == "Light"
+        assert stats.load_check_penalty == 0
+
+        model.character.equipment.append(_gear("Anvil", "Wondrous", 20.0, 0))
+        stats = model.derived_stats()
+        assert stats.carried_weight == 40.0
+        assert stats.load == "Medium"
+        assert stats.load_check_penalty == -3
+
+    def test_medium_load_caps_dex_bonus_to_ac(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10
+        model.character.ability_scores["DEX"] = 18  # +4
+        model.character.equipment = [
+            _gear("Leather", "Body Armor", 15.0),
+            _gear("Anvil", "Wondrous", 25.0, equipped=0),
+        ]
+        # 10 + leather 2 + DEX capped to +3 by the medium load = 15.
+        assert model.derived_stats().armor_class == 15
+
+    def test_heavy_load_uses_heavy_penalties(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10
+        model.character.ability_scores["DEX"] = 18
+        model.character.equipment = [_gear("Anvil", "Wondrous", 80.0, 0)]
+        stats = model.derived_stats()
+        assert stats.load == "Heavy"
+        assert stats.load_check_penalty == -6
+        assert stats.armor_class == 11
+
+    def test_heavy_load_reduces_speed(self, model: object) -> None:
+        model.character.ability_scores["STR"] = 10
+        model.character.equipment = [_gear("Anvil", "Wondrous", 80.0, 0)]
+        stats = model.derived_stats()
+        assert (stats.speed, stats.run_multiplier) == (20, 3)
+
+    def test_zero_weight_entry_resolves_from_catalogue(
+        self, gear_model: object
+    ) -> None:
+        # An entry saved before weights were stamped on still counts.
+        gear_model.character.equipment = [
+            _gear("Gauntlets of ogre power", "Hands/Rings (x2)", 0.0),
+            _gear("Full Plate", "Body Armor", 0.0),
+        ]
+        assert gear_model.derived_stats().carried_weight == 54.0
+
+    def test_load_penalty_reaches_skills(self, model: object) -> None:
+        from heroforge.ui.tabs.skills import _SKILLS, SkillsTab
+
+        model.character.ability_scores["STR"] = 10
+        tab = SkillsTab(model=model)
+        climb_row = next(i for i, s in enumerate(_SKILLS) if s[0] == "Climb")
+        model.character.equipment = [_gear("Anvil", "Wondrous", 80.0, 0)]
+        model.derived_stats_changed.emit()
+        assert tab._table.item(climb_row, 6).text() == "-6"
+
+    def test_stats_tab_shows_current_load(self, model: object) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        model.character.ability_scores["STR"] = 10
+        tab = StatsAndCharacterDetailsTab(model=model)
+        model.character.equipment = [_gear("Anvil", "Wondrous", 40.0, 0)]
+        model.derived_stats_changed.emit()
+        assert tab._derived_labels["load"].text() == "40 lb. (Medium)"
+
+
+# ---------------------------------------------------------------------------
+# Attacks (weapon catalogue)
+# ---------------------------------------------------------------------------
+
+
+def _catalogue_weapon(model: object, name: str) -> object:
+    return next(w for w in model.game_data().list_weapons() if w.name == name)
+
+
+class TestAttacksTab:
+    def test_weapon_from_catalogue_persists(self, model: object) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        tab = AttacksTab(model=model)
+        weapon = next(
+            w for w in model.game_data().list_weapons() if w.name == "Longsword"
+        )
+        tab.add_weapon(weapon)
+        assert any(a["weapon_name"] == "Longsword" for a in model.character.attacks)
+
+    def test_iterative_attacks_and_damage_displayed(self, model: object) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        # 8 Fighter levels (fast BAB in the test catalogue) -> +8, STR 18 (+4).
+        model.character.classes = [("Fighter", 8)]
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        weapon = next(
+            w for w in model.game_data().list_weapons() if w.name == "Longsword"
+        )
+        tab.add_weapon(weapon)
+        model.derived_stats_changed.emit()
+
+        attack_cell = tab._weapons_table.item(0, 1)
+        damage_cell = tab._weapons_table.item(0, 2)
+        assert attack_cell is not None and damage_cell is not None
+        # BAB +8, STR +4 -> first attack +12, iterative at +7.
+        assert attack_cell.text() == "+12/+7"
+        # Longsword 1d8 + STR damage (+4).
+        assert damage_cell.text() == "1d8+4"
+
+    @pytest.mark.parametrize("damage", ["ref:UnarmedStrikeDamage", "2"])
+    def test_damage_without_dice_is_stable_across_refreshes(
+        self, model: object, damage: str
+    ) -> None:
+        from heroforge.db.data_access import WeaponItem
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        tab.add_weapon(
+            WeaponItem(
+                name="Unarmed Strike",
+                category="S",
+                damage=damage,
+                critical="×2",
+                range_increment=0,
+                damage_type="B",
+                source="",
+            )
+        )
+        model.derived_stats_changed.emit()
+        model.derived_stats_changed.emit()
+
+        damage_cell = tab._weapons_table.item(0, 2)
+        assert damage_cell is not None
+        assert damage_cell.text() == damage
+        assert model.character.attacks[0]["damage"] == damage
+
+    def test_two_handed_weapon_gets_one_and_a_half_strength(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        tab.add_weapon(_catalogue_weapon(model, "Greatsword"))
+        model.derived_stats_changed.emit()
+        # PHB p113: 2d6 + 1.5 x STR (+4) = 2d6+6.
+        assert tab._weapons_table.item(0, 2).text() == "2d6+6"
+
+    @pytest.mark.parametrize(
+        ("weapon", "strength", "expected"),
+        [
+            ("Javelin", 18, "1d6+4"),  # thrown: full STR
+            ("Dagger", 18, "1d4+4"),  # melee weapon with a range increment
+            ("Longbow", 18, "1d8"),  # bows add no STR bonus ...
+            ("Longbow", 6, "1d8-2"),  # ... but do take a STR penalty
+        ],
+    )
+    def test_ranged_and_thrown_weapon_strength_damage(
+        self, model: object, weapon: str, strength: int, expected: str
+    ) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = strength
+        tab = AttacksTab(model=model)
+        tab.add_weapon(_catalogue_weapon(model, weapon))
+        model.derived_stats_changed.emit()
+        assert tab._weapons_table.item(0, 2).text() == expected
+
+    def _cells(self, tab: object, row: int) -> tuple[str, str]:
+        return (
+            tab._weapons_table.item(row, 1).text(),
+            tab._weapons_table.item(row, 2).text(),
+        )
+
+    def test_two_weapon_fighting_with_feats_and_light_off_hand(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.attacks import HAND_OFF, AttacksTab
+
+        # Fighter 8 (BAB +8), STR 18 (+4): single-weapon chain +12/+7.
+        model.character.classes = [("Fighter", 8)]
+        model.character.ability_scores["STR"] = 18
+        model.character.feats = [
+            "Two-Weapon Fighting",
+            "Improved Two-Weapon Fighting",
+        ]
+        tab = AttacksTab(model=model)
+        tab.add_weapon(_catalogue_weapon(model, "Longsword"))
+        tab.add_weapon(_catalogue_weapon(model, "Short Sword"))
+        tab.set_hand(1, HAND_OFF)
+
+        # PHB p160: light off-hand weapon + Two-Weapon Fighting -> -2 / -2.
+        assert self._cells(tab, 0) == ("+10/+5", "1d8+4")
+        # Improved TWF adds a second off-hand attack at -5; off-hand damage
+        # adds half the Strength bonus.
+        assert self._cells(tab, 1) == ("+10/+5", "1d6+2")
+        assert model.character.attacks[1]["hand"] == HAND_OFF
+        assert model.character.attacks[1]["attack_bonus"] == "+10/+5"
+
+    def test_two_weapon_fighting_without_feats(self, model: object) -> None:
+        from heroforge.ui.tabs.attacks import HAND_OFF, HAND_PRIMARY, AttacksTab
+
+        model.character.classes = [("Fighter", 8)]
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        tab.add_weapon(_catalogue_weapon(model, "Longsword"))
+        tab.add_weapon(_catalogue_weapon(model, "Longsword"))
+        tab.set_hand(1, HAND_OFF)
+
+        # One-handed off-hand weapon, no feat: -6 primary / -10 off hand,
+        # and a single off-hand attack.
+        assert self._cells(tab, 0) == ("+6/+1", "1d8+4")
+        assert self._cells(tab, 1) == ("+2", "1d8+2")
+
+        # Switching back to a single weapon restores the normal chain.
+        tab.set_hand(1, HAND_PRIMARY)
+        assert self._cells(tab, 0) == ("+12/+7", "1d8+4")
+        assert self._cells(tab, 1) == ("+12/+7", "1d8+4")
+
+    def test_off_hand_designation_round_trips(
+        self, model: object, tmp_path: Path
+    ) -> None:
+        from heroforge.ui.tabs.attacks import HAND_OFF, HAND_PRIMARY, AttacksTab
+
+        tab = AttacksTab(model=model)
+        tab.add_weapon(_catalogue_weapon(model, "Longsword"))
+        tab.add_weapon(_catalogue_weapon(model, "Short Sword"))
+        tab.set_hand(1, HAND_OFF)
+
+        loaded = _round_trip(model.character, tmp_path)
+        assert [a["hand"] for a in loaded.attacks] == [HAND_PRIMARY, HAND_OFF]
+
+        model.character = loaded
+        tab._sync_from_model()
+        assert tab.hand(0) == HAND_PRIMARY
+        assert tab.hand(1) == HAND_OFF
+
+    def test_user_entered_damage_is_kept(self, model: object) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        weapon = next(
+            w for w in model.game_data().list_weapons() if w.name == "Longsword"
+        )
+        tab.add_weapon(weapon)
+        model.derived_stats_changed.emit()
+        damage_cell = tab._weapons_table.item(0, 2)
+        assert damage_cell is not None and damage_cell.text() == "1d8+4"
+
+        # The user accounts for a +1 enhancement by editing the cell by hand.
+        damage_cell.setText("1d8+5")
+        model.derived_stats_changed.emit()
+        assert tab._weapons_table.item(0, 2).text() == "1d8+5"
+        assert model.character.attacks[0]["damage"] == "1d8+5"
+
+        # Reloading the saved attacks keeps the hand-entered value too.
+        tab._sync_from_model()
+        assert tab._weapons_table.item(0, 2).text() == "1d8+5"
+
+    def test_computed_damage_follows_strength_changes(self, model: object) -> None:
+        from heroforge.ui.tabs.attacks import AttacksTab
+
+        model.character.ability_scores["STR"] = 18
+        tab = AttacksTab(model=model)
+        weapon = next(
+            w for w in model.game_data().list_weapons() if w.name == "Longsword"
+        )
+        tab.add_weapon(weapon)
+        model.derived_stats_changed.emit()
+        assert tab._weapons_table.item(0, 2).text() == "1d8+4"
+
+        model.ability_score_changed.emit("STR", 20)
+        assert tab._weapons_table.item(0, 2).text() == "1d8+5"
+        tab._sync_from_model()
+        model.ability_score_changed.emit("STR", 8)
+        assert tab._weapons_table.item(0, 2).text() == "1d8-1"
+
+
+# ---------------------------------------------------------------------------
+# Soulmelds / Psionics / Maneuvers
+# ---------------------------------------------------------------------------
+
+
+class TestIncarnumPsionicsManeuvers:
+    def test_soulmeld_essentia_persists(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        tab._total_spin.setValue(5)
+        assert tab.shape_soulmeld("Airstep Sandals", "Feet", 2) is True
+        meld = model.character.soulmelds[0]
+        assert meld["soulmeld_name"] == "Airstep Sandals"
+        assert meld["essentia_invested"] == 2
+        assert model.character.options["essentia_pool"] == "5"
+
+    def test_essentia_pool_auto_calculates(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 9 grants 9 essentia, capacity 2, and 2 chakra binds
+        # (Magic of Incarnum, "Soulmelds" sheet / fallback tables).
+        model.character.classes = [("Incarnate", 9)]
+        model.derived_stats_changed.emit()
+
+        assert tab._meldshaper_lbl.text() == "9"
+        assert tab._capacity_lbl.text() == "2"
+        assert tab._total_spin.value() == 9
+        assert tab._summary.chakra_binds_available == 2
+        assert tab._binds_lbl.text() == "0 / 2"
+        assert model.character.options["essentia_pool"] == "9"
+
+    def test_bonus_essentia_pool_ignores_shaped_rows(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 5 (5 essentia) with Bonus Essentia: a meldshaper gets +2
+        # (Soulmelds!AL29) before any soulmeld is shaped, and shaping melds
+        # leaves the pool unchanged.
+        model.character.classes = [("Incarnate", 5)]
+        model.character.feats = ["Bonus Essentia"]
+        model.derived_stats_changed.emit()
+        assert tab._total_spin.value() == 7
+
+        assert tab.shape_soulmeld("Airstep Sandals", "Feet") is True
+        assert tab.shape_soulmeld("Mage's Spectacles", "Brow") is True
+        assert tab._total_spin.value() == 7
+        assert model.character.options["essentia_pool"] == "7"
+
+    def test_essentia_auto_flag_persisted(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        model.character.classes = [("Incarnate", 5)]
+        model.derived_stats_changed.emit()
+        # Writing the auto-calculated pool also records that it is automatic,
+        # so a reload never mistakes it for a manual override.
+        assert tab._auto_chk.isChecked() is True
+        assert model.character.options["essentia_pool"] == "5"
+        assert model.character.options["essentia_pool_auto"] == "true"
+
+    def test_reload_keeps_auto_mode_when_stored_pool_is_stale(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        model.character.classes = [("Incarnate", 5)]
+        model.derived_stats_changed.emit()
+        # A pool saved under different rules no longer matches the computed
+        # value; the persisted auto flag keeps the reload in auto mode.
+        model.character.options["essentia_pool"] = "6"
+        model.character_loaded.emit(0)
+        assert tab._auto_chk.isChecked() is True
+        assert tab._total_spin.value() == 5
+        assert model.character.options["essentia_pool_auto"] == "true"
+
+    def test_loading_manual_pool_keeps_override(self, model: object) -> None:
+        from heroforge.models.character import Character
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        model.character.classes = [("Incarnate", 5)]
+        model.derived_stats_changed.emit()
+        assert tab._auto_chk.isChecked() is True
+
+        # Load a character whose pool was set by hand while the tab is still
+        # showing the previous, auto-calculated character.
+        loaded = Character()
+        loaded.classes = [("Incarnate", 5)]
+        loaded.options = {"essentia_pool": "12", "essentia_pool_auto": "false"}
+        model.character = loaded
+        model.character_loaded.emit(0)
+
+        assert tab._auto_chk.isChecked() is False
+        assert tab._total_spin.value() == 12
+        assert loaded.options == {
+            "essentia_pool": "12",
+            "essentia_pool_auto": "false",
+        }
+
+    def test_chakra_bind_limit_enforced(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 4 opens Crown, Feet and Hands but has a single chakra bind
+        # (TblClassBinds).
+        model.character.classes = [("Incarnate", 4)]
+        model.derived_stats_changed.emit()
+        assert tab._summary.chakra_binds_available == 1
+
+        tab._add_row("Meld A", "Crown", 0)
+        tab._add_row("Meld B", "Feet", 0)
+        first = tab._bound_checkbox(0)
+        second = tab._bound_checkbox(1)
+        assert first is not None and second is not None
+
+        first.setChecked(True)  # within the single-bind limit
+        assert tab._bound_count() == 1
+        second.setChecked(True)  # exceeds the limit -> refused
+        assert second.isChecked() is False
+        assert tab._bound_count() == 1
+
+    def test_bind_to_locked_chakra_refused(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 2 has one bind but only the Crown chakra is open; an
+        # Incarnate cannot bind to the Feet chakra until 4th level.
+        model.character.classes = [("Incarnate", 2)]
+        model.derived_stats_changed.emit()
+        assert tab._summary.unlocked_chakras == frozenset({"Crown"})
+
+        assert tab.shape_soulmeld("Airstep Sandals", "Feet") is True
+        feet = tab._bound_checkbox(0)
+        assert feet is not None
+        feet.setChecked(True)
+        assert feet.isChecked() is False
+        assert model.character.soulmelds[0]["chakra_bound"] == ""
+
+    def test_second_bind_to_same_chakra_refused(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # Incarnate 6 has two binds; each open chakra holds one bound soulmeld.
+        model.character.classes = [("Incarnate", 6)]
+        model.derived_stats_changed.emit()
+        assert tab._summary.chakra_binds_available == 2
+
+        tab._add_row("Meld A", "Crown", 0)
+        tab._add_row("Meld B", "Crown", 0)
+        tab._add_row("Meld C", "Hands", 0)
+        first, second, third = (tab._bound_checkbox(r) for r in range(3))
+        assert first is not None and second is not None and third is not None
+
+        first.setChecked(True)
+        second.setChecked(True)  # Crown already holds a bound soulmeld
+        assert second.isChecked() is False
+        third.setChecked(True)  # Hands is open and a bind remains
+        assert third.isChecked() is True
+        assert tab._bound_count() == 2
+
+    def test_binds_dropped_when_class_level_falls(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        model.character.classes = [("Incarnate", 9)]
+        model.derived_stats_changed.emit()
+        tab._add_row("Meld A", "Crown", 0)
+        tab._add_row("Airstep Sandals", "Feet", 0)
+        for row in range(2):
+            checkbox = tab._bound_checkbox(row)
+            assert checkbox is not None
+            checkbox.setChecked(True)
+        assert tab._bound_count() == 2
+
+        # Incarnate 2 has one bind and only the Crown chakra open: the Feet
+        # bind no longer holds and is released.
+        model.character.classes = [("Incarnate", 2)]
+        model.derived_stats_changed.emit()
+        assert tab._is_bound(0) is True
+        assert tab._is_bound(1) is False
+        assert tab._binds_lbl.text() == "1 / 1"
+        assert [m["chakra_bound"] for m in model.character.soulmelds] == ["Crown", ""]
+
+    def test_loaded_binds_over_the_limit_are_released(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # A hand-edited save: Incarnate 2 (one bind, Crown open) with a Feet
+        # bind and two soulmelds bound to Crown.
+        model.character.classes = [("Incarnate", 2)]
+        model.character.soulmelds = [
+            {"soulmeld_name": "Airstep Sandals", "chakra_bound": "Feet"},
+            {"soulmeld_name": "Meld A", "chakra_bound": "Crown"},
+            {"soulmeld_name": "Meld B", "chakra_bound": "Crown"},
+        ]
+        model.character_loaded.emit(0)
+
+        assert [tab._is_bound(r) for r in range(3)] == [False, True, False]
+        assert [m["chakra_bound"] for m in model.character.soulmelds] == [
+            "",
+            "Crown",
+            "",
+        ]
+
+    def test_bind_without_known_chakra_only_checks_count(self, model: object) -> None:
+        from heroforge.ui.tabs.soulmelds import SoulmeldsTab
+
+        tab = SoulmeldsTab(model=model)
+        # The seeded soulmeld catalogue does not record a chakra yet; such rows
+        # are limited by the bind count alone.
+        model.character.classes = [("Incarnate", 2)]
+        model.derived_stats_changed.emit()
+
+        tab._add_row("Meld A", "", 0)
+        tab._add_row("Meld B", "", 0)
+        first = tab._bound_checkbox(0)
+        second = tab._bound_checkbox(1)
+        assert first is not None and second is not None
+        first.setChecked(True)
+        assert first.isChecked() is True
+        second.setChecked(True)
+        assert second.isChecked() is False
+
+    def test_psionic_power_and_pp_persist(self, model: object) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        tab = PsionicsTab(model=model)
+        tab._total_pp.setValue(11)
+        assert tab.add_power("Mind Thrust") is True
+        assert any(
+            p["power_name"] == "Mind Thrust" for p in model.character.psionic_powers
+        )
+        assert model.character.options["psionic_total_pp"] == "11"
+
+    def test_power_points_and_manifester_level_auto_calculate(
+        self, model: object
+    ) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        tab = PsionicsTab(model=model)
+        # Psion 10 with INT 20 (+5): 88 base + floor(5 * 10 / 2) = 113 PP.
+        model.character.classes = [("Psion", 10)]
+        model.character.ability_scores["INT"] = 20
+        model.derived_stats_changed.emit()
+
+        assert tab._manifester_lbl.text() == "10"
+        assert tab._total_pp.value() == 113
+        assert model.character.options["psionic_total_pp"] == "113"
+
+    def test_manual_override_survives_recalculation(self, model: object) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        tab = PsionicsTab(model=model)
+        model.character.classes = [("Psion", 10)]
+        model.character.ability_scores["INT"] = 20
+        model.derived_stats_changed.emit()
+
+        # A manual edit switches off auto-calculation and is preserved.
+        tab._total_pp.setValue(200)
+        assert tab._auto_pp.isChecked() is False
+        assert model.character.options["psionic_pp_auto"] == "false"
+
+        model.character.classes = [("Psion", 5)]
+        model.derived_stats_changed.emit()
+        assert tab._total_pp.value() == 200
+
+        # Re-enabling auto-calculation recomputes from the current build.
+        tab._auto_pp.setChecked(True)
+        assert tab._total_pp.value() == 37  # Psion 5, INT 20: 25 + floor(5*5/2)
+
+    def test_legacy_manual_total_is_preserved_on_load(self, model: object) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        # A saved character (no auto flag) with a hand-entered total differing
+        # from the computed value is treated as a manual override.
+        model.character.classes = [("Psion", 10)]
+        model.character.ability_scores["INT"] = 20
+        model.character.options["psionic_total_pp"] = "50"
+        tab = PsionicsTab(model=model)
+        model.character_loaded.emit(0)
+
+        assert tab._auto_pp.isChecked() is False
+        assert tab._total_pp.value() == 50
+
+    def test_manifesting_progressions_are_cached(
+        self, model: object, monkeypatch: object
+    ) -> None:
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        repo = model.game_data()
+        calls = 0
+        original = repo.psionic_progressions
+
+        def counting_progressions() -> object:
+            nonlocal calls
+            calls += 1
+            return original()
+
+        monkeypatch.setattr(repo, "psionic_progressions", counting_progressions)
+
+        tab = PsionicsTab(model=model)
+        model.character.classes = [("Psion", 5)]
+        model.character.ability_scores["INT"] = 20
+        model.derived_stats_changed.emit()
+        model.derived_stats_changed.emit()
+
+        assert calls == 1
+        assert tab._total_pp.value() == 37
+
+    def test_auto_calc_persists_clamped_spinbox_value(self, model: object) -> None:
+        """Persisted total must equal the spinbox value, not the raw computed value.
+
+        If the computed PP exceeds the spinbox's maximum (e.g. the range was
+        reduced), the spinbox clamps it.  The model must store the *clamped*
+        value so that the persisted state matches the UI.
+        """
+        from heroforge.ui.tabs.psionics import PsionicsTab
+
+        tab = PsionicsTab(model=model)
+        # Override the spinbox range so any value > 50 is clamped to 50.
+        tab._total_pp.setRange(0, 50)
+
+        # Psion 10 with INT 20 computes to 113 PP — above the new cap of 50.
+        model.character.classes = [("Psion", 10)]
+        model.character.ability_scores["INT"] = 20
+        model.derived_stats_changed.emit()
+
+        # The spinbox must display the clamped value.
+        assert tab._total_pp.value() == 50
+        # The persisted value must match what the spinbox shows, not 113.
+        assert model.character.options["psionic_total_pp"] == "50"
+
+    def test_maneuver_and_stance_classified(self, model: object) -> None:
+        from heroforge.ui.tabs.maneuvers_and_stances import ManeuversAndStancesTab
+
+        tab = ManeuversAndStancesTab(model=model)
+        assert tab.add_maneuver("Sapphire Nightmare Blade") is True
+        assert tab.add_maneuver("Punishing Stance", stance=True) is True
+        names = {m["maneuver_name"] for m in model.character.maneuvers}
+        assert names == {"Sapphire Nightmare Blade", "Punishing Stance"}
+
+    def test_toggling_stance_refreshes_derived_stats(self, model: object) -> None:
+        """Ticking a stance must announce the derived-stat change to the UI."""
+        from PyQt6.QtCore import Qt
+
+        from heroforge.ui.tabs.character_sheet import CharacterSheetTab
+        from heroforge.ui.tabs.maneuvers_and_stances import ManeuversAndStancesTab
+
+        tab = ManeuversAndStancesTab(model=model)
+        sheet = CharacterSheetTab(model=model)
+        assert tab.add_maneuver("Punishing Stance", stance=True) is True
+        before = model.derived_stats().armor_class
+        assert f"AC: {before}" in sheet._text_edit.toPlainText()
+
+        emitted: list[bool] = []
+        model.derived_stats_changed.connect(lambda: emitted.append(True))
+        item = tab._stance_list.item(0)
+        assert item is not None
+        item.setCheckState(Qt.CheckState.Checked)
+
+        assert emitted, "derived_stats_changed was not emitted"
+        after = model.derived_stats().armor_class
+        assert after == before - 2  # Punishing Stance: -2 AC
+        assert f"AC: {after}" in sheet._text_edit.toPlainText()
+
+
+# ---------------------------------------------------------------------------
+# Companions (animal + familiar partition, JSON round-trip)
+# ---------------------------------------------------------------------------
+
+
+class TestCompanions:
+    def test_animal_and_familiar_partition(self, model: object) -> None:
+        from heroforge.ui.tabs.animal_companion import AnimalCompanionTab
+        from heroforge.ui.tabs.familiar import FamiliarTab
+
+        animal = AnimalCompanionTab(model=model)
+        familiar = FamiliarTab(model=model)
+
+        animal._name_edit.setText("Rex")
+        animal._species_edit.setText("Wolf")
+        animal._sync_to_model()
+
+        familiar._sync_from_model()  # ensure familiar refresh keeps the animal entry
+
+        types = {c["companion_type"] for c in model.character.companions}
+        assert "animal" in types
+        animal_entry = next(
+            c for c in model.character.companions if c["companion_type"] == "animal"
+        )
+        assert animal_entry["name"] == "Rex"
+        # Detailed stats are JSON-encoded in the notes column.
+        assert json.loads(animal_entry["notes"])["scores"]["STR"] == 10
+
+
+# ---------------------------------------------------------------------------
+# Game Log
+# ---------------------------------------------------------------------------
+
+
+class TestGameLogTab:
+    def test_add_entry_persists_to_model(self, model: object) -> None:
+        from heroforge.ui.tabs.game_log import GameLogTab
+
+        tab = GameLogTab(model=model)
+        assert tab.add_entry("Rescued the villagers", timestamp="2024-04-01 10:00")
+
+        assert model.character.game_log == [
+            {"timestamp": "2024-04-01 10:00", "content": "Rescued the villagers"}
+        ]
+
+    def test_blank_entry_is_ignored(self, model: object) -> None:
+        from heroforge.ui.tabs.game_log import GameLogTab
+
+        tab = GameLogTab(model=model)
+        assert tab.add_entry("   ") is False
+        assert model.character.game_log == []
+
+    def test_clear_log_clears_model(self, model: object) -> None:
+        from heroforge.ui.tabs.game_log import GameLogTab
+
+        tab = GameLogTab(model=model)
+        tab.add_entry("Session one")
+        tab.clear_log()
+        assert model.character.game_log == []
+
+    def test_sync_from_model_populates_view(self, model: object) -> None:
+        from heroforge.ui.tabs.game_log import GameLogTab
+
+        model.character.game_log = [
+            {"timestamp": "2024-01-01 09:00", "content": "Began the journey"}
+        ]
+        tab = GameLogTab(model=model)
+        assert "Began the journey" in tab._log_view.toPlainText()
+
+    def test_entries_round_trip(self, model: object, tmp_path: Path) -> None:
+        from heroforge.ui.tabs.game_log import GameLogTab
+
+        tab = GameLogTab(model=model)
+        tab.add_entry("Camped for the night", timestamp="2024-05-05 22:00")
+
+        loaded = _round_trip(model.character, tmp_path)
+        assert loaded.game_log == [
+            {"timestamp": "2024-05-05 22:00", "content": "Camped for the night"}
+        ]
+
+
+# ---------------------------------------------------------------------------
+# LG Game Log (Living Greyhawk; deprecated)
+# ---------------------------------------------------------------------------
+
+
+class TestLGGameLogTab:
+    def test_add_record_persists_as_game_log(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        tab = LGGameLogTab(model=model)
+        tab.add_record("2024-02-02", "Defeated bandits", 150, 450, "AR note")
+
+        records = [
+            r for r in model.character.lg_records if r["record_type"] == "game_log"
+        ]
+        assert len(records) == 1
+        rec = records[0]
+        assert rec["event_date"] == "2024-02-02"
+        assert rec["description"] == "Defeated bandits"
+        assert rec["gp_change"] == 150.0
+        assert rec["xp_change"] == 450.0
+        assert rec["notes"] == "AR note"
+
+    def test_other_lg_record_types_preserved(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        model.character.lg_records = [
+            {"record_type": "item_access", "description": "Boots of Speed"}
+        ]
+        tab = LGGameLogTab(model=model)
+        tab.add_record(description="A new adventure")
+
+        types = [r["record_type"] for r in model.character.lg_records]
+        assert "item_access" in types
+        assert "game_log" in types
+
+    def test_sync_preserves_interleaved_ordering(self, model: object) -> None:
+        """game_log records replaced in-place; sibling record positions unchanged."""
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        # Start with interleaved records: item_access / game_log / mil
+        model.character.lg_records = [
+            {"record_type": "item_access", "description": "Ring"},
+            {
+                "record_type": "game_log",
+                "event_date": "2024-01-01",
+                "description": "Old session",
+                "gp_change": 0.0,
+                "xp_change": 0.0,
+                "notes": None,
+            },
+            {"record_type": "mil", "description": "Promotion"},
+        ]
+        tab = LGGameLogTab(model=model)
+        # Edit the existing game_log row via the table
+        tab._table.item(0, 1).setText("Updated session")
+
+        records = model.character.lg_records
+        # Ordering must still be: item_access, game_log, mil
+        assert [r["record_type"] for r in records] == [
+            "item_access",
+            "game_log",
+            "mil",
+        ]
+        assert records[1]["description"] == "Updated session"
+
+    def test_cell_edit_syncs_to_model(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        tab = LGGameLogTab(model=model)
+        tab.add_record(description="Original")
+        tab._table.item(0, 1).setText("Edited")
+
+        record = next(
+            r for r in model.character.lg_records if r["record_type"] == "game_log"
+        )
+        assert record["description"] == "Edited"
+
+    def test_sync_from_model_shows_only_game_log_rows(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        model.character.lg_records = [
+            {"record_type": "item_access", "description": "Wand"},
+            {
+                "record_type": "game_log",
+                "event_date": "2024-01-01",
+                "description": "Session 1",
+                "gp_change": 10.0,
+                "xp_change": 20.0,
+                "notes": "",
+            },
+        ]
+        tab = LGGameLogTab(model=model)
+        assert tab._table.rowCount() == 1
+        assert tab._table.item(0, 1).text() == "Session 1"
+
+    def test_records_round_trip(self, model: object, tmp_path: Path) -> None:
+        from heroforge.ui.tabs.lg_game_log import LGGameLogTab
+
+        tab = LGGameLogTab(model=model)
+        tab.add_record("2024-03-03", "Slew the dragon", 500, 1000, "Big haul")
+
+        loaded = _round_trip(model.character, tmp_path)
+        records = [r for r in loaded.lg_records if r["record_type"] == "game_log"]
+        assert len(records) == 1
+        assert records[0]["description"] == "Slew the dragon"
+        assert records[0]["gp_change"] == 500.0
+
+
+class TestLGItemAccessTab:
+    def test_add_record_persists_as_item_access(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
+
+        tab = LGItemAccessTab(model=model)
+        tab.add_record("2024-02-02", "Boots of Speed", 12000, "AR 1234")
+
+        records = [
+            r for r in model.character.lg_records if r["record_type"] == "item_access"
+        ]
+        assert len(records) == 1
+        rec = records[0]
+        assert rec["event_date"] == "2024-02-02"
+        assert rec["description"] == "Boots of Speed"
+        assert rec["gp_change"] == 12000.0
+        assert rec["xp_change"] == 0.0
+        assert rec["notes"] == "AR 1234"
+
+    def test_other_lg_record_types_preserved(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
+
+        model.character.lg_records = [
+            {"record_type": "game_log", "description": "An old session"}
+        ]
+        tab = LGItemAccessTab(model=model)
+        tab.add_record(item="Ring of Protection")
+
+        types = [r["record_type"] for r in model.character.lg_records]
+        assert "game_log" in types
+        assert "item_access" in types
+
+    def test_sync_preserves_interleaved_ordering(self, model: object) -> None:
+        """item_access records replaced in-place; sibling positions unchanged."""
+        from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
+
+        # Start with interleaved records: game_log / item_access / mil
+        model.character.lg_records = [
+            {"record_type": "game_log", "description": "Session"},
+            {
+                "record_type": "item_access",
+                "event_date": "2024-01-01",
+                "description": "Old wand",
+                "gp_change": 0.0,
+                "xp_change": 0.0,
+                "notes": None,
+            },
+            {"record_type": "mil", "description": "Promotion"},
+        ]
+        tab = LGItemAccessTab(model=model)
+        # Edit the existing item_access row via the table
+        tab._table.item(0, 1).setText("Updated wand")
+
+        records = model.character.lg_records
+        # Ordering must still be: game_log, item_access, mil
+        assert [r["record_type"] for r in records] == [
+            "game_log",
+            "item_access",
+            "mil",
+        ]
+        assert records[1]["description"] == "Updated wand"
+
+    def test_cell_edit_syncs_to_model(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
+
+        tab = LGItemAccessTab(model=model)
+        tab.add_record(item="Original")
+        tab._table.item(0, 1).setText("Edited")
+
+        record = next(
+            r for r in model.character.lg_records if r["record_type"] == "item_access"
+        )
+        assert record["description"] == "Edited"
+
+    def test_sync_from_model_shows_only_item_access_rows(self, model: object) -> None:
+        from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
+
+        model.character.lg_records = [
+            {"record_type": "game_log", "description": "Session 1"},
+            {
+                "record_type": "item_access",
+                "event_date": "2024-01-01",
+                "description": "Cloak of Resistance",
+                "gp_change": 1000.0,
+                "xp_change": 0.0,
+                "notes": "",
+            },
+        ]
+        tab = LGItemAccessTab(model=model)
+        assert tab._table.rowCount() == 1
+        assert tab._table.item(0, 1).text() == "Cloak of Resistance"
+
+    def test_records_round_trip(self, model: object, tmp_path: Path) -> None:
+        from heroforge.ui.tabs.lg_item_access import LGItemAccessTab
+
+        tab = LGItemAccessTab(model=model)
+        tab.add_record("2024-03-03", "Staff of Power", 200000, "AR 5678")
+
+        loaded = _round_trip(model.character, tmp_path)
+        records = [r for r in loaded.lg_records if r["record_type"] == "item_access"]
+        assert len(records) == 1
+        assert records[0]["description"] == "Staff of Power"
+        assert records[0]["gp_change"] == 200000.0
+        assert records[0]["notes"] == "AR 5678"
+
+
+# ---------------------------------------------------------------------------
+# Full save/load round-trip across several tabs
+# ---------------------------------------------------------------------------
+
+
+class TestSaveLoadRoundTrip:
+    def test_multiple_tabs_round_trip(self, model: object, tmp_path: Path) -> None:
+        from heroforge.ui.tabs.grafts import GraftsTab
+        from heroforge.ui.tabs.languages import LanguagesTab
+        from heroforge.ui.tabs.skill_tricks import SkillTricksTab
+        from heroforge.ui.tabs.traits_and_flaws import TraitsAndFlawsTab
+
+        model.character.name = "Round Trip"
+        model.character.race = "Human"
+        model.character.ability_scores["INT"] = 16
+
+        lang = LanguagesTab(model=model)
+        model.derived_stats_changed.emit()
+        lang.add_language("Draconic")
+
+        SkillTricksTab(model=model).learn("Acrobatic Backstab")
+        TraitsAndFlawsTab(model=model).add_trait("Aggressive")
+        GraftsTab(model=model).add_graft("Fiendish Arm", "Arms")
+
+        loaded = _round_trip(model.character, tmp_path)
+        assert loaded.languages == ["Draconic"]
+        assert loaded.skill_tricks == ["Acrobatic Backstab"]
+        assert any(t["trait_name"] == "Aggressive" for t in loaded.traits)
+        assert any(g["graft_name"] == "Fiendish Arm" for g in loaded.grafts)
+
+
+# ---------------------------------------------------------------------------
+# Stats & Character Details (identity + ability scores)
+# ---------------------------------------------------------------------------
+
+
+class TestStatsAndCharacterDetailsTab:
+    def test_identity_edits_persist_and_restore(
+        self, model: object, tmp_path: Path
+    ) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        tab = StatsAndCharacterDetailsTab(model=model)
+        tab._name_edit.setText("Mialee")
+        tab._player_edit.setText("Jess")
+        tab._deity_edit.setText("Boccob")
+        tab._age_spin.setValue(27)
+        tab._xp_spin.setValue(3000)
+        tab._ability_spinboxes["INT"].setValue(16)
+        tab._sync_to_model()
+
+        assert model.character.name == "Mialee"
+        assert model.character.player == "Jess"
+        assert model.character.deity == "Boccob"
+        assert model.character.age == 27
+        assert model.character.experience == 3000
+        assert model.character.ability_scores["INT"] == 16
+
+        loaded = _round_trip(model.character, tmp_path)
+        model.character = loaded
+        model.character_loaded.emit(loaded.id or 0)
+
+        assert tab._name_edit.text() == "Mialee"
+        assert tab._player_edit.text() == "Jess"
+        assert tab._deity_edit.text() == "Boccob"
+        assert tab._age_spin.value() == 27
+        assert tab._xp_spin.value() == 3000
+        assert tab._ability_spinboxes["INT"].value() == 16
+
+    def test_race_is_read_only_mirror(self, model: object) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        tab = StatsAndCharacterDetailsTab(model=model)
+        assert tab._race_edit.isReadOnly()
+
+        # The Race tab owns the value; this tab only mirrors it on refresh.
+        model.character.race = "Elf"
+        model.derived_stats_changed.emit()
+        assert tab._race_edit.text() == "Elf"
+
+    def test_reset_clears_fields(self, model: object) -> None:
+        from heroforge.ui.tabs.stats_and_character_details import (
+            StatsAndCharacterDetailsTab,
+        )
+
+        tab = StatsAndCharacterDetailsTab(model=model)
+        tab._name_edit.setText("Temp")
+        tab._sync_to_model()
+        model.new_character()
+        assert tab._name_edit.text() == ""
+        assert tab._ability_spinboxes["STR"].value() == 10
+
+
+# ---------------------------------------------------------------------------
+# Race & Templates
+# ---------------------------------------------------------------------------
+
+
+class TestRaceAndTemplatesTab:
+    def test_race_selection_persists_to_model(self, model: object) -> None:
+        from heroforge.ui.tabs.race_and_templates import RaceAndTemplatesTab
+
+        tab = RaceAndTemplatesTab(model=model)
+        tab._race_combo.setCurrentText("Half-Orc")
+        assert model.character.race == "Half-Orc"
+
+    def test_templates_round_trip(self, model: object, tmp_path: Path) -> None:
+        from heroforge.ui.tabs.race_and_templates import RaceAndTemplatesTab
+
+        tab = RaceAndTemplatesTab(model=model)
+        tab._available_templates = ["Celestial", "Fiendish"]
+        tab._add_template()
+        tab._add_template()
+        assert model.character.templates == ["Celestial", "Fiendish"]
+
+        loaded = _round_trip(model.character, tmp_path)
+        model.character = loaded
+        model.character_loaded.emit(loaded.id or 0)
+
+        assert tab._race_combo.currentText() == loaded.race
+        restored = [
+            tab._template_list.item(i).text() for i in range(tab._template_list.count())
+        ]
+        assert restored == ["Celestial", "Fiendish"]
+
+
+# ---------------------------------------------------------------------------
+# Feats / Prestige / Skills restore-on-load
+# ---------------------------------------------------------------------------
+
+
+class TestCharacterBackedTabRestore:
+    def test_feats_restore_on_load(self, model: object) -> None:
+        from heroforge.ui.tabs.feats import FeatsTab
+
+        tab = FeatsTab(model=model)
+        model.character.feats = ["Power Attack", "Cleave"]
+        model.character_loaded.emit(0)
+
+        taken = [tab._taken_list.item(i).text() for i in range(tab._taken_list.count())]
+        assert taken == ["Power Attack", "Cleave"]
+
+    def test_prestige_classes_restore_on_load(self, model: object) -> None:
+        from heroforge.ui.tabs.prestige_classes import PrestigeClassesTab
+
+        tab = PrestigeClassesTab(model=model)
+        model.character.classes = [("Fighter", 4), ("Arcane Archer", 2)]
+        model.character_loaded.emit(0)
+
+        # Only prestige classes are shown here; the base-class level (Fighter)
+        # is displayed by the Classes tab and left untouched in the character.
+        assert tab._taken_table.rowCount() == 1
+        assert tab._taken_table.item(0, 0).text() == "Arcane Archer"
+        assert tab._taken_table.cellWidget(0, 1).value() == 2
+        # The full class list (including the base class) is preserved.
+        assert model.character.classes == [("Fighter", 4), ("Arcane Archer", 2)]
+
+    def test_skills_restore_on_load(self, model: object) -> None:
+        from heroforge.ui.tabs.skills import SkillsTab
+
+        tab = SkillsTab(model=model)
+        model.character.skills = {"Spot": 5.0, "Listen": 3.5}
+        model.character_loaded.emit(0)
+
+        by_name = {}
+        for row, spin in enumerate(tab._rank_spinboxes):
+            name = tab._table.item(row, 0).text()
+            by_name[name] = spin.value()
+        assert by_name["Spot"] == 5.0
+        assert by_name["Listen"] == 3.5

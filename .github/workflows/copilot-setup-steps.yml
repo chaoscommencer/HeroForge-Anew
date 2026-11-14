@@ -1,0 +1,62 @@
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies (including ruff and black)
+        # Every install is hash-pinned: a verified pip from requirements-pip.txt,
+        # then the dev environment from the hash-pinned requirements-dev.txt, then
+        # the project itself (--no-deps -e ., the only un-hashable piece since it
+        # is an editable local checkout, not a downloaded artifact). --user keeps
+        # the installs in the runner's user site (~/.local, on PATH).
+        # --only-binary=:all: refuses sdists so no package's build backend can
+        # execute arbitrary code at install time (the editable -e . build is a
+        # local checkout, not a downloaded sdist, so it is unaffected).
+        run: |
+          python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-pip.txt
+          python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-dev.txt
+          python -m pip install --no-cache-dir --user --only-binary=:all: --no-deps -e .
+
+      - name: Install graphify (codebase knowledge graph for AI assistants)
+        run: |
+          python -m pip install --no-cache-dir --user --only-binary=:all: --require-hashes -r requirements-graphifyy.txt
+
+      - name: Register the graphify skill with Copilot
+        # Installs the graphify skill into the agent's Copilot environment
+        # (~/.copilot/skills/graphify) so Copilot CLI / the coding agent can invoke
+        # `/graphify` and is steered toward query-first graph usage.
+        run: graphify install --platform copilot
+
+      - name: Pre-build the graphify knowledge graph
+        # Maps the codebase into graphify-out/graph.json (local AST extraction, no
+        # API key needed) so Copilot can query the graph instead of reading many
+        # files, reducing token cost. The graphify skill rebuilds it if missing.
+        run: graphify update .

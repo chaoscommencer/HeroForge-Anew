@@ -1,0 +1,204 @@
+name: Update devcontainer base image
+
+# Proposes a bump of the devcontainers/python base image pinned (tag + digest) in
+# .devcontainer/Dockerfile.devcontainer-default. This workflow is the only thing
+# that updates that pin (.github/dependabot.yml deliberately leaves
+# /.devcontainer out), so the rules below are applied in one place.
+#
+# The choice is made by .github/scripts/pick-devcontainer-image.sh (tested in
+# tests/test_pick_devcontainer_image.py) from MCR's tag catalog:
+#   * stay on the current image major and Python minor, e.g. 3.x.y-3.12-bookworm;
+#     moving to a new major or Python version is a deliberate change made by hand;
+#   * never propose a downgrade, only a version newer than the current pin;
+#   * supply-chain age rule: only propose images MCR has listed for at least
+#     MIN_AGE_DAYS (14) days, by MCR's own listing date (not the image's
+#     self-reported creation time, which its publisher can backdate). When a
+#     newer image fixes a serious vulnerability, run the workflow by hand with
+#     `allow_recent: true` and a reason; the reason is recorded in the PR.
+# The picked tag's digest is then checked against the registry itself.
+#
+# Note: scheduled runs only happen for workflows on the default branch, and a
+# pull request opened with GITHUB_TOKEN does not trigger other workflows, so
+# re-run CI on the PR (close/reopen or push) before merging.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      allow_recent:
+        description: 'Skip the 14-day age gate (only for an image that fixes a serious vulnerability)'
+        type: boolean
+        default: false
+      reason:
+        description: 'Why the age gate is skipped (CVE / advisory); recorded in the PR'
+        type: string
+        default: ''
+
+# Minimal default: read-only for all jobs unless explicitly overridden at the job level.
+# Elevated permissions (contents: write, pull-requests: write) are declared only on the
+# apply-updates job that actually performs writes.
+permissions:
+  contents: read
+
+env:
+  DOCKERFILE: .devcontainer/Dockerfile.devcontainer-default
+  REPO_URL: https://mcr.microsoft.com/v2/devcontainers/python
+  CATALOG_URL: https://mcr.microsoft.com/api/v1/catalog/devcontainers/python/tags?reg=mar
+  MIN_AGE_DAYS: '14'
+
+jobs:
+  detect-updates:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+      digest: ${{ steps.pick.outputs.digest }}
+      created: ${{ steps.pick.outputs.created }}
+      has-updates: ${{ steps.pick.outputs.has_updates }}
+      update-branch: ${{ steps.pick.outputs.update_branch }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Pick the newest eligible devcontainers/python image
+        id: pick
+        env:
+          ALLOW_RECENT: ${{ inputs.allow_recent || false }}
+        run: |
+          set -euo pipefail
+          catalog="$(mktemp)"
+
+          # MCR's tag catalog: every tag with its digest and the date MCR listed
+          # it. Treated as untrusted input: size-capped here, validated by the
+          # picker, and the picked digest is re-checked against the registry.
+          if ! curl -sSf --max-time 60 --max-filesize 20000000 -o "$catalog" "$CATALOG_URL"; then
+            echo "ERROR: could not download the MCR tag catalog from ${CATALOG_URL}" >&2
+            exit 1
+          fi
+
+          .github/scripts/pick-devcontainer-image.sh "$DOCKERFILE" "$catalog" > picked.txt
+          cat picked.txt
+          has_updates=$(sed -n 's/^has_updates=//p' picked.txt)
+          if [ "$has_updates" != "true" ]; then
+            echo "has_updates=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          TAG=$(sed -n 's/^tag=//p' picked.txt)
+          DIGEST=$(sed -n 's/^digest=//p' picked.txt)
+          CREATED=$(sed -n 's/^created=//p' picked.txt)
+
+          # The registry, not the catalog API, decides what Docker pulls: make
+          # sure both agree on the picked tag's digest.
+          INDEX_ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
+          REGISTRY_DIGEST=$(curl -sSfI --max-time 60 -H "Accept: ${INDEX_ACCEPT}" "${REPO_URL}/manifests/${TAG}" \
+            | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest:[[:space:]]*//p' | tr -d '\r\n')
+          if [ "$REGISTRY_DIGEST" != "$DIGEST" ]; then
+            echo "ERROR: the registry serves ${TAG} as '${REGISTRY_DIGEST}', but the catalog lists ${DIGEST}" >&2
+            exit 1
+          fi
+
+          {
+            echo "has_updates=true"
+            echo "tag=${TAG}"
+            echo "digest=${DIGEST}"
+            echo "created=${CREATED}"
+            echo "update_branch=automated/update-devcontainer_python_$(echo "$TAG" | tr '.-' '_')"
+          } >> "$GITHUB_OUTPUT"
+
+  apply-updates:
+    needs: detect-updates
+    if: needs.detect-updates.outputs.has-updates == 'true'
+    runs-on: ubuntu-latest
+    # Elevated permissions scoped only to this job, which performs the actual file writes
+    # and pull request creation. The read-only detect-updates job above cannot abuse these.
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Apply Python image update to Dockerfile
+        env:
+          TAG: ${{ needs.detect-updates.outputs.tag }}
+          DIGEST: ${{ needs.detect-updates.outputs.digest }}
+        run: |
+          set -euo pipefail
+          # Defence in depth: re-validate the values before they reach sed.
+          echo "$TAG" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+-3\.[0-9]+-bookworm$'
+          echo "$DIGEST" | grep -qE '^sha256:[a-f0-9]{64}$'
+
+          # Update the human-readable tag in the comment block above the FROM line
+          sed -i \
+            "s|human-readable tag ([^)]*) is kept|human-readable tag (${TAG}) is kept|" \
+            "$DOCKERFILE"
+
+          # Update the FROM line — replace existing tag and digest atomically
+          sed -i \
+            "s|FROM mcr.microsoft.com/devcontainers/python:[^@]*@sha256:[a-f0-9]\{64\}|FROM mcr.microsoft.com/devcontainers/python:${TAG}@${DIGEST}|" \
+            "$DOCKERFILE"
+
+      - name: Commit changes and open pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.detect-updates.outputs.tag }}
+          DIGEST: ${{ needs.detect-updates.outputs.digest }}
+          CREATED: ${{ needs.detect-updates.outputs.created }}
+          BRANCH: ${{ needs.detect-updates.outputs.update-branch }}
+          BASE: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+          ALLOW_RECENT: ${{ inputs.allow_recent || false }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add "$DOCKERFILE"
+          if git diff --cached --quiet; then
+            echo "Destination is already up to date — nothing to deliver"
+            exit 0
+          fi
+
+          if [ "$EVENT" = "schedule" ]; then
+            TRIGGER_DESC="scheduled run"
+          else
+            TRIGGER_DESC="manual run"
+          fi
+          if [ "$ALLOW_RECENT" = "true" ]; then
+            # The reason is free text typed into the run form. It cannot inject
+            # shell (it is only expanded inside a heredoc), but it could inject
+            # Markdown, links or @mentions into the PR body, so keep a single
+            # line of plain characters, at most 200 of them.
+            REASON_SAFE=$(printf '%s' "${REASON:-}" | tr -cd '[:alnum:] .,:/#()_-' | cut -c1-200)
+            GATE="**Age gate skipped** (allow_recent). Reason given: ${REASON_SAFE:-none given}"
+          else
+            GATE="Passed the ${MIN_AGE_DAYS}-day age gate."
+          fi
+
+          git checkout -b "$BRANCH"
+          git commit -m "chore: update devcontainer to Python image ${TAG}"
+          git push origin "$BRANCH"
+
+          BODY_FILE=$(mktemp)
+          cat >"$BODY_FILE" <<BODY
+          Automated base image update for the devcontainer:
+
+          - **devcontainers/python**: \`${TAG}\` (\`${DIGEST}\`)
+          - Listed by MCR: ${CREATED}
+          - ${GATE}
+
+          Triggered by: ${TRIGGER_DESC}.
+
+          This PR was opened with GITHUB_TOKEN, so CI did not start automatically;
+          re-run it before merging.
+          BODY
+          gh pr create \
+            --title "chore: update devcontainer to Python image ${TAG}" \
+            --body-file "$BODY_FILE" \
+            --base "$BASE" \
+            --head "$BRANCH"

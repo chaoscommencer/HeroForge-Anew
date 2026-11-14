@@ -1,0 +1,113 @@
+// HeroForge-Anew development container — DEFAULT, unprivileged profile.
+//
+// This is the profile for everyday development and for unattended agents. It
+// runs without --privileged, without Docker-in-Docker and without sudo, with
+// --security-opt=no-new-privileges, and with a root-owned, read-only Python
+// environment at /opt/venv (see Dockerfile.devcontainer-default). Nothing that
+// runs as `vscode` here can become root or reach the Codespace VM.
+//
+// The GUI for QA runs as plain processes: `scripts/run-gui-local.sh` starts the
+// desktop (Xvfb + noVNC) and the app, and you open the forwarded port 6080.
+//
+// For the containerized Compose QA stack (scripts/run-gui.sh), which needs
+// Docker-in-Docker and therefore a privileged container, use the opt-in profile
+// in .devcontainer/qa/devcontainer.json. Never use that one for unattended agents.
+{
+  "name": "HeroForge-Anew (PyQt6 Dev)",
+
+  "build": {
+    "dockerfile": "Dockerfile.devcontainer-default",
+    "context": ".."
+  },
+
+  // no-new-privileges: no setuid program (su, sudo, newuidmap, ...) can raise
+  // privileges, so `vscode` keeps an empty capability set.
+  //
+  // Capabilities: drop them all, then add back only what root needs for the
+  // setup Codespaces / VS Code run inside the container as root (creating and
+  // re-owning files under /home/vscode, starting processes as vscode, stopping
+  // them). Everything else in Docker's default set (NET_RAW, MKNOD, SETFCAP,
+  // SETPCAP, NET_BIND_SERVICE, SYS_CHROOT, AUDIT_WRITE) stays dropped. If a
+  // future Codespaces change needs one of them, the container fails to start
+  // and the error names the missing permission.
+  //
+  // Limits: a process cap stops a runaway agent or fork bomb, and the memory
+  // ceiling keeps one from exhausting the Codespace VM (6 GiB fits the smallest
+  // 8 GB machine and is far more than editing and the test suite need).
+  "runArgs": [
+    "--security-opt=no-new-privileges",
+    "--cap-drop=ALL",
+    "--cap-add=CHOWN",
+    "--cap-add=DAC_OVERRIDE",
+    "--cap-add=FOWNER",
+    "--cap-add=FSETID",
+    "--cap-add=KILL",
+    "--cap-add=SETGID",
+    "--cap-add=SETUID",
+    "--pids-limit=4096",
+    "--memory=6g"
+  ],
+
+  // The venv is read-only, so the project is not pip-installed in editable mode;
+  // putting src/ on PYTHONPATH gives the same imports (`python -m heroforge`).
+  "containerEnv": {
+    "PYTHONPATH": "${containerWorkspaceFolder}/src"
+  },
+
+  // noVNC from scripts/run-gui-local.sh, bound to 127.0.0.1 in this container.
+  // Codespaces forwards it privately (only your signed-in GitHub account can
+  // open it). Keep its visibility private.
+  "forwardPorts": [6080],
+  "portsAttributes": {
+    "6080": {
+      "label": "HeroForge GUI (noVNC)",
+      "onAutoForward": "notify",
+      // websockify is TLS-only (--ssl-only), so the forwarder must connect to
+      // it over HTTPS; plain HTTP fails with a 502.
+      "protocol": "https"
+    }
+  },
+
+  // Run as the unprivileged user shipped with the base image.
+  "remoteUser": "vscode",
+
+  // Keep Claude Code's conversations, agent memory, /rewind checkpoints and
+  // user settings across rebuilds (issue #141). persist-claude-state.sh moves
+  // that allowlist onto the Codespace's persistent disk
+  // (/workspaces/.claude-state, outside every working tree) and links it back
+  // into ~/.claude. Credentials
+  // stay in the container, so a rebuild still asks you to sign in again. It is
+  // the image's root-owned, read-only copy, never the workspace's, so a branch
+  // checkout cannot change what runs; a change to it takes a rebuild. It runs
+  // at every start, creation included (postStartCommand also runs then), and
+  // is self-healing: if an update replaces one of the links with a regular
+  // file, the next start folds that file back onto the disk and links it
+  // again. It starts with an empty environment (env -i) and no startup files,
+  // so nothing the user can write (BASH_ENV, exported shell functions, a PATH
+  // through ~/.local/bin) changes what it runs. Details in
+  // docs/containerized-runtime.md.
+  "postStartCommand": "/usr/bin/env -i HOME=/home/vscode /usr/bin/bash --noprofile --norc /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/persist-claude-state.sh link",
+  // Connect only once postStartCommand has finished, so no terminal can start
+  // a Claude Code session before its state is linked in.
+  "waitFor": "postStartCommand",
+
+  "customizations": {
+    "vscode": {
+      // Recommended extensions live in .vscode/extensions.json so they can be
+      // reviewed and installed manually rather than forced into the container.
+      "settings": {
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        // The dev dependencies are baked into /opt/venv by
+        // Dockerfile.devcontainer-default.
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "[python]": {
+          // Needs the `ms-python.black-formatter` extension (recommended in
+          // .vscode/extensions.json); harmless if it is not installed.
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  }
+}

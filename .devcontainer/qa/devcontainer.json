@@ -1,0 +1,89 @@
+// HeroForge-Anew development container — opt-in QA profile with Docker-in-Docker.
+//
+// Use this profile only when you need the containerized Compose QA stack
+// (scripts/run-gui.sh): the app in a network-less, read-only container next to a
+// display sidecar. Docker-in-Docker needs a PRIVILEGED container, and the
+// `vscode` user can use the inner Docker daemon, which amounts to root here and
+// can reach the Codespace VM's kernel. So:
+//   * never use this profile for unattended agents or untrusted code;
+//   * prefer the default profile (.devcontainer/devcontainer.json) and
+//     scripts/run-gui-local.sh for everyday GUI checks.
+// It shares the default image (no sudo, read-only /opt/venv) and pins the
+// Docker-in-Docker feature and the Docker Engine to exact versions.
+{
+  "name": "HeroForge-Anew (QA, Docker-in-Docker)",
+
+  "build": {
+    "dockerfile": "../Dockerfile.devcontainer-default",
+    "context": "../..",
+    "args": {
+      // The desktop runs in the Compose `display` sidecar here.
+      "INSTALL_DISPLAY": "false"
+    }
+  },
+
+  "features": {
+    // Pinned to version 4.1.3 AND, through devcontainer-lock.json next to this
+    // file, to that release's manifest digest. The feature's install script
+    // runs as root in this privileged container, so a re-pushed tag must not
+    // change what runs: the Dev Containers CLI fetches the manifest by the
+    // locked digest and stops with "Digest did not match" if it differs.
+    // Dependabot's devcontainers ecosystem updates the version and the lock
+    // file together, after its 14-day cooldown. Docker CE comes from
+    // download.docker.com (moby: false) at an exact engine version.
+    "ghcr.io/devcontainers/features/docker-in-docker:4.1.3": {
+      "version": "29.9.2",
+      "moby": false,
+      "dockerDashComposeVersion": "v2"
+    }
+  },
+
+  // no-new-privileges still applies inside a privileged container: the
+  // remaining setuid programs (su, passwd, newgrp, gpasswd, mount, ...) cannot
+  // raise privileges. It does not change the larger risk above: membership of
+  // the `docker` group, which the feature grants `vscode`, is equivalent to root.
+  "runArgs": [
+    "--security-opt=no-new-privileges"
+  ],
+
+  "containerEnv": {
+    "PYTHONPATH": "${containerWorkspaceFolder}/src"
+  },
+
+  // noVNC published by the Compose display sidecar on 127.0.0.1:6080. Codespaces
+  // forwards it privately; keep its visibility private.
+  "forwardPorts": [6080],
+  "portsAttributes": {
+    "6080": {
+      "label": "HeroForge GUI (noVNC via Compose)",
+      "onAutoForward": "notify",
+      "protocol": "https"
+    }
+  },
+
+  "remoteUser": "vscode",
+
+  // Keep Claude Code's conversations, memory and settings across rebuilds, as
+  // the default profile does (see the comment there and issue #141), from the
+  // image's root-owned, read-only copy of the script. Unlike in the default
+  // profile, that copy is NOT out of the user's reach here: `vscode` is in the
+  // `docker` group, which is root-equivalent, so it can change the script or
+  // anything else in the container. Don't rely on it as a boundary in this
+  // profile.
+  "postStartCommand": "/usr/bin/env -i HOME=/home/vscode /usr/bin/bash --noprofile --norc /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/persist-claude-state.sh link",
+  "waitFor": "postStartCommand",
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        "python.defaultInterpreterPath": "/opt/venv/bin/python",
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  }
+}

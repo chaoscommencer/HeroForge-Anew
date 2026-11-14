@@ -1,0 +1,264 @@
+# syntax=docker/dockerfile:1
+#
+# Development container image for HeroForge-Anew.
+#
+# This is the image GitHub Codespaces / VS Code Dev Containers build from
+# devcontainer.json. It is for *developing* the project — editing, linting,
+# type-checking and running the (offscreen-capable) test suite — and is distinct
+# from the root Dockerfile.heroforge-app, which exists to *run* the GUI for QA.
+#
+# It layers the Qt runtime libraries on top of the official devcontainers Python
+# image so that `pytest` can import PyQt6 for real (instead of skipping the
+# widget tests), plus the desktop tools scripts/run-gui-local.sh uses to show the
+# GUI without a container engine.
+#
+# Both devcontainer profiles build this image:
+#   * .devcontainer/devcontainer.json    — the default, UNPRIVILEGED profile.
+#   * .devcontainer/qa/devcontainer.json — opt-in, adds Docker-in-Docker for the
+#     Compose QA stack (privileged).
+# Hardening that applies to both: no sudo for the `vscode` user (removed at the
+# end of this file) and a root-owned, read-only Python environment at /opt/venv,
+# so code running as `vscode` cannot become root or tamper with installed tools.
+
+# Pinned to a specific digest for reproducible, tamper-evident builds. The
+# human-readable tag (3-3.12-bookworm) is kept alongside the digest for clarity;
+# the @sha256 is what Docker actually resolves. Available tags/digests are listed
+# at https://mcr.microsoft.com/en-us/artifact/mar/devcontainers/python/tags —
+# update both the tag and the digest together when bumping the base image.
+FROM mcr.microsoft.com/devcontainers/python:3-3.12-bookworm@sha256:4ace5266fed54e0e440d7b5142008684e305e5d456c8136f1bae5742139a95dc
+
+# Refresh the apt package index once, up front, so the install RUNs below do not
+# each repeat it. Each install RUN sets `export DEBIAN_FRONTEND=noninteractive`
+# in its own shell (it does NOT persist across RUN layers) so any package that
+# would otherwise prompt via debconf installs noninteractively.
+RUN apt-get update
+
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get install --no-install-recommends -y \
+        libgl1 \
+        libegl1 \
+        libglib2.0-0 \
+        libdbus-1-3 \
+        libfontconfig1 \
+        libfreetype6 \
+        libx11-6 \
+        libx11-xcb1 \
+        libxcb1 \
+        libxcb-cursor0 \
+        libxcb-glx0 \
+        libxcb-icccm4 \
+        libxcb-image0 \
+        libxcb-keysyms1 \
+        libxcb-randr0 \
+        libxcb-render0 \
+        libxcb-render-util0 \
+        libxcb-shape0 \
+        libxcb-shm0 \
+        libxcb-sync1 \
+        libxcb-util1 \
+        libxcb-xfixes0 \
+        libxcb-xinerama0 \
+        libxcb-xkb1 \
+        libxkbcommon0 \
+        libxkbcommon-x11-0 \
+        libxext6 \
+        libxrender1 \
+        libsm6 \
+        libice6
+
+# Debian's own Python (/usr/bin/python3), separate from the image's /usr/local
+# Python and the /opt/venv toolchain. persist-claude-state.sh (below) runs on it
+# by absolute path, in isolated mode, so nothing the user can write (PATH,
+# site-packages, the venv) changes what it runs. Usually present already as a
+# dependency; installed explicitly so both profiles are sure to have it.
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt-get install --no-install-recommends -y python3
+
+# Desktop tools for scripts/run-gui-local.sh (the default profile's GUI): the
+# same stack the Compose `display` sidecar runs (see Dockerfile.display), started
+# as plain processes. Rootless Podman was evaluated for this instead and cannot
+# work in an unprivileged container: creating its user namespace fails under the
+# default seccomp profile, and even with seccomp and AppArmor disabled newuidmap
+# cannot write the UID map. The QA profile sets INSTALL_DISPLAY=false because its
+# desktop runs in the Compose sidecar.
+ARG INSTALL_DISPLAY=true
+RUN if [ "${INSTALL_DISPLAY}" = "true" ]; then \
+        export DEBIAN_FRONTEND=noninteractive \
+        && apt-get install --no-install-recommends -y \
+            xvfb \
+            fluxbox \
+            x11vnc \
+            novnc \
+            websockify \
+            x11-utils \
+            xauth \
+            openssl \
+        && printf '%s\n' \
+            '#!/bin/sh' \
+            '# Shim (see Dockerfile.display): paint a solid background instead of' \
+            '# fbsetbg'"'"'s blocking "no wallpaper app" dialog. Ignore all arguments.' \
+            'exec fbsetroot -solid black' \
+            > /usr/bin/fbsetbg \
+        && chmod 0755 /usr/bin/fbsetbg \
+        && printf '%s\n' \
+            '<!doctype html>' \
+            '<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true">' \
+            > /usr/share/novnc/index.html \
+        && chmod 0644 /usr/share/novnc/index.html; \
+    fi
+
+# Clean the apt cache and drop the package lists once, at the very end, so every
+# layer above shares a single cleanup instead of repeating it per install.
+RUN apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Python dependencies (baked into a root-owned virtual environment) --------
+#
+# The hash-pinned third-party dependencies go into a virtual environment at
+# /opt/venv, so the dev environment is ready on first boot without a network
+# fetch. /opt/venv lives outside /home/vscode and /workspaces, so no home or
+# workspace mount can shadow it.
+#
+# The venv is owned by root and not writable by anyone else, so a compromised
+# tool or dependency running as `vscode` cannot replace pytest, black, ruff or
+# any library that later runs with the developer's credentials. Because of that
+# the project itself is not pip-installed in editable mode; both devcontainer
+# profiles set PYTHONPATH to <workspace>/src instead (pytest already uses
+# `pythonpath = ["src"]`). Run the app with `python -m heroforge`.
+#
+# CI-PARITY NOTE: .github/workflows/ci.yml and copilot-setup-steps.yml install
+# the SAME hash-pinned requirements with `pip install --user`, so the two must be
+# bumped together when the pins change. --only-binary=:all: refuses sdists so no
+# package's build backend runs arbitrary code at install time.
+ARG VENV_PATH=/opt/venv
+ENV VENV_PATH=${VENV_PATH}
+# Put the venv first on PATH in non-login shells (postCreate, `docker exec`,
+# VS Code tasks). The 99-venv-path.sh snippet below does the same for login
+# shells, where the base image's 00-restore-env.sh would otherwise put the
+# system Python first.
+ENV PATH="${VENV_PATH}/bin:${PATH}"
+
+COPY requirements-pip.txt requirements-dev.txt /tmp/reqs/
+RUN PIP_ROOT_USER_ACTION=ignore python -m venv "${VENV_PATH}" \
+    && PIP_ROOT_USER_ACTION=ignore "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-pip.txt \
+    && PIP_ROOT_USER_ACTION=ignore "${VENV_PATH}/bin/python" -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/reqs/requirements-dev.txt \
+    && chown -R root:root "${VENV_PATH}" \
+    && chmod -R go-w "${VENV_PATH}" \
+    && rm -rf /tmp/reqs
+
+# Make the venv win in *login* shells too. The base image's
+# /etc/profile.d/00-restore-env.sh re-prepends the system Python to $PATH, so an
+# interactive `bash -l` would otherwise resolve `python` to /usr/local rather
+# than the venv. The 99- snippet sorts AFTER that one (99 > 00) and moves the
+# venv back to the front, so `python`/`pip`/`pytest`/`black`/`ruff` resolve to
+# /opt/venv in login shells, non-login shells and VS Code alike. The snippet is
+# written via a heredoc so the file reads exactly as generated; ${VENV_PATH} is
+# expanded now (build time) while \${PATH} stays literal (evaluated at login).
+#
+# It must MOVE the entry, not just add it when missing: the image's ENV PATH
+# already contains the venv, so after 00-restore-env.sh prepends the system
+# Python the venv is still present, only further down, and a "prepend unless
+# present" test would leave `python` pointing at /usr/local/bin/python.
+RUN cat > /etc/profile.d/99-venv-path.sh <<EOF && chmod 0644 /etc/profile.d/99-venv-path.sh
+# Prefer the baked HeroForge dev virtualenv (see Dockerfile.devcontainer-default).
+# The base image's 00-restore-env.sh puts the system Python first in login
+# shells, while the venv may still sit further down PATH. Remove every copy of
+# the venv entry, then put one copy first, so the result is the same however
+# often this file is sourced. POSIX sh only: profile.d is also read by dash.
+# The -d test makes this a no-op if the venv is ever missing.
+if [ -d "${VENV_PATH}/bin" ]; then
+    _hf_path=":\${PATH}:"
+    while :; do
+        case "\${_hf_path}" in
+            *":${VENV_PATH}/bin:"*)
+                _hf_path="\${_hf_path%%:${VENV_PATH}/bin:*}:\${_hf_path#*:${VENV_PATH}/bin:}"
+                ;;
+            *) break ;;
+        esac
+    done
+    _hf_path="\${_hf_path#:}"
+    _hf_path="\${_hf_path%:}"
+    export PATH="${VENV_PATH}/bin\${_hf_path:+:\${_hf_path}}"
+    unset _hf_path
+fi
+EOF
+
+# --- Claude Code state across rebuilds (issue #141) ----------------------------
+# persist-claude-state.sh, which devcontainer.json runs when the container is
+# created and at every start, keeps Claude Code's conversations, memory and
+# settings on the persistent /workspaces disk. It runs outside Claude Code and
+# with the user's own rights, so it is baked in here rather than run from the
+# workspace: owned by root and read-only (directories 0555, files 0444, the
+# script 0555), so neither a branch checkout nor any process in the container
+# changes what runs until the next rebuild. The build fails if anything but a
+# directory or a regular file came along, a link included.
+COPY .devcontainer/development/scripts/persist-claude-state \
+     /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/
+RUN set -eu; \
+    tree=/usr/local/libexec/heroforge-anew; \
+    test -z "$(find "${tree}" ! -type d ! -type f)"; \
+    chown -R root:root "${tree}"; \
+    find "${tree}" -type d -exec chmod 0555 {} +; \
+    find "${tree}" -type f -exec chmod 0444 {} +; \
+    chmod 0555 "${tree}/devcontainer-scripts/persist-claude-state/persist-claude-state.sh"
+
+# --- Base-image tool directories ----------------------------------------------
+# The base image installs its pipx tools under /usr/local/py-utils and nvm under
+# /usr/local/share/nvm, both group-writable (2775) by the `pipx` and `nvm`
+# groups, which `vscode` belongs to. /usr/local/py-utils/bin sits on PATH ahead
+# of /usr/local/bin and /usr/bin, so `vscode` could otherwise plant a `git`,
+# `ssh` or `openssl` there that every later call (VS Code's git integration
+# included) would run with the Codespace's credentials. Make both trees owned
+# by root and writable by nobody else, and take `vscode` out of those groups.
+RUN for dir in /usr/local/py-utils /usr/local/share/nvm; do \
+        if [ -e "$dir" ]; then chown -R root:root "$dir" && chmod -R go-w "$dir"; fi; \
+    done \
+    && for group in pipx nvm; do \
+        if id -nG vscode | tr ' ' '\n' | grep -qx "$group"; then gpasswd -d vscode "$group"; fi; \
+    done
+
+# --- No sudo -------------------------------------------------------------------
+# The devcontainers base image gives `vscode` passwordless sudo. Remove it, so
+# nothing running as the editor user (an extension, a dependency, an AI agent)
+# can become root. Every root step already happens above at build time. The
+# default profile also runs with --security-opt=no-new-privileges, which stops
+# any setuid program from raising privileges; removing the rule keeps this true
+# in the QA profile and wherever the image is started without that flag.
+RUN rm -f /etc/sudoers.d/vscode \
+    && if getent group sudo | grep -qw vscode; then gpasswd -d vscode sudo; fi
+
+# --- Guard: vscode cannot change what runs from PATH ---------------------------
+# Fail the build if `vscode` could write (or create) any directory on PATH, in
+# both the image's PATH and a login shell's, or any system-wide login script.
+# This keeps a base-image bump from quietly bringing back a writable tool
+# directory like the ones fixed above. runuser applies vscode's real group
+# memberships, so group-writable entries are caught too. Entries under vscode's
+# own home (e.g. ~/.local/bin) are skipped: the home is writable by design.
+RUN runuser -u vscode -- sh -eu <<'CHECK'
+status=0
+# True when the current user could write the path, or create it because its
+# nearest existing ancestor is writable.
+can_write() {
+    target=$1
+    while [ ! -e "$target" ]; do target=$(dirname "$target"); done
+    [ -w "$target" ]
+}
+login_path=$(sh -lc 'printf %s "$PATH"')
+old_ifs=$IFS
+IFS=:
+for dir in $PATH $login_path; do
+    case "$dir" in "" | "$HOME" | "$HOME"/*) continue ;; esac
+    if can_write "$dir"; then
+        echo "error: vscode can write PATH entry $dir" >&2
+        status=1
+    fi
+done
+IFS=$old_ifs
+for file in /etc/profile /etc/bash.bashrc /etc/environment /etc/profile.d /etc/profile.d/*; do
+    if [ -e "$file" ] && [ -w "$file" ]; then
+        echo "error: vscode can write $file" >&2
+        status=1
+    fi
+done
+exit "$status"
+CHECK

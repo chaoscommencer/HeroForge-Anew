@@ -1,0 +1,262 @@
+/* HeroForge Anew – Default Dark Theme
+   Accent colour: #8B0000 (Dark Red – befitting D&D)
+   Background:    #2b2b2b
+   Text:          #f0f0f0
+*/
+
+QWidget {
+    background-color: #2b2b2b;
+    color: #f0f0f0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 10pt;
+}
+
+/* ── Main Window ─────────────────────────────────────── */
+QMainWindow {
+    background-color: #1e1e1e;
+}
+
+QMenuBar {
+    background-color: #1e1e1e;
+    color: #f0f0f0;
+    border-bottom: 1px solid #444;
+}
+QMenuBar::item:selected {
+    background-color: #8B0000;
+}
+QMenu {
+    background-color: #2b2b2b;
+    color: #f0f0f0;
+    border: 1px solid #555;
+}
+QMenu::item:selected {
+    background-color: #8B0000;
+}
+
+/* ── Tab Widget ──────────────────────────────────────── */
+QTabWidget::pane {
+    border: 1px solid #555;
+    background-color: #2b2b2b;
+}
+QTabBar::tab {
+    background-color: #3a3a3a;
+    color: #c0c0c0;
+    padding: 4px 10px;
+    border: 1px solid #555;
+    border-bottom: none;
+    min-width: 80px;
+}
+QTabBar::tab:selected {
+    background-color: #8B0000;
+    color: #ffffff;
+    font-weight: bold;
+}
+QTabBar::tab:hover:!selected {
+    background-color: #5a1a1a;
+    color: #ffffff;
+}
+
+/* ── Buttons ─────────────────────────────────────────── */
+QPushButton {
+    background-color: #8B0000;
+    color: #ffffff;
+    border: 1px solid #a00000;
+    border-radius: 3px;
+    padding: 4px 12px;
+    min-height: 22px;
+}
+QPushButton:hover {
+    background-color: #a00000;
+}
+QPushButton:pressed {
+    background-color: #6a0000;
+}
+QPushButton:disabled {
+    background-color: #444;
+    color: #888;
+    border-color: #444;
+}
+
+/* ── Line Edits ──────────────────────────────────────── */
+QLineEdit {
+    background-color: #3c3c3c;
+    color: #f0f0f0;
+    border: 1px solid #555;
+    border-radius: 2px;
+    padding: 2px 4px;
+    selection-background-color: #8B0000;
+}
+QLineEdit:focus {
+    border-color: #8B0000;
+}
+
+/* ── Combo Box ───────────────────────────────────────── */
+QComboBox {
+    background-color: #3c3c3c;
+    color: #f0f0f0;
+    border: 1px solid #555;
+    border-radius: 2px;
+    padding: 2px 4px;
+    min-height: 22px;
+}
+QComboBox:focus {
+    border-color: #8B0000;
+}
+QComboBox::drop-down {
+    border-left: 1px solid #555;
+    width: 20px;
+}
+QComboBox QAbstractItemView {
+    background-color: #3c3c3c;
+    color: #f0f0f0;
+    selection-background-color: #8B0000;
+    border: 1px solid #555;
+}
+
+/* ── Spin Box ────────────────────────────────────────── */
+QSpinBox, QDoubleSpinBox {
+    background-color: #3c3c3c;
+    color: #f0f0f0;
+    border: 1px solid #555;
+    border-radius: 2px;
+    padding: 2px 4px;
+    min-height: 22px;
+}
+QSpinBox:focus, QDoubleSpinBox:focus {
+    border-color: #8B0000;
+}
+QSpinBox::up-button, QSpinBox::down-button,
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+    background-color: #555;
+    border: none;
+    width: 16px;
+}
+
+/* ── Table Widget ────────────────────────────────────── */
+QTableWidget {
+    background-color: #2b2b2b;
+    alternate-background-color: #333333;
+    gridline-color: #444;
+    color: #f0f0f0;
+    selection-background-color: #8B0000;
+    selection-color: #ffffff;
+}
+QTableWidget QHeaderView::section {
+    background-color: #3a3a3a;
+    color: #f0f0f0;
+    border: 1px solid #555;
+    padding: 3px;
+    font-weight: bold;
+}
+QHeaderView::section:checked {
+    background-color: #8B0000;
+}
+
+/* ── List Widget ─────────────────────────────────────── */
+QListWidget {
+    background-color: #2b2b2b;
+    color: #f0f0f0;
+    border: 1px solid #555;
+    alternate-background-color: #333;
+}
+QListWidget::item:selected {
+    background-color: #8B0000;
+    color: #ffffff;
+}
+QListWidget::item:hover {
+    background-color: #5a1a1a;
+}
+
+/* ── Labels ──────────────────────────────────────────── */
+QLabel {
+    color: #f0f0f0;
+}
+QLabel[objectName^="heading"] {
+    font-size: 12pt;
+    font-weight: bold;
+    color: #e08080;
+}
+
+/* ── Group Box ───────────────────────────────────────── */
+QGroupBox {
+    border: 1px solid #555;
+    border-radius: 4px;
+    margin-top: 8px;
+    padding-top: 4px;
+    color: #e08080;
+    font-weight: bold;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 8px;
+    padding: 0 4px;
+}
+
+/* ── Scroll Bars ─────────────────────────────────────── */
+QScrollBar:vertical {
+    background-color: #2b2b2b;
+    width: 12px;
+}
+QScrollBar::handle:vertical {
+    background-color: #555;
+    min-height: 20px;
+    border-radius: 3px;
+}
+QScrollBar::handle:vertical:hover {
+    background-color: #8B0000;
+}
+QScrollBar:horizontal {
+    background-color: #2b2b2b;
+    height: 12px;
+}
+QScrollBar::handle:horizontal {
+    background-color: #555;
+    min-width: 20px;
+    border-radius: 3px;
+}
+QScrollBar::handle:horizontal:hover {
+    background-color: #8B0000;
+}
+QScrollBar::add-line, QScrollBar::sub-line {
+    width: 0; height: 0;
+}
+
+/* ── Text Edit / Plain Text Edit ──────────────────────── */
+QTextEdit, QPlainTextEdit {
+    background-color: #3c3c3c;
+    color: #f0f0f0;
+    border: 1px solid #555;
+    selection-background-color: #8B0000;
+}
+
+/* ── Check Box ───────────────────────────────────────── */
+QCheckBox {
+    color: #f0f0f0;
+    spacing: 5px;
+}
+QCheckBox::indicator {
+    width: 14px;
+    height: 14px;
+    background-color: #3c3c3c;
+    border: 1px solid #666;
+    border-radius: 2px;
+}
+QCheckBox::indicator:checked {
+    background-color: #8B0000;
+    border-color: #8B0000;
+}
+
+/* ── Status Bar ──────────────────────────────────────── */
+QStatusBar {
+    background-color: #1e1e1e;
+    color: #a0a0a0;
+    border-top: 1px solid #444;
+}
+
+/* ── Tool Tip ────────────────────────────────────────── */
+QToolTip {
+    background-color: #444;
+    color: #f0f0f0;
+    border: 1px solid #666;
+    padding: 3px;
+}

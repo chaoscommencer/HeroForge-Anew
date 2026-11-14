@@ -1,0 +1,16 @@
+# Hash-pinned bootstrap pip. This single artifact bootstraps every other pip
+# install that follows it, so it is cryptographically verified first. Two
+# consumers share this pin:
+#   * Dockerfile.graphify's python-builder stage (the throwaway, network-isolated
+#     graphify builder image), and
+#   * the `audit` job in .github/workflows/ci.yml, which pins pip from here before
+#     installing pip-audit from requirements-pip-audit.txt.
+#
+# `pip install --require-hashes -r requirements-pip.txt` refuses to install unless
+# downloaded wheel's sha256 matches the value below — the published PyPI digest
+# of pip-26.2.2-py3-none-any.whl — consistent with the digest-pinned base image.
+#
+# To bump: change BOTH the version and the --hash to the new wheel's published
+# PyPI sha256 (pip will hard-fail if they disagree). Kept as its own file so
+# Dependabot / CI can track and update the pin automatically.
+pip==26.2.2 --hash=sha256:fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70

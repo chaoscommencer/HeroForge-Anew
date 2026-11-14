@@ -1,0 +1,99 @@
+# syntax=docker/dockerfile:1
+#
+# Display sidecar image for the HeroForge-Anew QA stack.
+#
+# This container hosts the ENTIRE viewable desktop stack — a virtual X server
+# (Xvfb), a lightweight window manager (fluxbox), a VNC server (x11vnc) and the
+# noVNC web client (served by websockify). The companion `app` container runs
+# only the Qt application and draws into this container's X server over a shared
+# /tmp/.X11-unix volume; it never hosts a remote-viewable desktop itself.
+#
+# Why a separate container: a noVNC session lands HERE, in an image that carries
+# no application source and no workspace bind mounts, instead of next to the
+# VS Code server / repo / credentials (which is what the devcontainer's
+# desktop-lite feature used to do). Human access is gated by a required VNC
+# password (see scripts/display-entrypoint.sh and .env.example).
+
+# Base image pinned by digest (not just the mutable :bookworm-slim tag) so the
+# build is reproducible and resistant to tag re-pointing / supply-chain
+# tampering. Bump the digest deliberately to pick up upstream security updates.
+FROM debian:bookworm-slim@sha256:96e378d7e6531ac9a15ad505478fcc2e69f371b10f5cdf87857c4b8188404716
+
+# --- Display stack packages --------------------------------------------------
+# xvfb       : headless X server that renders to an in-memory framebuffer
+# fluxbox    : minimal window manager so the Qt window has focus/decorations
+# x11vnc     : exports the Xvfb display over the VNC (RFB) protocol
+# novnc      : the browser-based VNC client (HTML/JS served as static files)
+# websockify : bridges noVNC's WebSocket traffic to x11vnc's TCP socket
+# x11-utils  : provides xdpyinfo, used to probe X-server readiness / healthcheck
+# xauth      : creates the X11 magic-cookie auth file (MIT-MAGIC-COOKIE-1) that
+#              replaces Xvfb's old -ac "allow any client" mode
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        xvfb \
+        fluxbox \
+        x11vnc \
+        novnc \
+        websockify \
+        x11-utils \
+        xauth \
+        openssl \
+        procps \
+        ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Neutralize fbsetbg at the source. The slim image ships no wallpaper setter
+# (Esetroot/feh/hsetroot/...), so the stock /usr/bin/fbsetbg pops a *blocking*
+# xmessage dialog ("I can't find an app to set the wallpaper with") at fluxbox
+# startup. fluxbox invokes fbsetbg by its absolute path, so a PATH-based shim
+# cannot win — the only reliable fix is to replace the binary itself. This
+# wrapper just paints a solid background via fbsetroot (bundled with fluxbox)
+# and never prints anything, so the desktop comes up clean and unattended.
+RUN printf '%s\n' \
+        '#!/bin/sh' \
+        '# Shim installed by Dockerfile.display: the slim image has no wallpaper' \
+        '# setter, so paint a solid background instead of popping fbsetbg'"'"'s' \
+        '# blocking "no wallpaper app" dialog. Ignore all arguments.' \
+        'exec fbsetroot -solid black' \
+        > /usr/bin/fbsetbg \
+    && chmod 0755 /usr/bin/fbsetbg
+
+# The Debian novnc package ships no index.html in its web root, so hitting the
+# bare http://localhost:6080/ yields a bare directory listing instead of the
+# client. Drop a tiny redirect stub so the root URL forwards straight to the
+# noVNC client with autoconnect, and visitors never see the listing.
+RUN printf '%s\n' \
+        '<!doctype html>' \
+        '<meta http-equiv="refresh" content="0; url=vnc.html?autoconnect=true">' \
+        > /usr/share/novnc/index.html \
+    && chmod 0644 /usr/share/novnc/index.html
+
+# --- Unprivileged user -------------------------------------------------------
+# UID/GID are build args so they can be aligned with the host/devcontainer and
+# the `app` container, keeping ownership of the shared X11 socket consistent.
+ARG APP_UID=1000
+ARG APP_GID=1000
+RUN groupadd --gid "${APP_GID}" app \
+    && useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --shell /bin/bash app
+
+# The shared X11 socket directory. Created 1777 (sticky, world-writable) in the
+# image so that when Compose initializes the empty `x11-socket` named volume from
+# this path it inherits those permissions — letting the non-root Xvfb here and
+# the non-root Qt process in the `app` container both use the socket.
+RUN mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
+
+COPY scripts/display-entrypoint.sh /usr/local/bin/display-entrypoint.sh
+RUN chmod +x /usr/local/bin/display-entrypoint.sh
+
+USER app
+
+# DISPLAY :99 is the in-container virtual X server; the geometry is overridable.
+# PYTHONUNBUFFERED surfaces websockify logs immediately for QA.
+ENV DISPLAY=:99 \
+    SCREEN_GEOMETRY=1920x1080 \
+    NOVNC_PORT=6080 \
+    VNC_PORT=5900 \
+    PYTHONUNBUFFERED=1
+
+CMD ["/usr/local/bin/display-entrypoint.sh"]
