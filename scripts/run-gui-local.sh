@@ -21,6 +21,13 @@
 # app itself, however, runs as your own user with your network access and your
 # workspace, rather than in a network-less, read-only container.
 #
+# Credentials: the desktop and the app start from an empty environment plus a
+# short allowlist (see safe_env below), so the Codespace's GITHUB_TOKEN, any
+# Codespaces secrets, the SSH agent and the VS Code IPC socket are not passed
+# to them. A malicious save file or a websockify bug then runs without the
+# token. They still run as your user, so files your user can read (including
+# ~/.gitconfig and the workspace) remain reachable.
+#
 # Usage:
 #   scripts/run-gui-local.sh [app arguments...]
 #
@@ -91,9 +98,25 @@ PASSWORD_FILE="${RUN_DIR}/vnc_password"
 VNC_PASSWORD_ONCE="$(gen_password)"
 write_secret_file "${PASSWORD_FILE}" "${VNC_PASSWORD_ONCE}"
 
+# --- Environment allowlist --------------------------------------------------
+# Both the desktop and the app start from `env -i` plus these variables only,
+# so tokens and sockets in the devcontainer environment (GITHUB_TOKEN,
+# GITHUB_CODESPACE_TOKEN, Codespaces secrets, SSH_AUTH_SOCK,
+# VSCODE_IPC_HOOK_CLI, ...) never reach them. VNC_PASSWORD is not on the list:
+# the entrypoint must take the password from the file only.
+safe_env=()
+while IFS= read -r -d '' entry; do
+    case "${entry%%=*}" in
+        PATH | HOME | USER | LOGNAME | SHELL | TERM | TZ | LANG | LANGUAGE | LC_* | \
+            XDG_RUNTIME_DIR | QT_* | LOG_LEVEL | HEROFORGE_* | SCREEN_GEOMETRY)
+            safe_env+=("${entry}")
+            ;;
+    esac
+done < <(env -0)
+
 # --- Start the desktop ------------------------------------------------------
-# env -u VNC_PASSWORD: the entrypoint must take the password from the file only.
-env -u VNC_PASSWORD \
+# Assignments after "${safe_env[@]}" override any allowlisted value.
+env -i "${safe_env[@]}" \
     HOME="${RUN_DIR}" \
     DISPLAY="${DISPLAY_NAME}" \
     XAUTHORITY="${RUN_DIR}/Xauthority" \
@@ -134,7 +157,8 @@ unset VNC_PASSWORD_ONCE
 # --- Run the app ------------------------------------------------------------
 # Foreground, not exec, so the EXIT trap tears the desktop down afterwards.
 status=0
-DISPLAY="${DISPLAY_NAME}" XAUTHORITY="${RUN_DIR}/Xauthority" \
+env -i "${safe_env[@]}" \
+    DISPLAY="${DISPLAY_NAME}" XAUTHORITY="${RUN_DIR}/Xauthority" \
     PYTHONPATH="${REPO_ROOT}/src${PYTHONPATH:+:${PYTHONPATH}}" \
     python -m heroforge "$@" || status=$?
 exit "${status}"

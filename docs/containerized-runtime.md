@@ -98,6 +98,10 @@ enter the password. Closing the app or pressing Ctrl-C stops the desktop.
   directory on a RAM-backed tmpfs and are deleted on exit. The password file is
   deleted as soon as the desktop is up, and the password is never on a command
   line.
+- The desktop and the app start from an empty environment plus a short
+  allowlist (locale, terminal, Qt, `HEROFORGE_*`, `LOG_LEVEL`), so the
+  Codespace's `GITHUB_TOKEN`, Codespaces secrets, the SSH agent and the VS Code
+  IPC socket are not passed to them.
 - Difference from the Compose stack: the **app runs as your own user**, with your
   network access and your workspace, not in a network-less, read-only
   container. Use the QA profile and section 2 when you need that isolation.
