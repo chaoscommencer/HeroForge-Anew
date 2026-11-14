@@ -52,7 +52,9 @@ updates:
       - "github-actions"
 
   # --- Dev Containers -------------------------------------------------------
-  # Updates the features pinned in .devcontainer/devcontainer.json.
+  # Updates the features pinned in the devcontainer profiles (today only
+  # Docker-in-Docker, in .devcontainer/qa/devcontainer.json) together with the
+  # digests locked in the devcontainer-lock.json next to each profile.
   - package-ecosystem: "devcontainers"
     directory: "/"
     schedule:
