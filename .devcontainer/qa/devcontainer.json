@@ -64,10 +64,13 @@
   "remoteUser": "vscode",
 
   // Keep Claude Code's conversations, memory and settings across rebuilds, as
-  // the default profile does (see the comment there and issue #141). The
-  // image's root-owned, read-only copy of the script, never the workspace's.
-  "postCreateCommand": "/usr/bin/bash /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/persist-claude-state.sh link",
-  "postStartCommand": "/usr/bin/bash /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/persist-claude-state.sh link",
+  // the default profile does (see the comment there and issue #141), from the
+  // image's root-owned, read-only copy of the script. Unlike in the default
+  // profile, that copy is NOT out of the user's reach here: `vscode` is in the
+  // `docker` group, which is root-equivalent, so it can change the script or
+  // anything else in the container. Don't rely on it as a boundary in this
+  // profile.
+  "postStartCommand": "/usr/bin/env -i HOME=/home/vscode /usr/bin/bash --noprofile --norc /usr/local/libexec/heroforge-anew/devcontainer-scripts/persist-claude-state/persist-claude-state.sh link",
   "waitFor": "postStartCommand",
 
   "customizations": {

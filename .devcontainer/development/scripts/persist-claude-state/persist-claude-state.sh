@@ -83,9 +83,13 @@
 # with a line of its own when the system Python does not start, both before
 # anything is made.
 set -euo pipefail
-# Programs from /usr/bin alone, by name below: the
-# PATH a start runs with may put ~/.local/bin, which the user can write,
-# ahead of the system directories.
+# Programs from /usr/bin alone, by name below: a PATH from the user's own
+# environment may put ~/.local/bin, which the user can write, ahead of the
+# system directories.  The devcontainer's postStartCommand also starts this
+# script with an empty environment (env -i) and no startup files, so neither
+# BASH_ENV nor an exported shell function, which PATH does not stop, reaches
+# it there.  Run by hand, it gets the caller's environment: that gives no
+# more than the caller's own rights, as the script runs with them anyway.
 export PATH=/usr/bin
 # The directory this script is in: in the image, the root-owned, read-only tree
 # that also holds the Python helpers it runs (read_persist.py, narrow.py).
@@ -100,8 +104,7 @@ HERE="$(dirname -- "${BASH_SOURCE[0]}")"
 # entry is the run's own, so no owner check below holds, and a link could
 # lead a narrowing to any file of the system.  From the kernel's effective
 # uid, never from bash's EUID, which the environment can set.  Nothing runs
-# this script as root: the create and start commands run it as the
-# container's user.
+# this script as root: the start command runs it as the container's user.
 started=0
 /usr/bin/python3 -I -S -B -c 'import os, sys; sys.exit(3 if os.geteuid() == 0 else 0)' 2> /dev/null || started=$?
 if [ "$started" -eq 3 ]; then

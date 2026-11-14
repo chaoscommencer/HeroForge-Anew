@@ -71,7 +71,7 @@ rather than doing everyday work in it.
 A rebuild replaces the container, and with it `~/.claude`. To keep Claude Code's
 work, both profiles run
 [`persist-claude-state.sh`](../.devcontainer/development/scripts/persist-claude-state/persist-claude-state.sh)
-when the container is created and at every start (issue #141):
+at every start, creation included, with an empty environment (issue #141):
 
 - **Kept:** `projects/` (conversation transcripts, which `/resume` and
   `--continue` restore, plus tool results and agent memory), `file-history/`
