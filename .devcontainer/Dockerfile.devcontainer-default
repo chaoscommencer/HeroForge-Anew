@@ -186,3 +186,39 @@ RUN for dir in /usr/local/py-utils /usr/local/share/nvm; do \
 # in the QA profile and wherever the image is started without that flag.
 RUN rm -f /etc/sudoers.d/vscode \
     && if getent group sudo | grep -qw vscode; then gpasswd -d vscode sudo; fi
+
+# --- Guard: vscode cannot change what runs from PATH ---------------------------
+# Fail the build if `vscode` could write (or create) any directory on PATH, in
+# both the image's PATH and a login shell's, or any system-wide login script.
+# This keeps a base-image bump from quietly bringing back a writable tool
+# directory like the ones fixed above. runuser applies vscode's real group
+# memberships, so group-writable entries are caught too. Entries under vscode's
+# own home (e.g. ~/.local/bin) are skipped: the home is writable by design.
+RUN runuser -u vscode -- sh -eu <<'CHECK'
+status=0
+# True when the current user could write the path, or create it because its
+# nearest existing ancestor is writable.
+can_write() {
+    target=$1
+    while [ ! -e "$target" ]; do target=$(dirname "$target"); done
+    [ -w "$target" ]
+}
+login_path=$(sh -lc 'printf %s "$PATH"')
+old_ifs=$IFS
+IFS=:
+for dir in $PATH $login_path; do
+    case "$dir" in "" | "$HOME" | "$HOME"/*) continue ;; esac
+    if can_write "$dir"; then
+        echo "error: vscode can write PATH entry $dir" >&2
+        status=1
+    fi
+done
+IFS=$old_ifs
+for file in /etc/profile /etc/bash.bashrc /etc/environment /etc/profile.d /etc/profile.d/*; do
+    if [ -e "$file" ] && [ -w "$file" ]; then
+        echo "error: vscode can write $file" >&2
+        status=1
+    fi
+done
+exit "$status"
+CHECK

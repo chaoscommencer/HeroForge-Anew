@@ -46,7 +46,9 @@ virtual environment at `/opt/venv`. Two hardening choices apply to both:
   pytest, black, ruff, git, a library, or any other program that later runs
   with your credentials. To change a Python dependency, update the lock file and
   rebuild. The project itself is not pip-installed; `PYTHONPATH` points at
-  `src/` instead, so run the app with `python -m heroforge`.
+  `src/` instead, so run the app with `python -m heroforge`. The image build
+  fails if `vscode` could write any directory on `PATH` or any system login
+  script, so a base-image update cannot quietly undo this.
 
   What this does **not** stop: your home directory (`~/.bashrc` and similar) and
   the workspace stay writable, as development needs. Code running as `vscode`
