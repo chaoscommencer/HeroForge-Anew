@@ -48,10 +48,15 @@ if [[ ! "${DISPLAY_NAME}" =~ ^:[0-9]{1,3}$ ]]; then
     echo "error: HEROFORGE_DISPLAY='${DISPLAY_NAME}' is invalid (expected e.g. :99)." >&2
     exit 1
 fi
-if [[ ! "${NOVNC_PORT}" =~ ^[0-9]{2,5}$ ]]; then
-    echo "error: NOVNC_PORT='${NOVNC_PORT}' is invalid." >&2
+# An unprivileged port: 1024-65535. 10# reads values like 08080 as decimal.
+if [[ ! "${NOVNC_PORT}" =~ ^[0-9]{1,5}$ ]] || ((10#${NOVNC_PORT} < 1024 || 10#${NOVNC_PORT} > 65535)); then
+    echo "error: NOVNC_PORT='${NOVNC_PORT}' is invalid (expected 1024-65535)." >&2
     exit 1
 fi
+NOVNC_PORT=$((10#${NOVNC_PORT}))
+# x11vnc's port, reachable only on 127.0.0.1 (x11vnc -localhost); websockify
+# bridges noVNC to it. Fixed, so the readiness check below can probe it.
+VNC_PORT=5900
 
 # --- Preflight --------------------------------------------------------------
 missing=()
@@ -69,10 +74,12 @@ if [[ -e "/tmp/.X11-unix/X${DISPLAY_NAME#:}" ]]; then
     echo "error: display ${DISPLAY_NAME} is already in use; set HEROFORGE_DISPLAY." >&2
     exit 1
 fi
-if port_open "${NOVNC_PORT}"; then
-    echo "error: port ${NOVNC_PORT} is already in use (is another GUI session running?)." >&2
-    exit 1
-fi
+for port in "${NOVNC_PORT}" "${VNC_PORT}"; do
+    if port_open "${port}"; then
+        echo "error: port ${port} is already in use (is another GUI session running?)." >&2
+        exit 1
+    fi
+done
 
 # --- Per-run private directory ----------------------------------------------
 # Everything secret for this run lives here: the password file, the X cookie,
@@ -123,17 +130,20 @@ env -i "${safe_env[@]}" \
     VNC_PASSWORD_FILE="${PASSWORD_FILE}" \
     NOVNC_HOST=127.0.0.1 \
     NOVNC_PORT="${NOVNC_PORT}" \
+    VNC_PORT="${VNC_PORT}" \
     "${REPO_ROOT}/scripts/display-entrypoint.sh" >"${RUN_DIR}/display.log" 2>&1 &
 DISPLAY_PID=$!
 
-# Wait until noVNC answers (the entrypoint reads the password file before it
-# starts anything, so by then the file is no longer needed).
+# Wait until both x11vnc and noVNC answer. websockify alone is not enough: if
+# x11vnc failed, the browser would show a password prompt that can never
+# succeed. (The entrypoint reads the password file before it starts anything,
+# so by then the file is no longer needed.)
 ready=0
 for _ in $(seq 1 100); do
     if ! kill -0 "${DISPLAY_PID}" 2>/dev/null; then
         break
     fi
-    if port_open "${NOVNC_PORT}"; then
+    if port_open "${VNC_PORT}" && port_open "${NOVNC_PORT}"; then
         ready=1
         break
     fi
