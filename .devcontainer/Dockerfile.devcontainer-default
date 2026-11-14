@@ -146,19 +146,32 @@ RUN PIP_ROOT_USER_ACTION=ignore python -m venv "${VENV_PATH}" \
 # /opt/venv in login shells, non-login shells and VS Code alike. The snippet is
 # written via a heredoc so the file reads exactly as generated; ${VENV_PATH} is
 # expanded now (build time) while \${PATH} stays literal (evaluated at login).
+#
+# It must MOVE the entry, not just add it when missing: the image's ENV PATH
+# already contains the venv, so after 00-restore-env.sh prepends the system
+# Python the venv is still present, only further down, and a "prepend unless
+# present" test would leave `python` pointing at /usr/local/bin/python.
 RUN cat > /etc/profile.d/99-venv-path.sh <<EOF && chmod 0644 /etc/profile.d/99-venv-path.sh
 # Prefer the baked HeroForge dev virtualenv (see Dockerfile.devcontainer-default).
 # The base image's 00-restore-env.sh puts the system Python first in login
-# shells; move the venv back to the front. The colon-wrapped \`case\` is an
-# idempotent membership test: it matches when ":\${PATH}:" already contains the
-# entry ":${VENV_PATH}/bin:" as a whole element (the wildcards on either side let
-# it sit anywhere in PATH), so re-sourcing never stacks duplicate entries. The
-# -d test makes the prepend a no-op if the venv is ever missing.
+# shells, while the venv may still sit further down PATH. Remove every copy of
+# the venv entry, then put one copy first, so the result is the same however
+# often this file is sourced. POSIX sh only: profile.d is also read by dash.
+# The -d test makes this a no-op if the venv is ever missing.
 if [ -d "${VENV_PATH}/bin" ]; then
-    case ":\${PATH}:" in
-        *":${VENV_PATH}/bin:"*) ;;
-        *) export PATH="${VENV_PATH}/bin:\${PATH}" ;;
-    esac
+    _hf_path=":\${PATH}:"
+    while :; do
+        case "\${_hf_path}" in
+            *":${VENV_PATH}/bin:"*)
+                _hf_path="\${_hf_path%%:${VENV_PATH}/bin:*}:\${_hf_path#*:${VENV_PATH}/bin:}"
+                ;;
+            *) break ;;
+        esac
+    done
+    _hf_path="\${_hf_path#:}"
+    _hf_path="\${_hf_path%:}"
+    export PATH="${VENV_PATH}/bin\${_hf_path:+:\${_hf_path}}"
+    unset _hf_path
 fi
 EOF
 
