@@ -117,12 +117,16 @@ scripts/run-gui.sh --build    # force a rebuild
 scripts/run-gui.sh down       # tear the stack down
 ```
 
-Every launch generates a fresh random password and prints it once in the
-terminal:
+Every launch generates a fresh random password and prints it once, straight to
+the terminal (not to stdout, so piping or logging the script's output does not
+capture it):
 
 ```text
   VNC password for this session: 4toN5hXw
 ```
+
+Once connected, clear the terminal (Ctrl+K in VS Code, or `clear`): VS Code can
+save terminal scrollback and restore it after a restart.
 
 Open the forwarded **port 6080** from VS Code's *Ports* panel (or
 `https://localhost:6080/vnc.html`) and enter that password. The HeroForge-Anew

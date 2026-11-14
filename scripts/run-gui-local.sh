@@ -156,12 +156,8 @@ if [[ "${ready}" != 1 ]]; then
     exit 1
 fi
 
-echo
-echo "  VNC password for this session: ${VNC_PASSWORD_ONCE}"
-echo "  Open the forwarded port ${NOVNC_PORT} from the Ports panel (or"
-echo "  https://localhost:${NOVNC_PORT}/vnc.html) and enter it. It is shown only"
-echo "  here and changes on every launch. Close the app or press Ctrl-C to stop."
-echo
+show_vnc_password "${VNC_PASSWORD_ONCE}" "${NOVNC_PORT}"
+echo "  Close the app or press Ctrl-C to stop."
 unset VNC_PASSWORD_ONCE
 
 # --- Run the app ------------------------------------------------------------

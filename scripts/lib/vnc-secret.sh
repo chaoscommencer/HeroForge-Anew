@@ -50,6 +50,28 @@ write_secret_file() {
     chmod 600 "${path}"
 }
 
+# show_vnc_password PASSWORD PORT: print the one-time password and how to use
+# it. It goes to the controlling terminal (/dev/tty), not stdout, so it is not
+# captured when the script's output is piped or redirected to a log; with no
+# terminal (a non-interactive run) it falls back to stdout. Terminal scrollback
+# can still be saved (VS Code restores it across restarts), hence the advice to
+# clear it once connected.
+show_vnc_password() {
+    local password="$1" port="$2" out=/dev/stdout
+    if { : >/dev/tty; } 2>/dev/null; then
+        out=/dev/tty
+    fi
+    {
+        echo
+        echo "  VNC password for this session: ${password}"
+        echo "  Open the forwarded port ${port} from the Ports panel (or"
+        echo "  https://localhost:${port}/vnc.html) and enter it. It is shown only"
+        echo "  here and changes on every launch. Once connected, clear the terminal"
+        echo "  (Ctrl+K in VS Code, or 'clear') so it does not stay in the scrollback."
+        echo
+    } >"${out}"
+}
+
 # port_open PORT: true when something accepts TCP connections on
 # 127.0.0.1:PORT. Uses bash's /dev/tcp, so it needs no extra tools.
 port_open() {

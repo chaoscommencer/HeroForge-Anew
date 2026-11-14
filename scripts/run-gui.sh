@@ -231,12 +231,7 @@ create_vnc_secret
 start_vnc_secret_cleanup
 
 echo "Using: ${COMPOSE[*]}  (UID=$APP_UID, GID=$APP_GID)"
-echo
-echo "  VNC password for this session: ${VNC_PASSWORD_ONCE}"
-echo "  Open the forwarded port 6080 from the Ports panel (or"
-echo "  https://localhost:6080/vnc.html) and enter it. It is shown only here and"
-echo "  changes on every launch."
-echo
+show_vnc_password "${VNC_PASSWORD_ONCE}" 6080
 unset VNC_PASSWORD_ONCE
 # --force-recreate: every launch has a new secret file path, and the watcher
 # deletes the old one. Compose's change detection does not look at a secret's
