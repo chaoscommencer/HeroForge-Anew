@@ -3,6 +3,10 @@
 # One-time VNC password helpers shared by scripts/run-gui.sh (Compose stack) and
 # scripts/run-gui-local.sh (plain processes in the devcontainer). Source it; it
 # defines functions only and has no side effects.
+#
+# scripts/display-entrypoint.sh does not use this file: Dockerfile.display
+# copies that script into the display image on its own, so it keeps its own
+# copies of the few lines it needs.
 
 # The noVNC desktop is gated by a VNC password. x11vnc's classic VNC auth only
 # honours the first 8 characters, so a longer secret buys nothing here; generate
@@ -31,4 +35,23 @@ secret_parent_dir() {
         echo "warning: no tmpfs found for the VNC secret; using ${TMPDIR:-/tmp}." >&2
         printf '%s' "${TMPDIR:-/tmp}"
     fi
+}
+
+# write_secret_file PATH VALUE: write VALUE to a new file at PATH that only its
+# owner can read (0600). printf is a shell builtin, so VALUE never appears in
+# any process's argument list. The explicit chmod backs up the umask: a default
+# ACL on the parent directory would otherwise widen the file's permissions.
+write_secret_file() {
+    local path="$1" value="$2"
+    (
+        umask 077
+        printf '%s' "${value}" >"${path}"
+    )
+    chmod 600 "${path}"
+}
+
+# port_open PORT: true when something accepts TCP connections on
+# 127.0.0.1:PORT. Uses bash's /dev/tcp, so it needs no extra tools.
+port_open() {
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
 }

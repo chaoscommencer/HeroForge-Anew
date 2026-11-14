@@ -34,15 +34,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # --- One-time VNC password ---------------------------------------------------
-# gen_password and secret_parent_dir are shared with scripts/run-gui-local.sh.
+# gen_password, secret_parent_dir, write_secret_file and port_open are shared
+# with scripts/run-gui-local.sh.
 # shellcheck source=scripts/lib/vnc-secret.sh
 source scripts/lib/vnc-secret.sh
 
 # Write a fresh password to a 0600 file inside a new 0700 directory and export
 # its path as HEROFORGE_VNC_SECRET_FILE, which docker-compose.yml uses as the
 # source of the `vnc_password` secret (mounted at /run/secrets/vnc_password in
-# the display sidecar). The password is written with the printf builtin, so it
-# never appears in any process's argument list.
+# the display sidecar). write_secret_file keeps the password out of every
+# process's argument list.
 #
 # Under rootless Podman the file is re-owned (still 0600) to the subordinate UID
 # that backs the container's non-root `app` user, so `app` can read it WITHOUT
@@ -55,13 +56,7 @@ create_vnc_secret() {
     chmod 700 "$VNC_SECRET_DIR"
     export HEROFORGE_VNC_SECRET_FILE="${VNC_SECRET_DIR}/vnc_password"
     VNC_PASSWORD_ONCE="$(gen_password)"
-    (
-        umask 077
-        printf '%s' "$VNC_PASSWORD_ONCE" >"$HEROFORGE_VNC_SECRET_FILE"
-    )
-    # Explicit chmod as well as the umask: a default ACL on the parent directory
-    # would otherwise widen the file's permissions.
-    chmod 600 "$HEROFORGE_VNC_SECRET_FILE"
+    write_secret_file "$HEROFORGE_VNC_SECRET_FILE" "$VNC_PASSWORD_ONCE"
     if [[ "${COMPOSE[0]}" == podman* ]]; then
         podman unshare chown "$APP_UID:$APP_GID" "$HEROFORGE_VNC_SECRET_FILE"
     fi
@@ -84,7 +79,7 @@ start_vnc_secret_cleanup() {
         trap 'rm -rf "$dir"' EXIT
         deadline=$((SECONDS + 1800))
         while ((SECONDS < deadline)) && kill -0 "$owner_pid" 2>/dev/null; do
-            if (exec 3<>/dev/tcp/127.0.0.1/6080) 2>/dev/null; then
+            if port_open 6080; then
                 sleep 2
                 break
             fi

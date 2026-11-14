@@ -62,7 +62,7 @@ if [[ -e "/tmp/.X11-unix/X${DISPLAY_NAME#:}" ]]; then
     echo "error: display ${DISPLAY_NAME} is already in use; set HEROFORGE_DISPLAY." >&2
     exit 1
 fi
-if (exec 3<>"/dev/tcp/127.0.0.1/${NOVNC_PORT}") 2>/dev/null; then
+if port_open "${NOVNC_PORT}"; then
     echo "error: port ${NOVNC_PORT} is already in use (is another GUI session running?)." >&2
     exit 1
 fi
@@ -89,11 +89,7 @@ trap 'exit 130' INT TERM
 
 PASSWORD_FILE="${RUN_DIR}/vnc_password"
 VNC_PASSWORD_ONCE="$(gen_password)"
-(
-    umask 077
-    printf '%s' "${VNC_PASSWORD_ONCE}" >"${PASSWORD_FILE}"
-)
-chmod 600 "${PASSWORD_FILE}"
+write_secret_file "${PASSWORD_FILE}" "${VNC_PASSWORD_ONCE}"
 
 # --- Start the desktop ------------------------------------------------------
 # env -u VNC_PASSWORD: the entrypoint must take the password from the file only.
@@ -114,7 +110,7 @@ for _ in $(seq 1 100); do
     if ! kill -0 "${DISPLAY_PID}" 2>/dev/null; then
         break
     fi
-    if (exec 3<>"/dev/tcp/127.0.0.1/${NOVNC_PORT}") 2>/dev/null; then
+    if port_open "${NOVNC_PORT}"; then
         ready=1
         break
     fi
