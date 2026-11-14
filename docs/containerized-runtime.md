@@ -40,11 +40,20 @@ virtual environment at `/opt/venv`. Two hardening choices apply to both:
 - **No sudo.** The base image's passwordless sudo rule for `vscode` is removed
   at build time, so nothing running as the editor user can become root.
   Installing system packages means changing the Dockerfile and rebuilding.
-- **Read-only toolchain.** `/opt/venv` is owned by root, so a compromised tool or
-  dependency cannot replace pytest, black, ruff or a library. To change a Python
-  dependency, update the lock file and rebuild. The project itself is not
-  pip-installed; `PYTHONPATH` points at `src/` instead, so run the app with
-  `python -m heroforge`.
+- **Read-only toolchain.** `/opt/venv` is owned by root, and so are the base
+  image's tool directories on `PATH` (`/usr/local/py-utils`,
+  `/usr/local/share/nvm`), so a compromised tool or dependency cannot replace
+  pytest, black, ruff, git, a library, or any other program that later runs
+  with your credentials. To change a Python dependency, update the lock file and
+  rebuild. The project itself is not pip-installed; `PYTHONPATH` points at
+  `src/` instead, so run the app with `python -m heroforge`.
+
+  What this does **not** stop: your home directory (`~/.bashrc` and similar) and
+  the workspace stay writable, as development needs. Code running as `vscode`
+  can still leave a persistent foothold there, for example a
+  `src/sitecustomize.py`, which every Python process would import because `src/`
+  is on `PYTHONPATH`. Review untracked files (`git status`) after running
+  untrusted code or agents.
 
 Why the default profile cannot run containers: Docker-in-Docker needs a
 privileged container, which can take over the Codespace VM, and rootless Podman

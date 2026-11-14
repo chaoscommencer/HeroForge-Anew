@@ -162,6 +162,21 @@ if [ -d "${VENV_PATH}/bin" ]; then
 fi
 EOF
 
+# --- Base-image tool directories ----------------------------------------------
+# The base image installs its pipx tools under /usr/local/py-utils and nvm under
+# /usr/local/share/nvm, both group-writable (2775) by the `pipx` and `nvm`
+# groups, which `vscode` belongs to. /usr/local/py-utils/bin sits on PATH ahead
+# of /usr/local/bin and /usr/bin, so `vscode` could otherwise plant a `git`,
+# `ssh` or `openssl` there that every later call (VS Code's git integration
+# included) would run with the Codespace's credentials. Make both trees owned
+# by root and writable by nobody else, and take `vscode` out of those groups.
+RUN for dir in /usr/local/py-utils /usr/local/share/nvm; do \
+        if [ -e "$dir" ]; then chown -R root:root "$dir" && chmod -R go-w "$dir"; fi; \
+    done \
+    && for group in pipx nvm; do \
+        if id -nG vscode | tr ' ' '\n' | grep -qx "$group"; then gpasswd -d vscode "$group"; fi; \
+    done
+
 # --- No sudo -------------------------------------------------------------------
 # The devcontainers base image gives `vscode` passwordless sudo. Remove it, so
 # nothing running as the editor user (an extension, a dependency, an AI agent)
