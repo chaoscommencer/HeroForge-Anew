@@ -21,11 +21,31 @@
   },
 
   // no-new-privileges: no setuid program (su, sudo, newuidmap, ...) can raise
-  // privileges. NET_RAW and MKNOD are not needed for development.
+  // privileges, so `vscode` keeps an empty capability set.
+  //
+  // Capabilities: drop them all, then add back only what root needs for the
+  // setup Codespaces / VS Code run inside the container as root (creating and
+  // re-owning files under /home/vscode, starting processes as vscode, stopping
+  // them). Everything else in Docker's default set (NET_RAW, MKNOD, SETFCAP,
+  // SETPCAP, NET_BIND_SERVICE, SYS_CHROOT, AUDIT_WRITE) stays dropped. If a
+  // future Codespaces change needs one of them, the container fails to start
+  // and the error names the missing permission.
+  //
+  // Limits: a process cap stops a runaway agent or fork bomb, and the memory
+  // ceiling keeps one from exhausting the Codespace VM (6 GiB fits the smallest
+  // 8 GB machine and is far more than editing and the test suite need).
   "runArgs": [
     "--security-opt=no-new-privileges",
-    "--cap-drop=NET_RAW",
-    "--cap-drop=MKNOD"
+    "--cap-drop=ALL",
+    "--cap-add=CHOWN",
+    "--cap-add=DAC_OVERRIDE",
+    "--cap-add=FOWNER",
+    "--cap-add=FSETID",
+    "--cap-add=KILL",
+    "--cap-add=SETGID",
+    "--cap-add=SETUID",
+    "--pids-limit=4096",
+    "--memory=6g"
   ],
 
   // The venv is read-only, so the project is not pip-installed in editable mode;

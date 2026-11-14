@@ -26,7 +26,7 @@ universal image and none of this applies.
 | | Default — `.devcontainer/devcontainer.json` | QA — `.devcontainer/qa/devcontainer.json` |
 | --- | --- | --- |
 | Use for | Everyday development, and **all unattended agents** | Running the containerized Compose QA stack |
-| Privileged | No; also `no-new-privileges`, `NET_RAW`/`MKNOD` dropped | Yes (Docker-in-Docker requires it) |
+| Privileged | No; also `no-new-privileges`, all capabilities dropped except the few root needs for Codespaces setup, 4096-process and 6 GiB memory limits | Yes (Docker-in-Docker requires it) |
 | Containers | None | Docker CE, feature and engine pinned to exact versions |
 | GUI | `scripts/run-gui-local.sh` (plain processes) | `scripts/run-gui.sh` (Compose stack) |
 | sudo | None | None |
