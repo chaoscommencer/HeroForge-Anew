@@ -532,3 +532,43 @@ def test_an_old_name_that_is_a_link_is_not_moved(
     assert result.returncode == 0, result.stderr
     assert layout.legacy.is_symlink()
     assert layout.persist.is_dir() and not layout.persist.is_symlink()
+
+
+def test_a_link_planted_on_the_disk_across_a_rebuild_is_left_out(
+    layout: Layout, tmp_path: Path
+) -> None:
+    seed_state(layout.claude)
+    assert layout.run("link").returncode == 0
+    bashrc = tmp_path / "bashrc"
+    bashrc.write_text("export X=1\n")
+    bashrc.chmod(0o644)
+    (layout.persist / "projects" / "repo" / "planted").symlink_to(bashrc)
+    shutil.rmtree(layout.home)
+    layout.claude.mkdir(parents=True)
+
+    result = layout.run("link")
+
+    assert result.returncode == 1
+    assert "projects is or holds a link" in result.stderr
+    assert not (layout.claude / "projects").exists()
+    assert (layout.claude / "file-history").is_symlink()
+    # Nothing was changed through the link.
+    assert bashrc.read_text() == "export X=1\n"
+    assert mode(bashrc) == 0o644
+
+
+def test_a_start_stopped_mid_move_is_swept_in(layout: Layout) -> None:
+    seed_state(layout.claude)
+    # What a start leaves when it stops between moving ~/.claude/projects aside
+    # and sweeping it in: the moved directory, and the link already made.
+    layout.persist.mkdir(parents=True)
+    (layout.claude / "projects").rename(layout.claude / "projects.migrating")
+    (layout.claude / "projects").symlink_to(layout.persist / "projects")
+
+    result = layout.run("link")
+
+    assert result.returncode == 0, result.stderr
+    assert not (layout.claude / "projects.migrating").exists()
+    assert (layout.claude / "projects" / "repo" / "session.jsonl").read_text() == (
+        '{"turn": 1}\n'
+    )
