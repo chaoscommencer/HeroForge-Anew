@@ -3,16 +3,17 @@ name: Update devcontainer base image
 # Proposes a bump of the devcontainers/python base image pinned (tag + digest) in
 # .devcontainer/Dockerfile.devcontainer-default.
 #
-# Supply-chain policy: only images published at least MIN_AGE_DAYS (14) days ago
-# are proposed, so a compromised or broken release is usually caught and pulled
-# before it reaches us. When a newer image fixes a serious vulnerability, run the
-# workflow by hand with `allow_recent: true` and a reason; the age gate is then
-# skipped and the reason is recorded in the pull request body.
-#
-# MCR tags read <image version>-<Python minor>-<OS>, e.g. 3.3.3-3.12-bookworm.
-# Updates stay on the current image major version and Python minor version
-# (for example 3.x.y-3.12-bookworm), and pin the full image version; moving to a
-# new major or Python minor is a deliberate change made by hand together with CI.
+# The choice is made by .github/scripts/pick-devcontainer-image.sh (tested in
+# tests/test_pick_devcontainer_image.py) from MCR's tag catalog:
+#   * stay on the current image major and Python minor, e.g. 3.x.y-3.12-bookworm;
+#     moving to a new major or Python version is a deliberate change made by hand;
+#   * never propose a downgrade, only a version newer than the current pin;
+#   * supply-chain age rule: only propose images MCR has listed for at least
+#     MIN_AGE_DAYS (14) days, by MCR's own listing date (not the image's
+#     self-reported creation time, which its publisher can backdate). When a
+#     newer image fixes a serious vulnerability, run the workflow by hand with
+#     `allow_recent: true` and a reason; the reason is recorded in the PR.
+# The picked tag's digest is then checked against the registry itself.
 #
 # Note: scheduled runs only happen for workflows on the default branch, and a
 # pull request opened with GITHUB_TOKEN does not trigger other workflows, so
@@ -41,6 +42,7 @@ permissions:
 env:
   DOCKERFILE: .devcontainer/Dockerfile.devcontainer-default
   REPO_URL: https://mcr.microsoft.com/v2/devcontainers/python
+  CATALOG_URL: https://mcr.microsoft.com/api/v1/catalog/devcontainers/python/tags?reg=mar
   MIN_AGE_DAYS: '14'
 
 jobs:
@@ -65,77 +67,39 @@ jobs:
           ALLOW_RECENT: ${{ inputs.allow_recent || false }}
         run: |
           set -euo pipefail
+          catalog="$(mktemp)"
 
-          CURRENT_FROM=$(grep -m1 '^FROM mcr.microsoft.com/devcontainers/python:' "$DOCKERFILE" || true)
-          if [ -z "$CURRENT_FROM" ]; then
-            echo "ERROR: no devcontainers/python FROM line in ${DOCKERFILE}" >&2
-            exit 1
-          fi
-          # Current image major and Python minor, e.g. "3" and "3.12" from
-          # "3-3.12-bookworm" or "3.3.3-3.12-bookworm".
-          read -r MAJOR MINOR < <(echo "$CURRENT_FROM" \
-            | sed -nE 's|^FROM [^:]+:([0-9]+)(\.[0-9]+)*-(3\.[0-9]+)-bookworm@.*|\1 \3|p')
-          if ! echo "${MAJOR:-} ${MINOR:-}" | grep -qE '^[0-9]+ 3\.[0-9]+$'; then
-            echo "ERROR: could not read the image/Python versions from: ${CURRENT_FROM}" >&2
+          # MCR's tag catalog: every tag with its digest and the date MCR listed
+          # it. Treated as untrusted input: size-capped here, validated by the
+          # picker, and the picked digest is re-checked against the registry.
+          if ! curl -sSf --max-time 60 --max-filesize 20000000 -o "$catalog" "$CATALOG_URL"; then
+            echo "ERROR: could not download the MCR tag catalog from ${CATALOG_URL}" >&2
             exit 1
           fi
 
-          TAGS=$(curl -sf "${REPO_URL}/tags/list" | jq -r '.tags[]')
-          if [ -z "$TAGS" ]; then
-            echo "ERROR: failed to fetch the devcontainers/python tag list from MCR" >&2
-            exit 1
-          fi
-          MINOR_RE=$(echo "$MINOR" | sed 's/\./\\./')
-          # Newest first, limited so a bad tag list cannot make the job crawl.
-          CANDIDATES=$(echo "$TAGS" | grep -E "^${MAJOR}\.[0-9]+\.[0-9]+-${MINOR_RE}-bookworm\$" | sort -rV | head -n 10 || true)
-          if [ -z "$CANDIDATES" ]; then
-            echo "ERROR: no ${MAJOR}.x.y-${MINOR}-bookworm tags found" >&2
-            exit 1
-          fi
-
-          INDEX_ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
-          MANIFEST_ACCEPT='application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json'
-          CUTOFF=$(date -u -d "-${MIN_AGE_DAYS} days" +%s)
-
-          TAG='' DIGEST='' CREATED=''
-          for CANDIDATE in $CANDIDATES; do
-            DIGEST_C=$(curl -sfI -H "Accept: ${INDEX_ACCEPT}" "${REPO_URL}/manifests/${CANDIDATE}" \
-              | grep -i '^docker-content-digest:' | awk '{print $2}' | tr -d '\r\n')
-            if ! echo "$DIGEST_C" | grep -qE '^sha256:[a-f0-9]{64}$'; then
-              echo "skip ${CANDIDATE}: unexpected digest '${DIGEST_C}'"
-              continue
-            fi
-            # Image creation time from the linux/amd64 image config (standard OCI API).
-            AMD64=$(curl -sf -H "Accept: ${INDEX_ACCEPT}" "${REPO_URL}/manifests/${DIGEST_C}" \
-              | jq -r '[.manifests[] | select(.platform.os=="linux" and .platform.architecture=="amd64")][0].digest')
-            CONFIG=$(curl -sf -H "Accept: ${MANIFEST_ACCEPT}" "${REPO_URL}/manifests/${AMD64}" | jq -r '.config.digest')
-            CREATED_C=$(curl -sfL "${REPO_URL}/blobs/${CONFIG}" | jq -r '.created')
-            CREATED_S=$(date -u -d "$CREATED_C" +%s 2>/dev/null || echo '')
-            if [ -z "$CREATED_S" ]; then
-              echo "skip ${CANDIDATE}: could not read its creation date"
-              continue
-            fi
-            if [ "$ALLOW_RECENT" != "true" ] && [ "$CREATED_S" -gt "$CUTOFF" ]; then
-              echo "skip ${CANDIDATE}: created ${CREATED_C}, younger than ${MIN_AGE_DAYS} days"
-              continue
-            fi
-            TAG=$CANDIDATE DIGEST=$DIGEST_C CREATED=$CREATED_C
-            break
-          done
-          if [ -z "$TAG" ]; then
-            echo "No eligible image yet; nothing to do."
+          .github/scripts/pick-devcontainer-image.sh "$DOCKERFILE" "$catalog" > picked.txt
+          cat picked.txt
+          has_updates=$(sed -n 's/^has_updates=//p' picked.txt)
+          if [ "$has_updates" != "true" ]; then
             echo "has_updates=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "Picked ${TAG} (${DIGEST}), created ${CREATED}"
+          TAG=$(sed -n 's/^tag=//p' picked.txt)
+          DIGEST=$(sed -n 's/^digest=//p' picked.txt)
+          CREATED=$(sed -n 's/^created=//p' picked.txt)
 
-          INCOMING_FROM="FROM mcr.microsoft.com/devcontainers/python:${TAG}@${DIGEST}"
-          if [ "$CURRENT_FROM" = "$INCOMING_FROM" ] || echo "$CURRENT_FROM" | grep -qF "@${DIGEST}"; then
-            echo "has_updates=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_updates=true" >> "$GITHUB_OUTPUT"
+          # The registry, not the catalog API, decides what Docker pulls: make
+          # sure both agree on the picked tag's digest.
+          INDEX_ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json'
+          REGISTRY_DIGEST=$(curl -sSfI --max-time 60 -H "Accept: ${INDEX_ACCEPT}" "${REPO_URL}/manifests/${TAG}" \
+            | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest:[[:space:]]*//p' | tr -d '\r\n')
+          if [ "$REGISTRY_DIGEST" != "$DIGEST" ]; then
+            echo "ERROR: the registry serves ${TAG} as '${REGISTRY_DIGEST}', but the catalog lists ${DIGEST}" >&2
+            exit 1
           fi
+
           {
+            echo "has_updates=true"
             echo "tag=${TAG}"
             echo "digest=${DIGEST}"
             echo "created=${CREATED}"
@@ -218,7 +182,7 @@ jobs:
           Automated base image update for the devcontainer:
 
           - **devcontainers/python**: \`${TAG}\` (\`${DIGEST}\`)
-          - Image created: ${CREATED}
+          - Listed by MCR: ${CREATED}
           - ${GATE}
 
           Triggered by: ${TRIGGER_DESC}.
