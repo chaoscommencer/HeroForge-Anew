@@ -2,7 +2,7 @@
 # Persist the durable, NON-credential parts of Claude Code state across container
 # rebuilds. The container home is an ephemeral overlay ("Rebuild Container" wipes
 # it); /workspaces is the Codespace's persistent disk, alive as long as the
-# Codespace itself. /workspaces/.claude sits OUTSIDE every repo working tree, so
+# Codespace itself. /workspaces/.claude-state sits OUTSIDE every repo working tree, so
 # nothing in it can ever be committed or pushed.
 #
 # Adopted from the claude-state piece of the initialize-repository skill
@@ -124,6 +124,35 @@ if [ "$read_persist" -ne 0 ]; then
   exit 1
 fi
 CLAUDE_HOME="$HOME/.claude"
+
+# The persistent directory's old name, /workspaces/.claude, from
+# legacy-persist-directory beside this script, read as persist-directory is.
+# Claude Code reads a directory's .claude as that directory's project config,
+# so the old name made the persisted user settings double as project settings
+# for a session started in /workspaces.  Moved once, as a whole, to the new
+# name when that does not exist yet: a rename on the same disk, so nothing is
+# copied, and the links in ~/.claude, which still lead to the old name, are
+# made anew below.  Only a directory of this user's own, never a link, is
+# moved.  Once both exist, the old one is named at each run until removed.
+if [ -e "$HERE/legacy-persist-directory" ] || [ -L "$HERE/legacy-persist-directory" ]; then
+  read_legacy=0
+  LEGACY="$(/usr/bin/python3 -I -S -B "$HERE/read_persist.py" "$HERE/legacy-persist-directory")" || read_legacy=$?
+  if [ "$read_legacy" -ne 0 ]; then
+    echo "persist-claude-state: its legacy-persist-directory file holds no one absolute, normalized path, so nothing was persisted." >&2
+    exit 1
+  fi
+  if [ "$LEGACY" != "$PERSIST" ] && [ -d "$LEGACY" ] && [ ! -L "$LEGACY" ] && [ -O "$LEGACY" ]; then
+    if [ ! -e "$PERSIST" ] && [ ! -L "$PERSIST" ]; then
+      if ! mv -T -- "$LEGACY" "$PERSIST"; then
+        echo "persist-claude-state: cannot move $LEGACY to its new name, $PERSIST, so nothing was persisted; move it by hand, then restart the Codespace." >&2
+        exit 1
+      fi
+      echo "persist-claude-state: moved $LEGACY to its new name, $PERSIST." >&2
+    else
+      echo "persist-claude-state: $LEGACY, the old name of $PERSIST, is no longer used; check that it holds nothing you need, then remove it." >&2
+    fi
+  fi
+fi
 
 DIRS=(projects file-history)
 FILES=(settings.json settings.local.json)

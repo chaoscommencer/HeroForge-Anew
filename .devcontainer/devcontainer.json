@@ -73,8 +73,9 @@
 
   // Keep Claude Code's conversations, agent memory, /rewind checkpoints and
   // user settings across rebuilds (issue #141). persist-claude-state.sh moves
-  // that allowlist onto the Codespace's persistent disk (/workspaces/.claude,
-  // outside every working tree) and links it back into ~/.claude. Credentials
+  // that allowlist onto the Codespace's persistent disk
+  // (/workspaces/.claude-state, outside every working tree) and links it back
+  // into ~/.claude. Credentials
   // stay in the container, so a rebuild still asks you to sign in again. It is
   // the image's root-owned, read-only copy, never the workspace's, so a branch
   // checkout cannot change what runs; a change to it takes a rebuild. It runs

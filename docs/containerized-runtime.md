@@ -76,7 +76,7 @@ when the container is created and at every start (issue #141):
 - **Kept:** `projects/` (conversation transcripts, which `/resume` and
   `--continue` restore, plus tool results and agent memory), `file-history/`
   (`/rewind` checkpoints), `settings.json` and `settings.local.json`. They live
-  on the Codespace's persistent disk at `/workspaces/.claude`, outside every
+  on the Codespace's persistent disk at `/workspaces/.claude-state`, outside every
   repository's working tree so nothing there can be committed, and are linked
   into `~/.claude`. Owner-only modes (0700 directories, 0600 files).
 - **Settings are cleaned at every start.** A key in `settings.json` or
@@ -88,7 +88,7 @@ when the container is created and at every start (issue #141):
   proxies, `ANTHROPIC_BASE_URL` and API keys) is removed, and the start prints
   what it removed. Otherwise anything running as `vscode` could plant one that
   outlives "Rebuild Container". The original file is kept, owner-only, in
-  `/workspaces/.claude/quarantine/` (neither linked nor exported; delete it once
+  `/workspaces/.claude-state/quarantine/` (neither linked nor exported; delete it once
   checked, as it may hold a key). Put hooks and the like in the project's
   `.claude/settings.json`, which git reviews. The full list is in
   [`clean_settings.py`](../.devcontainer/development/scripts/persist-claude-state/clean_settings.py).
@@ -120,6 +120,13 @@ when the container is created and at every start (issue #141):
   private, and delete it once it is restored. Claude Code itself deletes
   transcripts older than `cleanupPeriodDays` (30 days by default), on the
   persistent disk too.
+
+**Old name:** earlier versions used `/workspaces/.claude`. Claude Code reads a
+directory's `.claude` folder as that directory's project config, so a session
+started in `/workspaces` would have taken the persisted user settings as
+project settings too. The first start with the new name moves the old
+directory over, as a whole, when `/workspaces/.claude-state` does not exist
+yet. If both exist, each start names the old one until you remove it.
 
 **First rebuild after adopting this:** a Codespace created before this change
 keeps its history only in the container. Run the repository's copy once
