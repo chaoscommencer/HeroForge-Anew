@@ -16,11 +16,12 @@
 #                        and agent memory — what /resume and --continue restore from
 #   file-history/        checkpoints backing /rewind (persist across sessions)
 #   settings.json        user-level settings (model, effort, includeCoAuthoredBy, ...)
-#   settings.local.json  user-level local overrides. CAUTION: the docs designate
-#                        this file for credential-helper config (apiKeyHelper,
-#                        awsCredentialExport, env-block keys) — if you ever add
-#                        such config, reconsider persisting it (see the note
-#                        at the credential backstop below).
+#   settings.local.json  user-level local overrides
+# Both settings files are cleaned at every run: keys that run a command
+# (hooks, statusLine, credential helpers such as apiKeyHelper), widen
+# permissions or switch on MCP servers, and risky env entries (PATH,
+# NODE_OPTIONS, LD_*, API endpoints and keys, ...) are removed and reported,
+# the original kept under quarantine/, so none of them outlives a rebuild.
 #
 # Deliberately excluded — credentials and account identity are wiped WITH the
 # container, so a rebuild forces re-authentication instead of parking tokens on
@@ -158,10 +159,8 @@ narrow_no_follow directory "$PERSIST"
 # Backstop: no credential-shaped file survives on the persistent disk, no matter
 # what put it there.
 rm -f "$PERSIST/.credentials.json" "$PERSIST/.claude.json"
-# settings.local.json is persisted on purpose. The docs designate it for
-# credential-helper config (apiKeyHelper, awsCredentialExport, env-block keys);
-# none is used here, but if such config is ever added, stop persisting it by
-# taking it out of FILES below and removing it here (see issue #141).
+# Credential-helper config (apiKeyHelper, awsCredentialExport, API keys in
+# env) in either settings file is removed by clean_settings below.
 rm -rf "$PERSIST/backups"
 
 # The allowlisted names this run left out, each for a link refuse_links found
@@ -255,6 +254,21 @@ tighten() {
   narrow_no_follow "${entries[@]}"
 }
 
+# clean_settings NAME: the persisted settings file NAME without the keys that
+# would run a command, widen permissions or redirect commands and traffic
+# across rebuilds (the list and reasons are in clean_settings.py, beside this
+# script).  Each one found is removed and named, and the original is kept,
+# owner-only, under $PERSIST/quarantine, which is neither linked nor
+# exported.  1, and NAME joins SKIPPED, when such a key could not be removed:
+# the caller then leaves NAME out, as for a link refuse_links found.
+clean_settings() {
+  if /usr/bin/python3 -I -S -B "$HERE/clean_settings.py" "$PERSIST/quarantine" "$PERSIST/$1"; then
+    return 0
+  fi
+  SKIPPED+=("$1")
+  return 1
+}
+
 # Each copy below is followed by refuse_links again, before anything links
 # to, removes or narrows what it copied: cp -a
 # copies a link as a link, so one swapped in at the source after the check
@@ -281,6 +295,7 @@ snapshot() {
         || stopped "$?" "copy $CLAUDE_HOME/$f into $PERSIST/$f" "free space on the disk, or remove whatever is at $PERSIST/$f"
       refuse_links "$f" || continue
     fi
+    clean_settings "$f" || continue
   done
   tighten
 }
@@ -355,6 +370,10 @@ link() {
         continue
       fi
       rm -f "$CLAUDE_HOME/$f"
+    fi
+    if ! clean_settings "$f"; then
+      if [ -L "$CLAUDE_HOME/$f" ]; then rm -f "$CLAUDE_HOME/$f"; fi
+      continue
     fi
     # A dangling link is fine before first write — writing through it creates
     # the target on the persistent disk.  A directory at the name stops the

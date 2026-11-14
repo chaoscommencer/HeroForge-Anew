@@ -79,6 +79,19 @@ when the container is created and at every start (issue #141):
   on the Codespace's persistent disk at `/workspaces/.claude`, outside every
   repository's working tree so nothing there can be committed, and are linked
   into `~/.claude`. Owner-only modes (0700 directories, 0600 files).
+- **Settings are cleaned at every start.** A key in `settings.json` or
+  `settings.local.json` that runs a command (`hooks`, `statusLine`,
+  `fileSuggestion`, credential helpers such as `apiKeyHelper`), widens
+  permissions (`permissions.allow`, `permissions.additionalDirectories`, a
+  `bypassPermissions` default mode, MCP auto-enable) or redirects commands and
+  traffic (`env` entries such as `PATH`, `NODE_OPTIONS`, `LD_*`, `GIT_*`,
+  proxies, `ANTHROPIC_BASE_URL` and API keys) is removed, and the start prints
+  what it removed. Otherwise anything running as `vscode` could plant one that
+  outlives "Rebuild Container". The original file is kept, owner-only, in
+  `/workspaces/.claude/quarantine/` (neither linked nor exported; delete it once
+  checked, as it may hold a key). Put hooks and the like in the project's
+  `.claude/settings.json`, which git reviews. The full list is in
+  [`clean_settings.py`](../.devcontainer/development/scripts/persist-claude-state/clean_settings.py).
 - **Not kept:** credentials and account identity (`.credentials.json`,
   `~/.claude.json`, `backups/`, `ide/`, sessions). A rebuild still asks you to
   sign in again, and no token is parked on the long-lived disk.
