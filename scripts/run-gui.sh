@@ -51,8 +51,13 @@ source scripts/lib/vnc-secret.sh
 # rootless user namespace, where chowning to APP_UID sets the host owner to that
 # subuid. Docker maps the container user 1:1 to the host dev user, so it needs no
 # remap.
+#
+# The EXIT trap is set straight after mktemp, so the directory is removed if any
+# later step fails (the podman chown included). `exec` does not run the trap;
+# the background watcher (start_vnc_secret_cleanup) takes over from there.
 create_vnc_secret() {
     VNC_SECRET_DIR="$(mktemp -d "$(secret_parent_dir)/heroforge-vnc.XXXXXXXX")"
+    trap 'rm -rf "$VNC_SECRET_DIR"' EXIT
     chmod 700 "$VNC_SECRET_DIR"
     export HEROFORGE_VNC_SECRET_FILE="${VNC_SECRET_DIR}/vnc_password"
     VNC_PASSWORD_ONCE="$(gen_password)"
@@ -188,11 +193,9 @@ if [[ "${1:-}" =~ ^(down|logs|ps|stop|build|config)$ ]]; then
 fi
 
 # Create this launch's one-time password, schedule its file for deletion, and
-# show it once. The EXIT trap removes the file if anything fails before `exec`
-# (exec does not run the trap; the background watcher takes over from there).
+# show it once.
 clean_legacy_vnc_secret
 create_vnc_secret
-trap 'rm -rf "$VNC_SECRET_DIR"' EXIT
 start_vnc_secret_cleanup
 
 echo "Using: ${COMPOSE[*]}  (UID=$APP_UID, GID=$APP_GID)"
