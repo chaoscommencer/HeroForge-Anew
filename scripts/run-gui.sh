@@ -238,4 +238,11 @@ echo "  https://localhost:6080/vnc.html) and enter it. It is shown only here and
 echo "  changes on every launch."
 echo
 unset VNC_PASSWORD_ONCE
-exec "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up --build "$@"
+# --force-recreate: every launch has a new secret file path, and the watcher
+# deletes the old one. Compose's change detection does not look at a secret's
+# host path, so without this it could restart a container left over from an
+# earlier launch (stopped by Ctrl-C, or still running) with that deleted file:
+# a "bind source path does not exist" failure, or a desktop that rejects the
+# password printed above. Recreating also gives the watcher the new container
+# it waits for. The app keeps its data on the heroforge-data volume.
+exec "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" up --build --force-recreate "$@"
