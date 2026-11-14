@@ -143,12 +143,23 @@ How the password is kept short-lived:
 - Compose mounts the file into the display sidecar as a **secret** at
   `/run/secrets/vnc_password`, not as an environment variable, so it does not
   appear in `docker inspect` or `/proc/<pid>/environ`.
-- A background watcher **deletes the host file** as soon as the display port
-  answers (the container keeps its mounted copy), or when Compose exits, or
-  after 30 minutes at most.
-- Inside the sidecar the password goes to x11vnc through
-  `-passwdfile rm:<file>`, which reads and then deletes the file, so it never
-  appears on a command line and afterwards lives only in x11vnc's memory.
+- A background watcher **deletes the host file** as soon as a display container
+  created by this launch is running (the container keeps its mounted copy), or
+  when Compose exits, or after 30 minutes at most. The script refuses to start
+  while something else holds port 6080, and recreates the containers on every
+  launch so each one mounts that launch's secret.
+- Inside the sidecar the entrypoint passes the password to x11vnc through a
+  private copy and `-passwdfile rm:<file>`, so it never appears on a command
+  line, and x11vnc deletes that copy as soon as it has read it.
+
+What remains, and is **accepted**: the secret mount itself stays readable at
+`/run/secrets/vnc_password` for the life of the display container, to every
+process in that container (they all run as the same user) and to anyone who can
+use the container engine (`docker cp`). Its file on the host tmpfs is unlinked
+but stays allocated until the container is removed. The display container runs
+only the desktop stack, engine access already means full control of every
+container, and the password changes on every launch, so this is not engineered
+around.
 
 Restarting the stack gives a new password. Older versions stored the password
 in `.env` and `secrets/vnc_password`; the script deletes the old

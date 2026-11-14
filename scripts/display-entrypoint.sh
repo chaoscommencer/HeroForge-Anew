@@ -156,9 +156,11 @@ fluxbox >/dev/null 2>&1 &
 # command line (where `x11vnc -storepasswd <pw>` or `-passwd <pw>` would expose
 # it to anyone who can list processes). The printf builtin writes the file
 # without spawning a process; x11vnc reads the first line and, because of the
-# `rm:` prefix, deletes the file straight away, so afterwards the password lives
-# only in x11vnc's memory. The file sits on the private /home/app tmpfs (owner-
-# only, mode 0700) and is created 0600.
+# `rm:` prefix, deletes this copy straight away. The file sits on the private
+# /home/app tmpfs (owner-only, mode 0700) and is created 0600. In the Compose
+# stack the original secret stays mounted read-only at /run/secrets/vnc_password
+# for the container's lifetime; docs/containerized-runtime.md explains why that
+# is accepted.
 vnc_pass_file="${HOME}/.vnc/passwd-once"
 mkdir -p "$(dirname "${vnc_pass_file}")"
 (
