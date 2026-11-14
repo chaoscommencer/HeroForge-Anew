@@ -1,7 +1,9 @@
 name: Update devcontainer base image
 
 # Proposes a bump of the devcontainers/python base image pinned (tag + digest) in
-# .devcontainer/Dockerfile.devcontainer-default.
+# .devcontainer/Dockerfile.devcontainer-default. This workflow is the only thing
+# that updates that pin (.github/dependabot.yml deliberately leaves
+# /.devcontainer out), so the rules below are applied in one place.
 #
 # The choice is made by .github/scripts/pick-devcontainer-image.sh (tested in
 # tests/test_pick_devcontainer_image.py) from MCR's tag catalog:
