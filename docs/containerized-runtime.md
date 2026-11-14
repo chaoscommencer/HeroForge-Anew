@@ -123,6 +123,15 @@ enter the password. Closing the app or pressing Ctrl-C stops the desktop.
 
 - noVNC listens on `127.0.0.1` only and serves TLS only, so it is reachable just
   through the private Codespaces / VS Code port forward.
+- **Blank page or "HTTP Error 502":** the port forward is using plain HTTP, which
+  websockify refuses (its log says `non-SSL connection received but
+  disallowed`). In the *Ports* panel, right-click port 6080, choose
+  **Change Port Protocol → HTTPS**, and reload. `devcontainer.json` requests
+  HTTPS for 6080, but Codespaces keeps a port's earlier setting if it was first
+  forwarded as HTTP. The same applies to the Compose stack in section 2.
+- **The terminal goes quiet after printing the password:** that is expected. The
+  app runs in the foreground and logs nothing during normal use; the desktop is
+  ready to open.
 - The password, X cookie, TLS key and desktop config live in a private `0700`
   directory on a RAM-backed tmpfs and are deleted on exit. The password file is
   deleted as soon as the desktop is up, and the password is never on a command
