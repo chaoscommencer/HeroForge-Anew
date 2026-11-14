@@ -23,6 +23,12 @@ HeroForge Anew is a D&D 3.5 character builder. Originally implemented in Excel/V
 
 ### Installation
 
+These steps are for a local checkout outside the devcontainer. In a Codespace or
+Dev Container, skip them: the dependencies are already installed in `/opt/venv`
+(read-only), the project is not pip-installed, and `PYTHONPATH` points at `src/`,
+so run the app with `python -m heroforge`. See
+[docs/containerized-runtime.md](docs/containerized-runtime.md).
+
 ```bash
 # Clone the repository
 git clone https://github.com/chaoscommencer/HeroForge-Anew.git

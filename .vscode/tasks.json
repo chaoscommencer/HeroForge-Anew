@@ -15,7 +15,7 @@
         "panel": "dedicated",
         "clear": true
       },
-      "detail": "Build and launch both QA containers: the Qt 'app' and the 'display' (Xvfb + noVNC) sidecar. The GUI draws to the shared X11 socket and is viewable at the forwarded noVNC port 6080 (gated by VNC_PASSWORD)."
+      "detail": "Build and launch both QA containers: the Qt 'app' and the 'display' (Xvfb + noVNC) sidecar. The GUI draws to the shared X11 socket and is viewable at the forwarded noVNC port 6080, gated by the one-time VNC password scripts/run-gui.sh prints in this terminal."
     },
     {
       "label": "QA Stack: Down (stop + remove both)",
@@ -39,7 +39,7 @@
         "panel": "shared",
         "close": true
       },
-      "detail": "Open the noVNC client in the host's default browser (via the dev container's $BROWSER helper) with autoconnect enabled. The noVNC service uses a self-signed certificate, so you'll be prompted to accept a security warning in your browser. Bring the QA stack up first; you'll still be prompted for VNC_PASSWORD."
+      "detail": "Open the noVNC client in the host's default browser (via the dev container's $BROWSER helper) with autoconnect enabled. The noVNC service uses a self-signed certificate, so you'll be prompted to accept a security warning in your browser. Bring the GUI up first (scripts/run-gui.sh or scripts/run-gui-local.sh); you'll still be prompted for the one-time VNC password it printed."
     },
     {
       "label": "QA Stack: Preview noVNC in VS Code Simple Browser (autoconnect)",
@@ -51,7 +51,7 @@
         "panel": "shared",
         "close": true
       },
-      "detail": "Open the noVNC client in VS Code's built-in Simple Browser preview pane with autoconnect enabled. The forwarded URL is hardcoded in the openNovncPreview input below because a command-type input's args do NOT expand ${env:...}/${input:...} variables. Bring the QA stack up first; you'll still be prompted for VNC_PASSWORD."
+      "detail": "Open the noVNC client in VS Code's built-in Simple Browser preview pane with autoconnect enabled. The forwarded URL is hardcoded in the openNovncPreview input below because a command-type input's args do NOT expand ${env:...}/${input:...} variables. Bring the GUI up first (scripts/run-gui.sh or scripts/run-gui-local.sh); you'll still be prompted for the one-time VNC password it printed."
     },
     {
       "label": "Generate knowledge graph",
