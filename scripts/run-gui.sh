@@ -67,27 +67,43 @@ create_vnc_secret() {
     fi
 }
 
+# display_containers [running]: print the IDs of this project's display
+# containers (only running ones with the `running` argument), using the
+# com.docker.compose.* labels that both Docker Compose and podman-compose set.
+display_containers() {
+    local filters=(
+        --filter "label=com.docker.compose.project=heroforge-anew"
+        --filter "label=com.docker.compose.service=display"
+    )
+    if [[ "${1:-}" == running ]]; then
+        filters+=(--filter status=running)
+    fi
+    "$ENGINE" ps -aq --no-trunc "${filters[@]}" 2>/dev/null || true
+}
+
 # Delete the secret directory in the background once it is no longer needed.
 # Compose bind-mounts the file into the display container when the container
 # starts; the mount keeps the file readable inside the container after the host
 # path is unlinked, so the host copy can go as soon as the container is up. The
 # watcher removes it when the first of these happens:
-#   * the display's published port (127.0.0.1:6080) accepts a TCP connection,
-#     meaning the container is running and the secret is mounted;
+#   * a display container that did not exist when this launch began is running,
+#     so it was created from this launch's secret and has it mounted (a
+#     listener on port 6080 proves nothing: it may be another process, or a
+#     container from an earlier launch);
 #   * the compose process (this script's PID, after `exec`) exits; or
 #   * 30 minutes pass (a stuck or very slow first build).
-# The probe is a bare TCP connect, so websockify may log one harmless
-# "UNEXPECTED_EOF" TLS line for it.
 start_vnc_secret_cleanup() {
-    local owner_pid=$$ dir="$VNC_SECRET_DIR"
+    local owner_pid=$$ dir="$VNC_SECRET_DIR" existing
+    existing=" $(display_containers | tr '\n' ' ') "
     (
         trap 'rm -rf "$dir"' EXIT
         deadline=$((SECONDS + 1800))
         while ((SECONDS < deadline)) && kill -0 "$owner_pid" 2>/dev/null; do
-            if port_open 6080; then
-                sleep 2
-                break
-            fi
+            for id in $(display_containers running); do
+                if [[ "$existing" != *" ${id} "* ]]; then
+                    exit 0
+                fi
+            done
             sleep 1
         done
     ) </dev/null >/dev/null 2>&1 &
@@ -128,6 +144,12 @@ else
     echo "       (.devcontainer/qa/devcontainer.json). In the default profile use" >&2
     echo "       scripts/run-gui-local.sh instead." >&2
     exit 1
+fi
+# The container engine CLI behind the compose front-end, for `ps` queries.
+if [[ "${COMPOSE[0]}" == podman* ]]; then
+    ENGINE=podman
+else
+    ENGINE=docker
 fi
 
 # Assemble the list of Compose files. docker-compose.yml is the hardened base
@@ -190,6 +212,16 @@ if [[ "${1:-}" =~ ^(down|logs|ps|stop|build|config)$ ]]; then
     fi
     echo "Using: ${COMPOSE[*]} ${COMPOSE_FILES[*]} $*"
     exec "${COMPOSE[@]}" "${COMPOSE_FILES[@]}" "$@"
+fi
+
+# The display publishes noVNC on 127.0.0.1:6080. If something already listens
+# there (scripts/run-gui-local.sh, a stack from an earlier launch, or any other
+# process), the new display cannot bind it, and the password printed below
+# would not belong to whatever answers. Stop here instead.
+if port_open 6080; then
+    echo "error: port 6080 is already in use. Stop the other GUI first:" >&2
+    echo "       scripts/run-gui.sh down, or close scripts/run-gui-local.sh." >&2
+    exit 1
 fi
 
 # Create this launch's one-time password, schedule its file for deletion, and
